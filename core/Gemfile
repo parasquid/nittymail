@@ -1,0 +1,10 @@
+source "https://rubygems.org"
+
+gem "mail"
+gem 'net-smtp', require: false
+gem 'net-imap', require: false
+gem 'net-pop', require: false
+gem "sequel"
+gem "debug"
+gem "sqlite3"
+gem "dotenv"
