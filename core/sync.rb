@@ -20,6 +20,7 @@ require 'dotenv/load'
 require "debug"
 require "mail"
 require "sequel"
+require "json"
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -105,7 +106,12 @@ unless DB.table_exists?(:email)
     String :subject
 
     Boolean :has_attachments, index: true, default: false
+
+    String :x_gm_labels
     String :x_gm_msgid
+    String :x_gm_thrid
+    String :flags
+
     String :encoded
 
     unique [:mailbox, :uid, :uidvalidity]
@@ -133,14 +139,20 @@ mailboxes.each do |mailbox|
     imap.select(mbox_name)
     uidvalidity =  imap.responses["UIDVALIDITY"]&.first || 1
     max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid) || 1
+    puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
   end
 
   Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
 
     # patch in Gmail specific extesnions
     patch(imap)
+    x_gm_labels = imap.uid_fetch(uid, ['X-GM-LABELS']).first.attr["X-GM-LABELS"].to_s
     x_gm_msgid = imap.uid_fetch(uid, ['X-GM-MSGID']).first.attr["X-GM-MSGID"].to_s
+    x_gm_thrid = imap.uid_fetch(uid, ['X-GM-THRID']).first.attr["X-GM-THRID"].to_s
 
+    flags = imap.uid_fetch(uid, ['FLAGS']).first.attr["FLAGS"].to_json
+
+    puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{mail.date} from #{mail.from.to_json} and subject: #{mail.subject} #{flags}"
     begin
       email.insert(
         address: imap_address,
@@ -150,15 +162,20 @@ mailboxes.each do |mailbox|
 
         message_id: mail.message_id.force_encoding("UTF-8"),
         date: mail.date,
-        from: mail.from.join(", ").force_encoding("UTF-8"),
+        from: mail.from.to_json.force_encoding("UTF-8"),
         subject: mail.subject.force_encoding("UTF-8"),
         has_attachments: mail.has_attachments?,
 
+        x_gm_labels: x_gm_labels.force_encoding("UTF-8"),
         x_gm_msgid: x_gm_msgid.force_encoding("UTF-8"),
+        x_gm_thrid: x_gm_thrid.force_encoding("UTF-8"),
+        flags: flags.force_encoding("UTF-8"),
+
         encoded: mail.encoded.force_encoding("UTF-8")
       )
     rescue Sequel::UniqueConstraintViolation
       puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
     end
   end
+  puts
 end
