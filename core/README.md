@@ -13,8 +13,8 @@ Configuration is done through the `.env` file; there is a sample `.env.sample` t
 A docker-compose.yml has been provided for convenience. With `docker ` and `docker-compose` installed:
 
 ``` bash
-DOCKER_UID="$(id -u)" GID="$(id -g)" docker-compose run --rm ruby bundle
-DOCKER_UID="$(id -u)" GID="$(id -g)" docker-compose run --rm ruby ./sync.rb
+DOCKER_UID="$(id -u)" GID="$(id -g)" docker compose run --rm ruby bundle
+DOCKER_UID="$(id -u)" GID="$(id -g)" docker compose run --rm ruby ./sync.rb
 ```
 
 ## Contributing
