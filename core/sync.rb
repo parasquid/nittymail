@@ -133,12 +133,12 @@ mailboxes.each do |mailbox|
 
   # get the max uid for a mailbox, paying attention to the uidvalidity
   # we have to "throw away" the cached records if the uidvalidity changes
-  uidvalidity = 1
-  max_uid = 1
+  uidvalidity = max_uid = 1
   Mail.connection do |imap|
     imap.select(mbox_name)
     uidvalidity =  imap.responses["UIDVALIDITY"]&.first || 1
-    max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid) || 1
+    max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count|| 1
+    max_uid = 1 if max_uid == 0 # minimum for imap key search is 1
     puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
   end
 
