@@ -163,7 +163,7 @@ mailboxes.each do |mailbox|
         message_id: mail.message_id.force_encoding("UTF-8"),
         date: mail.date,
         from: mail.from.to_json.force_encoding("UTF-8"),
-        subject: mail.subject.force_encoding("UTF-8"),
+        subject: mail.subject&.force_encoding("UTF-8"), # subject can be nil
         has_attachments: mail.has_attachments?,
 
         x_gm_labels: x_gm_labels.force_encoding("UTF-8"),
