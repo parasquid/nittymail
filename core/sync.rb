@@ -152,7 +152,14 @@ mailboxes.each do |mailbox|
 
     flags = imap.uid_fetch(uid, ['FLAGS']).first.attr["FLAGS"].to_json
 
-    puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{mail.date} from #{mail.from.to_json} and subject: #{mail.subject} #{flags}"
+    begin
+      puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{mail.date} from #{mail.from.to_json} and subject: #{mail.subject} #{flags}"
+    rescue Mail::Field::NilParseError => e
+      puts e.inspect
+      puts mail.to_s
+      mail.date = nil
+    end
+
     begin
       email.insert(
         address: imap_address,
@@ -175,6 +182,10 @@ mailboxes.each do |mailbox|
       )
     rescue Sequel::UniqueConstraintViolation
       puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
+    rescue => e
+      puts e.inspect
+      puts mail.to_s
+      raise
     end
   end
   puts
