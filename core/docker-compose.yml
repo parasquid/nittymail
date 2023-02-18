@@ -3,7 +3,6 @@ services:
   ruby:
     platform: linux/amd64
     image: ruby:3.1.2
-    user: "${DOCKER_UID}:${GID}"
     volumes:
       - ./:/app
       - ./.bundle:/usr/local/bundle
