@@ -178,13 +178,15 @@ mailboxes.each do |mailbox|
         x_gm_thrid: x_gm_thrid.force_encoding("UTF-8"),
         flags: flags.force_encoding("UTF-8"),
 
-        encoded: mail.encoded.force_encoding("UTF-8")
+        encoded: mail.encoded
+          .force_encoding("UTF-8")
+          .encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '') # fix `invalid byte sequence in UTF-8`
       )
     rescue Sequel::UniqueConstraintViolation
       puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
     rescue => e
+      puts mail.inspect
       puts e.inspect
-      puts mail.to_s
       raise
     end
   end
