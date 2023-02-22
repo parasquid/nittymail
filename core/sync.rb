@@ -167,7 +167,7 @@ mailboxes.each do |mailbox|
         uid: uid,
         uidvalidity: uidvalidity,
 
-        message_id: mail.message_id.force_encoding("UTF-8"),
+        message_id: mail.message_id&.force_encoding("UTF-8"),
         date: mail.date,
         from: mail.from.to_json.force_encoding("UTF-8"),
         subject: mail.subject&.force_encoding("UTF-8"), # subject can be nil
