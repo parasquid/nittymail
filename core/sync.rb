@@ -118,8 +118,6 @@ module NittyMail
       new.perform_sync(imap_address, imap_password, database_path, threads_count)
     end
 
-    private
-
     def perform_sync(imap_address, imap_password, database_path, threads_count)
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
@@ -217,7 +215,7 @@ module NittyMail
           # Multi-threaded: queue UIDs and process with worker IMAP connections
           uids = Mail.connection do |imap|
             imap.select(mbox_name)
-            imap.uid_search(["UID", "#{max_uid}:*"])
+            imap.uid_search("UID #{max_uid}:*")
           end
           puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
 
@@ -231,7 +229,11 @@ module NittyMail
               rec = write_queue.pop
               break if rec == :__DONE__
 
-              email.insert(rec)
+              begin
+                email.insert(rec)
+              rescue Sequel::UniqueConstraintViolation
+                puts "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."
+              end
             end
           end
 
