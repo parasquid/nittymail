@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 # Copyright 2023 parasquid
 
@@ -15,8 +16,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-require 'bundler/setup'
-require 'dotenv/load'
+require "bundler/setup"
+require "dotenv/load"
 require "debug"
 require "mail"
 require "sequel"
@@ -24,13 +25,12 @@ require "json"
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
-  class << gmail_imap.instance_variable_get("@parser")
-
+  class << gmail_imap.instance_variable_get(:@parser)
     # copied from https://github.com/ruby/net-imap/blob/master/lib/net/imap/response_parser.rb#L193
     def msg_att(n)
       match(T_LPAR)
       attr = {}
-      while true
+      loop do
         token = lookahead
         case token.symbol
         when T_RPAR
@@ -72,9 +72,8 @@ def patch(gmail_imap)
         end
         attr[name] = val
       end
-      return attr
+      attr
     end
-
   end
   gmail_imap
 end
@@ -83,11 +82,11 @@ end
 imap_address = ENV["ADDRESS"]
 imap_password = ENV["PASSWORD"]
 Mail.defaults do
-  retriever_method :imap, :address    => "imap.gmail.com",
-                          :port       => 993,
-                          :user_name  => imap_address,
-                          :password   => imap_password,
-                          :enable_ssl => true
+  retriever_method :imap, address: "imap.gmail.com",
+    port: 993,
+    user_name: imap_address,
+    password: imap_password,
+    enable_ssl: true
 end
 
 DB = Sequel.sqlite(ENV["DATABASE"])
@@ -114,17 +113,16 @@ unless DB.table_exists?(:email)
 
     String :encoded
 
-    unique [:mailbox, :uid, :uidvalidity]
-    index [:mailbox, :uidvalidity]
+    unique %i[mailbox uid uidvalidity]
+    index %i[mailbox uidvalidity]
   end
 end
 
 email = DB[:email]
 
 # get all mailboxes
-mailboxes = Mail.connection { |imap| imap.list '', '*' }
+mailboxes = Mail.connection { |imap| imap.list "", "*" }
 mailboxes.each do |mailbox|
-
   # mailboxes with attr :Noselect cannpt be selected so we skip those
   next if mailbox.attr.include?(:Noselect)
 
@@ -136,27 +134,26 @@ mailboxes.each do |mailbox|
   uidvalidity = max_uid = 1
   Mail.connection do |imap|
     imap.select(mbox_name)
-    uidvalidity =  imap.responses["UIDVALIDITY"]&.first || 1
-    max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count|| 1
-    max_uid = 1 if max_uid == 0 # minimum for imap key search is 1
+    uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
+    max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count || 1
+    max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
     puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
   end
 
   Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
-
     # patch in Gmail specific extesnions
     patch(imap)
-    x_gm_labels = imap.uid_fetch(uid, ['X-GM-LABELS']).first.attr["X-GM-LABELS"].to_s
-    x_gm_msgid = imap.uid_fetch(uid, ['X-GM-MSGID']).first.attr["X-GM-MSGID"].to_s
-    x_gm_thrid = imap.uid_fetch(uid, ['X-GM-THRID']).first.attr["X-GM-THRID"].to_s
+    x_gm_labels = imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"].to_s
+    x_gm_msgid = imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"].to_s
+    x_gm_thrid = imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"].to_s
 
-    flags = imap.uid_fetch(uid, ['FLAGS']).first.attr["FLAGS"].to_json
+    flags = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
 
     begin
       puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{mail.date} from #{mail.from.to_json} and subject: #{mail.subject} #{flags}"
     rescue Mail::Field::NilParseError => e
       puts e.inspect
-      puts mail.to_s
+      puts mail
       mail.date = nil
     end
 
@@ -180,7 +177,7 @@ mailboxes.each do |mailbox|
 
         encoded: mail.encoded
           .force_encoding("UTF-8")
-          .encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '') # fix `invalid byte sequence in UTF-8`
+          .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "") # fix `invalid byte sequence in UTF-8`
       )
     rescue Sequel::UniqueConstraintViolation
       puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."

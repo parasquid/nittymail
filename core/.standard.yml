@@ -1,0 +1,7 @@
+ruby_version: 3.1
+ignore:
+  - "vendor/**/*"
+  - ".bundle/**/*"
+  - "data/**/*"
+  - "config/**/*"
+

@@ -1,10 +1,16 @@
+# frozen_string_literal: true
+
 source "https://rubygems.org"
 
-gem "mail"
-gem 'net-smtp', require: false
-gem 'net-imap', require: false
-gem 'net-pop', require: false
-gem "sequel"
 gem "debug"
-gem "sqlite3"
 gem "dotenv"
+gem "mail"
+gem "net-imap", require: false
+gem "net-pop", require: false
+gem "net-smtp", require: false
+gem "sequel"
+gem "sqlite3"
+
+# Linting
+gem "rubocop", require: false
+gem "standard", require: false
