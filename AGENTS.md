@@ -12,7 +12,7 @@
 ## Build, Test, and Development Commands
 - Policy: Use Docker only. Do not use host Ruby/Bundler.
 - Install deps: `docker compose run --rm ruby bundle`
-- Run sync: `docker compose run --rm ruby ./sync.rb`
+- Run sync: `docker compose run --rm ruby ../cli.rb sync`
 - Lint (StandardRB): `docker compose run --rm ruby bundle exec standardrb .`
 - Lint (RuboCop): `docker compose run --rm ruby bundle exec rubocop --config ../.rubocop.yml .`
 - Verify DB rows: `sqlite3 core/data/<email>.sqlite3 'SELECT COUNT(*) FROM email;'`

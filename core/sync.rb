@@ -17,7 +17,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 require "bundler/setup"
-require "dotenv/load"
 require "debug"
 require "mail"
 require "sequel"
@@ -113,180 +112,171 @@ def log_processing(mbox_name:, uid:, mail:, flags_json:)
   puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{date} from #{from} and subject: #{subj} #{flags_json}"
 end
 
-# IMAP
-imap_address = ENV["ADDRESS"]
-imap_password = ENV["PASSWORD"]
-
-# Confirm account before proceeding (can be bypassed with SYNC_AUTO_CONFIRM)
-auto_confirm = ENV["SYNC_AUTO_CONFIRM"]
-if auto_confirm && %w[1 true yes y].include?(auto_confirm.to_s.downcase)
-  puts "Starting sync for #{imap_address} (auto-confirmed)"
-elsif $stdin.tty?
-  print "This will initiate a sync for #{imap_address}. Continue? [y/N]: "
-  answer = $stdin.gets&.strip&.downcase
-  unless %w[y yes].include?(answer)
-    puts "Aborted by user."
-    exit 1
-  end
-else
-  puts "Starting sync for #{imap_address}"
-end
-
-Mail.defaults do
-  retriever_method :imap, address: "imap.gmail.com",
-    port: 993,
-    user_name: imap_address,
-    password: imap_password,
-    enable_ssl: true
-end
-
-DB = Sequel.sqlite(ENV["DATABASE"])
-
-unless DB.table_exists?(:email)
-  DB.create_table :email do
-    primary_key :id
-    String :address, index: true
-    String :mailbox, index: true
-    Bignum :uid, index: true, default: 0
-    Integer :uidvalidity, index: true, default: 0
-
-    String :message_id, index: true
-    DateTime :date, index: true
-    String :from, index: true
-    String :subject
-
-    Boolean :has_attachments, index: true, default: false
-
-    String :x_gm_labels
-    String :x_gm_msgid
-    String :x_gm_thrid
-    String :flags
-
-    String :encoded
-
-    unique %i[mailbox uid uidvalidity]
-    index %i[mailbox uidvalidity]
-  end
-end
-
-email = DB[:email]
-
-# concurrency: set THREADS environment variable (default: 1)
-threads_count = (ENV["THREADS"] || "1").to_i
-threads_count = 1 if threads_count < 1
-Thread.abort_on_exception = true if threads_count > 1
-
-# get all mailboxes
-mailboxes = Mail.connection { |imap| imap.list "", "*" }
-mailboxes.each do |mailbox|
-  # mailboxes with attr :Noselect cannpt be selected so we skip those
-  next if mailbox.attr.include?(:Noselect)
-
-  mbox_name = mailbox.name
-  puts "processing mailbox #{mbox_name}"
-
-  # get the max uid for a mailbox, paying attention to the uidvalidity
-  # we have to "throw away" the cached records if the uidvalidity changes
-  uidvalidity = max_uid = 1
-  Mail.connection do |imap|
-    imap.select(mbox_name)
-    uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
-    max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count || 1
-    max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
-    puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
-  end
-  if threads_count == 1
-    Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
-      # patch in Gmail specific extensions
-      patch(imap)
-      attrs = {
-        "X-GM-LABELS" => imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"],
-        "X-GM-MSGID" => imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"],
-        "X-GM-THRID" => imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"]
-      }
-      flags_json = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
-      begin
-        log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
-      rescue Mail::Field::NilParseError
-        mail.date = nil
-      end
-
-      rec = build_record(
-        imap_address: imap_address,
-        mbox_name: mbox_name,
-        uid: uid,
-        uidvalidity: uidvalidity,
-        mail: mail,
-        attrs: attrs,
-        flags_json: flags_json
-      )
-      begin
-        email.insert(rec)
-      rescue Sequel::UniqueConstraintViolation
-        puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
-      end
-    end
-  else
-    # Multi-threaded: queue UIDs and process with worker IMAP connections
-    uids = Mail.connection do |imap|
-      imap.select(mbox_name)
-      imap.uid_search(["UID", "#{max_uid}:*"])
-    end
-    puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
-
-    uid_queue = Queue.new
-    uids.each { |u| uid_queue << u }
-
-    write_queue = Queue.new
-
-    writer = Thread.new do
-      loop do
-        rec = write_queue.pop
-        break if rec == :__DONE__
-
-        email.insert(rec)
-      end
+module NittyMail
+  class Sync
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count)
     end
 
-    workers = Array.new(threads_count) do
-      Thread.new do
-        imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
-        imap.login(imap_address, imap_password)
-        imap.select(mbox_name)
-        patch(imap)
-        loop do
-          begin
-            uid = uid_queue.pop(true)
-          rescue ThreadError
-            uid = nil
-          end
-          break unless uid
+    private
 
-          attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
-          next unless attrs
+    def perform_sync(imap_address, imap_password, database_path, threads_count)
+      # Ensure threads count is valid
+      threads_count = 1 if threads_count < 1
+      Thread.abort_on_exception = true if threads_count > 1
+      Mail.defaults do
+        retriever_method :imap, address: "imap.gmail.com",
+          port: 993,
+          user_name: imap_address,
+          password: imap_password,
+          enable_ssl: true
+      end
 
-          mail = Mail.read_from_string(attrs["RFC822"])
-          flags_json = attrs["FLAGS"].to_json
-          log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
-          rec = build_record(
-            imap_address: imap_address,
-            mbox_name: mbox_name,
-            uid: uid,
-            uidvalidity: uidvalidity,
-            mail: mail,
-            attrs: attrs,
-            flags_json: flags_json
-          )
-          write_queue << rec
+      @db = Sequel.sqlite(database_path)
+
+      unless @db.table_exists?(:email)
+        @db.create_table :email do
+          primary_key :id
+          String :address, index: true
+          String :mailbox, index: true
+          Bignum :uid, index: true, default: 0
+          Integer :uidvalidity, index: true, default: 0
+
+          String :message_id, index: true
+          DateTime :date, index: true
+          String :from, index: true
+          String :subject
+
+          Boolean :has_attachments, index: true, default: false
+
+          String :x_gm_labels
+          String :x_gm_msgid
+          String :x_gm_thrid
+          String :flags
+
+          String :encoded
+
+          unique %i[mailbox uid uidvalidity]
+          index %i[mailbox uidvalidity]
         end
-        imap.logout
-        imap.disconnect
+      end
+
+      email = @db[:email]
+
+      # get all mailboxes
+      mailboxes = Mail.connection { |imap| imap.list "", "*" }
+      mailboxes.each do |mailbox|
+        # mailboxes with attr :Noselect cannpt be selected so we skip those
+        next if mailbox.attr.include?(:Noselect)
+
+        mbox_name = mailbox.name
+        puts "processing mailbox #{mbox_name}"
+
+        # get the max uid for a mailbox, paying attention to the uidvalidity
+        # we have to "throw away" the cached records if the uidvalidity changes
+        uidvalidity = max_uid = 1
+        Mail.connection do |imap|
+          imap.select(mbox_name)
+          uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
+          max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count || 1
+          max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
+          puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
+        end
+        if threads_count == 1
+          Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
+            # patch in Gmail specific extensions
+            patch(imap)
+            attrs = {
+              "X-GM-LABELS" => imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"],
+              "X-GM-MSGID" => imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"],
+              "X-GM-THRID" => imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"]
+            }
+            flags_json = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
+            begin
+              log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+            rescue Mail::Field::NilParseError
+              mail.date = nil
+            end
+
+            rec = build_record(
+              imap_address: imap_address,
+              mbox_name: mbox_name,
+              uid: uid,
+              uidvalidity: uidvalidity,
+              mail: mail,
+              attrs: attrs,
+              flags_json: flags_json
+            )
+            begin
+              email.insert(rec)
+            rescue Sequel::UniqueConstraintViolation
+              puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
+            end
+          end
+        else
+          # Multi-threaded: queue UIDs and process with worker IMAP connections
+          uids = Mail.connection do |imap|
+            imap.select(mbox_name)
+            imap.uid_search(["UID", "#{max_uid}:*"])
+          end
+          puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
+
+          uid_queue = Queue.new
+          uids.each { |u| uid_queue << u }
+
+          write_queue = Queue.new
+
+          writer = Thread.new do
+            loop do
+              rec = write_queue.pop
+              break if rec == :__DONE__
+
+              email.insert(rec)
+            end
+          end
+
+          workers = Array.new(threads_count) do
+            Thread.new do
+              imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+              imap.login(imap_address, imap_password)
+              imap.select(mbox_name)
+              patch(imap)
+              loop do
+                begin
+                  uid = uid_queue.pop(true)
+                rescue ThreadError
+                  uid = nil
+                end
+                break unless uid
+
+                attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
+                next unless attrs
+
+                mail = Mail.read_from_string(attrs["RFC822"])
+                flags_json = attrs["FLAGS"].to_json
+                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+                rec = build_record(
+                  imap_address: imap_address,
+                  mbox_name: mbox_name,
+                  uid: uid,
+                  uidvalidity: uidvalidity,
+                  mail: mail,
+                  attrs: attrs,
+                  flags_json: flags_json
+                )
+                write_queue << rec
+              end
+              imap.logout
+              imap.disconnect
+            end
+          end
+
+          workers.each(&:join)
+          write_queue << :__DONE__
+          writer.join
+        end
+        puts
       end
     end
-
-    workers.each(&:join)
-    write_queue << :__DONE__
-    writer.join
   end
-  puts
 end

@@ -1,0 +1,93 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Copyright 2023 parasquid
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+ENV["BUNDLE_GEMFILE"] ||= File.expand_path("core/Gemfile", __dir__)
+require "bundler/setup"
+require "dotenv/load"
+require "thor"
+require_relative "core/sync"
+
+# NittyMail CLI application
+class NittyMailCLI < Thor
+  def self.exit_on_failure?
+    true
+  end
+
+  desc "sync", "Sync Gmail messages to SQLite database"
+  option :address, aliases: "-a", desc: "Gmail address to sync", type: :string
+  option :password, aliases: "-p", desc: "Gmail password or app password", type: :string
+  option :database, aliases: "-d", desc: "SQLite database file path", type: :string
+  option :threads, aliases: "-t", desc: "Number of threads for parallel processing", type: :numeric, default: 1
+  option :auto_confirm, aliases: "-y", desc: "Skip confirmation prompt", type: :boolean, default: false
+  def sync
+    # Get configuration from CLI options or environment variables
+    imap_address = options[:address] || ENV["ADDRESS"]
+    imap_password = options[:password] || ENV["PASSWORD"]
+    database_path = options[:database] || ENV["DATABASE"]
+    threads_count = options[:threads] || (ENV["THREADS"] || "1").to_i
+    auto_confirm = options[:auto_confirm] || (ENV["SYNC_AUTO_CONFIRM"] && %w[1 true yes y].include?(ENV["SYNC_AUTO_CONFIRM"].to_s.downcase))
+
+    # Validate required parameters
+    unless imap_address && imap_password && database_path
+      puts "Error: Missing required configuration!"
+      puts "Please provide:"
+      puts "  --address (-a) or ADDRESS env var: Gmail address"
+      puts "  --password (-p) or PASSWORD env var: Gmail password/app password"
+      puts "  --database (-d) or DATABASE env var: SQLite database file path"
+      puts ""
+      puts "Example: ./cli.rb sync -a user@gmail.com -p app_password -d data/mail.sqlite3"
+      exit 1
+    end
+
+    # Ensure threads count is valid
+    threads_count = 1 if threads_count < 1
+
+    # Confirm account before proceeding
+    if auto_confirm
+      puts "Starting sync for #{imap_address} (auto-confirmed)"
+    elsif $stdin.tty?
+      print "This will initiate a sync for #{imap_address}. Continue? [y/N]: "
+      answer = $stdin.gets&.strip&.downcase
+      unless %w[y yes].include?(answer)
+        puts "Aborted by user."
+        exit 1
+      end
+    else
+      puts "Starting sync for #{imap_address}"
+    end
+
+    # Perform the sync using the library
+    NittyMail::Sync.perform(
+      imap_address: imap_address,
+      imap_password: imap_password,
+      database_path: database_path,
+      threads_count: threads_count
+    )
+  end
+
+  desc "version", "Show version information"
+  def version
+    puts "NittyMail v1.0.0"
+    puts "Gmail to SQLite sync tool"
+  end
+end
+
+# Run the CLI if this file is executed directly
+if __FILE__ == $0
+  NittyMailCLI.start(ARGV)
+end

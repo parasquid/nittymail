@@ -2,6 +2,7 @@
 
 source "https://rubygems.org"
 
+gem "bigdecimal"
 gem "debug"
 gem "dotenv"
 gem "mail"
@@ -10,6 +11,7 @@ gem "net-pop", require: false
 gem "net-smtp", require: false
 gem "sequel"
 gem "sqlite3"
+gem "thor"
 
 # Linting
 gem "rubocop", require: false

@@ -53,26 +53,56 @@ With Docker and Docker Compose installed:
 # Install dependencies
 docker compose run --rm ruby bundle
 
-# Run the sync (you'll be prompted to confirm)
-docker compose run --rm ruby ./sync.rb
+# Run the sync using .env file (you'll be prompted to confirm)
+docker compose run --rm ruby ../cli.rb sync
+
+# Or use CLI arguments (overrides .env values)
+docker compose run --rm ruby ../cli.rb sync \
+  --address user@gmail.com \
+  --password your-app-password \
+  --database data/user.sqlite3
 
 # Optional: Add this alias to your terminal configuration for convenience
 alias dcr='docker compose run --rm'
-dcr ruby ./sync.rb
+dcr ruby ../cli.rb sync
 ```
 
 ### Advanced Options
 
 **Automated/Non-interactive runs:**
 ```bash
-SYNC_AUTO_CONFIRM=yes docker compose run --rm ruby ./sync.rb
+# Using environment variable
+SYNC_AUTO_CONFIRM=yes docker compose run --rm ruby ../cli.rb sync
+
+# Using CLI flag
+docker compose run --rm ruby ../cli.rb sync --auto-confirm
 ```
 
 **Multi-threaded sync for large mailboxes:**
 ```bash
-THREADS=4 docker compose run --rm ruby ./sync.rb
+# Using environment variable
+THREADS=4 docker compose run --rm ruby ../cli.rb sync
+
+# Using CLI flag
+docker compose run --rm ruby ../cli.rb sync --threads 4
 ```
 *Keep thread counts reasonable (2-8) to avoid Gmail IMAP throttling.*
+
+**Complete CLI example with all options:**
+```bash
+docker compose run --rm ruby ../cli.rb sync \
+  --address user@gmail.com \
+  --password app-password \
+  --database data/backup.sqlite3 \
+  --threads 4 \
+  --auto-confirm
+```
+
+**View available commands and options:**
+```bash
+docker compose run --rm ruby ../cli.rb help
+docker compose run --rm ruby ../cli.rb help sync
+```
 
 **Verify sync results:**
 ```bash
