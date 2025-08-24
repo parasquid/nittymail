@@ -22,6 +22,7 @@ require "debug"
 require "mail"
 require "sequel"
 require "json"
+require "net/imap"
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -76,6 +77,40 @@ def patch(gmail_imap)
     end
   end
   gmail_imap
+end
+
+# Build a DB record from a Mail object and IMAP attrs
+def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:)
+  {
+    address: imap_address,
+    mailbox: mbox_name.force_encoding("UTF-8"),
+    uid: uid,
+    uidvalidity: uidvalidity,
+
+    message_id: mail&.message_id&.force_encoding("UTF-8"),
+    date: mail&.date,
+    from: mail&.from&.to_json&.force_encoding("UTF-8"),
+    subject: mail&.subject&.force_encoding("UTF-8"),
+    has_attachments: mail ? mail.has_attachments? : false,
+
+    x_gm_labels: attrs["X-GM-LABELS"].to_s.force_encoding("UTF-8"),
+    x_gm_msgid: attrs["X-GM-MSGID"].to_s.force_encoding("UTF-8"),
+    x_gm_thrid: attrs["X-GM-THRID"].to_s.force_encoding("UTF-8"),
+    flags: flags_json.force_encoding("UTF-8"),
+
+    encoded: (mail ? mail.encoded : attrs["RFC822"])
+      .to_s
+      .force_encoding("UTF-8")
+      .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
+  }
+end
+
+# Log a concise processing line (handles odd headers safely)
+def log_processing(mbox_name:, uid:, mail:, flags_json:)
+  subj = mail&.subject
+  from = mail&.from&.to_json
+  date = mail&.date
+  puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{date} from #{from} and subject: #{subj} #{flags_json}"
 end
 
 # IMAP
@@ -136,6 +171,11 @@ end
 
 email = DB[:email]
 
+# concurrency: set THREADS environment variable (default: 1)
+threads_count = (ENV["THREADS"] || "1").to_i
+threads_count = 1 if threads_count < 1
+Thread.abort_on_exception = true if threads_count > 1
+
 # get all mailboxes
 mailboxes = Mail.connection { |imap| imap.list "", "*" }
 mailboxes.each do |mailbox|
@@ -155,53 +195,95 @@ mailboxes.each do |mailbox|
     max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
     puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
   end
+  if threads_count == 1
+    Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
+      # patch in Gmail specific extensions
+      patch(imap)
+      attrs = {
+        "X-GM-LABELS" => imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"],
+        "X-GM-MSGID" => imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"],
+        "X-GM-THRID" => imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"]
+      }
+      flags_json = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
+      begin
+        log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+      rescue Mail::Field::NilParseError
+        mail.date = nil
+      end
 
-  Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
-    # patch in Gmail specific extesnions
-    patch(imap)
-    x_gm_labels = imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"].to_s
-    x_gm_msgid = imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"].to_s
-    x_gm_thrid = imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"].to_s
-
-    flags = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
-
-    begin
-      puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{mail.date} from #{mail.from.to_json} and subject: #{mail.subject} #{flags}"
-    rescue Mail::Field::NilParseError => e
-      puts e.inspect
-      puts mail
-      mail.date = nil
-    end
-
-    begin
-      email.insert(
-        address: imap_address,
-        mailbox: mbox_name.force_encoding("UTF-8"),
+      rec = build_record(
+        imap_address: imap_address,
+        mbox_name: mbox_name,
         uid: uid,
         uidvalidity: uidvalidity,
-
-        message_id: mail.message_id&.force_encoding("UTF-8"),
-        date: mail.date,
-        from: mail.from.to_json.force_encoding("UTF-8"),
-        subject: mail.subject&.force_encoding("UTF-8"), # subject can be nil
-        has_attachments: mail.has_attachments?,
-
-        x_gm_labels: x_gm_labels.force_encoding("UTF-8"),
-        x_gm_msgid: x_gm_msgid.force_encoding("UTF-8"),
-        x_gm_thrid: x_gm_thrid.force_encoding("UTF-8"),
-        flags: flags.force_encoding("UTF-8"),
-
-        encoded: mail.encoded
-          .force_encoding("UTF-8")
-          .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "") # fix `invalid byte sequence in UTF-8`
+        mail: mail,
+        attrs: attrs,
+        flags_json: flags_json
       )
-    rescue Sequel::UniqueConstraintViolation
-      puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
-    rescue => e
-      puts mail.inspect
-      puts e.inspect
-      raise
+      begin
+        email.insert(rec)
+      rescue Sequel::UniqueConstraintViolation
+        puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
+      end
     end
+  else
+    # Multi-threaded: queue UIDs and process with worker IMAP connections
+    uids = Mail.connection do |imap|
+      imap.select(mbox_name)
+      imap.uid_search(["UID", "#{max_uid}:*"])
+    end
+    puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
+
+    uid_queue = Queue.new
+    uids.each { |u| uid_queue << u }
+
+    write_queue = Queue.new
+
+    writer = Thread.new do
+      loop do
+        rec = write_queue.pop
+        break if rec == :__DONE__
+        email.insert(rec)
+      end
+    end
+
+    workers = Array.new(threads_count) do
+      Thread.new do
+        imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+        imap.login(imap_address, imap_password)
+        imap.select(mbox_name)
+        patch(imap)
+        loop do
+          begin
+            uid = uid_queue.pop(true)
+          rescue ThreadError
+            uid = nil
+          end
+          break unless uid
+          attrs = imap.uid_fetch(uid, ["RFC822", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS"]).first&.attr
+          next unless attrs
+          mail = Mail.read_from_string(attrs["RFC822"])
+          flags_json = attrs["FLAGS"].to_json
+          log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+          rec = build_record(
+            imap_address: imap_address,
+            mbox_name: mbox_name,
+            uid: uid,
+            uidvalidity: uidvalidity,
+            mail: mail,
+            attrs: attrs,
+            flags_json: flags_json
+          )
+          write_queue << rec
+        end
+        imap.logout
+        imap.disconnect
+      end
+    end
+
+    workers.each(&:join)
+    write_queue << :__DONE__
+    writer.join
   end
   puts
 end

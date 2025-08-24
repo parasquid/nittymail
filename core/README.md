@@ -22,6 +22,13 @@ dcr ruby ./sync.rb
 
 For non-interactive or automated runs, set `SYNC_AUTO_CONFIRM=yes` to skip the confirmation prompt.
 
+To speed up large mailbox syncs, you can use threads:
+
+```bash
+THREADS=4 dcr ruby ./sync.rb
+```
+Keep values reasonable to avoid IMAP throttling.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at <https://github.com/parasquid/nittymail/issues>
