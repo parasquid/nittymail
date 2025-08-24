@@ -89,6 +89,7 @@ DEPENDENCIES
   net-smtp
   rubocop
   rubocop-sequel
+  ruby-progressbar
   sequel
   sqlite3
   standard
