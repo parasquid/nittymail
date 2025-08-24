@@ -54,17 +54,17 @@ With Docker and Docker Compose installed:
 docker compose run --rm ruby bundle
 
 # Run the sync using .env file (you'll be prompted to confirm)
-docker compose run --rm ruby ../cli.rb sync
+docker compose run --rm ruby ./cli.rb sync
 
 # Or use CLI arguments (overrides .env values)
-docker compose run --rm ruby ../cli.rb sync \
+docker compose run --rm ruby ./cli.rb sync \
   --address user@gmail.com \
   --password your-app-password \
   --database data/user.sqlite3
 
 # Optional: Add this alias to your terminal configuration for convenience
 alias dcr='docker compose run --rm'
-dcr ruby ../cli.rb sync
+dcr ruby ./cli.rb sync
 ```
 
 ### Advanced Options
@@ -72,19 +72,19 @@ dcr ruby ../cli.rb sync
 **Automated/Non-interactive runs:**
 ```bash
 # Using environment variable
-SYNC_AUTO_CONFIRM=yes docker compose run --rm ruby ../cli.rb sync
+SYNC_AUTO_CONFIRM=yes docker compose run --rm ruby ./cli.rb sync
 
 # Using CLI flag
-docker compose run --rm ruby ../cli.rb sync --auto-confirm
+docker compose run --rm ruby ./cli.rb sync --auto-confirm
 ```
 
 **Multi-threaded sync for large mailboxes:**
 ```bash
 # Using environment variable
-THREADS=4 docker compose run --rm ruby ../cli.rb sync
+THREADS=4 docker compose run --rm ruby ./cli.rb sync
 
 # Using CLI flag
-docker compose run --rm ruby ../cli.rb sync --threads 4
+docker compose run --rm ruby ./cli.rb sync --threads 4
 ```
 
 ⚠️ **IMPORTANT: Gmail IMAP Connection Limits**
@@ -99,7 +99,7 @@ docker compose run --rm ruby ../cli.rb sync --threads 4
 
 **Complete CLI example with all options:**
 ```bash
-docker compose run --rm ruby ../cli.rb sync \
+docker compose run --rm ruby ./cli.rb sync \
   --address user@gmail.com \
   --password app-password \
   --database data/backup.sqlite3 \
@@ -109,8 +109,8 @@ docker compose run --rm ruby ../cli.rb sync \
 
 **View available commands and options:**
 ```bash
-docker compose run --rm ruby ../cli.rb help
-docker compose run --rm ruby ../cli.rb help sync
+docker compose run --rm ruby ./cli.rb help
+docker compose run --rm ruby ./cli.rb help sync
 ```
 
 **Verify sync results:**

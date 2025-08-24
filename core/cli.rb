@@ -16,11 +16,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-ENV["BUNDLE_GEMFILE"] ||= File.expand_path("core/Gemfile", __dir__)
+ENV["BUNDLE_GEMFILE"] ||= File.expand_path("Gemfile", __dir__)
 require "bundler/setup"
 require "dotenv/load"
 require "thor"
-require_relative "core/sync"
+require_relative "sync"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
