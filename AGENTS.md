@@ -11,10 +11,10 @@
 
 ## Build, Test, and Development Commands
 - Policy: Use Docker only. Do not use host Ruby/Bundler.
-- Install deps: `cd core && docker compose run --rm ruby bundle`
-- Run sync: `cd core && docker compose run --rm ruby ./sync.rb`
-- Lint (StandardRB): `cd core && docker compose run --rm ruby bundle exec standardrb`
-- Lint (RuboCop): `cd core && docker compose run --rm ruby bundle exec rubocop`
+- Install deps: `docker compose -f core/docker-compose.yml run --rm ruby bundle`
+- Run sync: `docker compose -f core/docker-compose.yml run --rm ruby ./sync.rb`
+- Lint (StandardRB): `docker compose -f core/docker-compose.yml run --rm ruby bundle exec standardrb .`
+- Lint (RuboCop): `docker compose -f core/docker-compose.yml run --rm ruby bundle exec rubocop .`
 - Verify DB rows: `sqlite3 core/data/<email>.sqlite3 'SELECT COUNT(*) FROM email;'`
 Note: Configure `core/config/.env` first (see below).
 
@@ -50,8 +50,8 @@ Note: Configure `core/config/.env` first (see below).
 
 ## Commit & Pull Request Guidelines
 - **MANDATORY**: Run linting before every commit. Both StandardRB and RuboCop must pass with zero offenses.
-  - `cd core && docker compose run --rm ruby bundle exec standardrb`
-  - `cd core && docker compose run --rm ruby bundle exec rubocop`
+  - `docker compose -f core/docker-compose.yml run --rm ruby bundle exec standardrb .`
+  - `docker compose -f core/docker-compose.yml run --rm ruby bundle exec rubocop .`
 - **Commit Format**: Use Conventional Commits format: `<type>(<scope>): <description>`
   - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
   - Examples: `feat(sync): add multi-threading support`, `fix(imap): handle nil message ids`, `docs: update threading usage`

@@ -243,6 +243,7 @@ mailboxes.each do |mailbox|
       loop do
         rec = write_queue.pop
         break if rec == :__DONE__
+
         email.insert(rec)
       end
     end
@@ -260,8 +261,10 @@ mailboxes.each do |mailbox|
             uid = nil
           end
           break unless uid
-          attrs = imap.uid_fetch(uid, ["RFC822", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS"]).first&.attr
+
+          attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
           next unless attrs
+
           mail = Mail.read_from_string(attrs["RFC822"])
           flags_json = attrs["FLAGS"].to_json
           log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)

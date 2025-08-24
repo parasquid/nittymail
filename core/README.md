@@ -14,7 +14,7 @@ A docker-compose.yml has been provided for convenience. With `docker ` and `dock
 
 ``` bash
 # you can also add this alias to your terminal's configuration
-alias dcr='docker compose run --rm'
+alias dcr='docker compose -f core/docker-compose.yml run --rm'
 
 dcr ruby bundle
 dcr ruby ./sync.rb
