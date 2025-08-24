@@ -23,6 +23,7 @@ Note: Configure `core/config/.env` first (see below).
 - Indentation: 2 spaces; UTF‑8 strings.
 - Files: snake_case for `.rb`; constants in `SCREAMING_SNAKE_CASE`.
 - Linters: StandardRB (`bundle exec standardrb`) and RuboCop (`bundle exec rubocop`) configured to follow Standard.
+- Sequel-specific linting: RuboCop-Sequel extension for database-related code quality and security.
 
 ## Error Handling & Concurrency
 - Do not swallow exceptions. Avoid `rescue => e` without re-raise; rescue specific errors only.

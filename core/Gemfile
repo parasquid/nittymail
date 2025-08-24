@@ -13,4 +13,5 @@ gem "sqlite3"
 
 # Linting
 gem "rubocop", require: false
+gem "rubocop-sequel", require: false
 gem "standard", require: false
