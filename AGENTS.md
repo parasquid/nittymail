@@ -30,6 +30,17 @@ Note: Configure `core/config/.env` first (see below).
 - For threads, surface failures: we use `Thread.abort_on_exception = true` when `THREADS>1`.
 - Keep DB writes consistent; a single writer thread inserts records. Non-unique inserts are skipped explicitly; other errors fail fast.
 
+## Documentation Guidelines (Living Documentation)
+- **MANDATORY**: Update documentation whenever making significant changes to functionality.
+- **New Features**: Document new environment variables, command-line flags, or configuration options in both `AGENTS.md` and `core/README.md`.
+- **Breaking Changes**: Clearly mark and explain any breaking changes in usage or configuration.
+- **Examples**: Always provide concrete usage examples for new features (e.g., `THREADS=4 dcr ruby ./sync.rb`).
+- **Architecture Changes**: Update the "Architecture Overview" section when core mechanisms change.
+- **Keep Docs Close**: Documentation should live near the code it describes; update both simultaneously.
+- **User-Facing vs Internal**: Distinguish between user documentation (`core/README.md`) and developer/AI guidelines (`AGENTS.md`).
+- **Version Compatibility**: Note any version requirements or compatibility changes.
+- **AI Agents**: When implementing features, always check if existing documentation needs updates. Documentation debt creates confusion.
+
 ## Testing Guidelines
 - Current: manual verification via the generated SQLite DB.
 - Naming: test helpers under `core/` as needed; prefer isolated functions.
@@ -47,12 +58,23 @@ Note: Configure `core/config/.env` first (see below).
 - PRs: include purpose, approach, test plan (commands/output), and any related issue (e.g., "Fixes #123").
 - AI agents: Always run linting commands before staging any commit. Do not proceed with commits if linting fails. Use conventional commit format.
 
+## Configuration Management
+- **Environment Variables**: All configuration via environment variables or `.env` file.
+- **Required Variables**:
+  - `ADDRESS`: Gmail address to sync
+  - `PASSWORD`: Gmail password (use App Password if 2FA enabled)
+  - `DATABASE`: SQLite database path (e.g., `data/<email>.sqlite3`)
+- **Optional Variables**:
+  - `SYNC_AUTO_CONFIRM=yes`: Skip confirmation prompt for automated runs
+  - `THREADS=<n>`: Number of worker threads (default: 1, keep reasonable to avoid throttling)
+- **Adding New Config**: When adding new environment variables, update both `.env.sample` and documentation.
+- **Validation**: Add validation for new config options; fail fast with clear error messages.
+
 ## Security & Configuration Tips
 - Do not commit secrets. Use `config/.env` (copy from `.env.sample`).
-- Required keys: `ADDRESS`, `PASSWORD` (use Gmail App Password if 2FA), `DATABASE` (e.g., `data/<email>.sqlite3`).
-- IMAP must be enabled on the account.
-- Non-interactive runs: set `SYNC_AUTO_CONFIRM=yes` to skip the confirmation prompt.
- - Performance: set `THREADS=<n>` for multi-threaded sync (default 1). Keep reasonable to avoid Gmail throttling.
+- IMAP must be enabled on the Gmail account.
+- Use Gmail App Passwords when 2FA is enabled.
+- Keep thread counts reasonable to avoid Gmail IMAP throttling.
 
 ## Architecture Overview
 - IMAP fetch via `mail` gem, with Gmail extensions patched at runtime.
