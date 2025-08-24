@@ -9,6 +9,7 @@ gem "mail"
 gem "net-imap", require: false
 gem "net-pop", require: false
 gem "net-smtp", require: false
+gem "ruby-progressbar"
 gem "sequel"
 gem "sqlite3"
 gem "thor"

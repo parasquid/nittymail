@@ -22,6 +22,7 @@ require "mail"
 require "sequel"
 require "json"
 require "net/imap"
+require "ruby-progressbar"
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -181,6 +182,18 @@ module NittyMail
           puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
         end
         if threads_count == 1
+          # Get total count for progress bar
+          total_uids = Mail.connection do |imap|
+            imap.select(mbox_name)
+            imap.uid_search("UID #{max_uid}:*").size
+          end
+          
+          progress = ProgressBar.create(
+            title: "#{mbox_name}",
+            total: total_uids,
+            format: "%t: |%B| %p%% (%c/%C) [%e]"
+          )
+          
           Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
             # patch in Gmail specific extensions
             patch(imap)
@@ -210,6 +223,7 @@ module NittyMail
             rescue Sequel::UniqueConstraintViolation
               puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
             end
+            progress.increment
           end
         else
           # Multi-threaded: queue UIDs and process with worker IMAP connections
@@ -218,6 +232,12 @@ module NittyMail
             imap.uid_search("UID #{max_uid}:*")
           end
           puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
+          
+          progress = ProgressBar.create(
+            title: "#{mbox_name}",
+            total: uids.size,
+            format: "%t: |%B| %p%% (%c/%C) [%e]"
+          )
 
           uid_queue = Queue.new
           uids.each { |u| uid_queue << u }
@@ -234,6 +254,7 @@ module NittyMail
               rescue Sequel::UniqueConstraintViolation
                 puts "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."
               end
+              progress.increment
             end
           end
 
