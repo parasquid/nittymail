@@ -39,6 +39,7 @@ Note: Configure `core/config/.env` first (see below).
 - Do not commit secrets. Use `config/.env` (copy from `.env.sample`).
 - Required keys: `ADDRESS`, `PASSWORD` (use Gmail App Password if 2FA), `DATABASE` (e.g., `data/<email>.sqlite3`).
 - IMAP must be enabled on the account.
+- Non-interactive runs: set `SYNC_AUTO_CONFIRM=yes` to skip the confirmation prompt.
 
 ## Architecture Overview
 - IMAP fetch via `mail` gem, with Gmail extensions patched at runtime.

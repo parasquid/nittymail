@@ -82,11 +82,14 @@ end
 imap_address = ENV["ADDRESS"]
 imap_password = ENV["PASSWORD"]
 
-# Confirm account before proceeding
-if $stdin.tty?
+# Confirm account before proceeding (can be bypassed with SYNC_AUTO_CONFIRM)
+auto_confirm = ENV["SYNC_AUTO_CONFIRM"]
+if auto_confirm && %w[1 true yes y].include?(auto_confirm.to_s.downcase)
+  puts "Starting sync for #{imap_address} (auto-confirmed)"
+elsif $stdin.tty?
   print "This will initiate a sync for #{imap_address}. Continue? [y/N]: "
   answer = $stdin.gets&.strip&.downcase
-  unless ["y", "yes"].include?(answer)
+  unless %w[y yes].include?(answer)
     puts "Aborted by user."
     exit 1
   end

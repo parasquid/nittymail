@@ -20,6 +20,8 @@ dcr ruby bundle
 dcr ruby ./sync.rb
 ```
 
+For non-interactive or automated runs, set `SYNC_AUTO_CONFIRM=yes` to skip the confirmation prompt.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at <https://github.com/parasquid/nittymail/issues>
