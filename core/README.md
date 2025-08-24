@@ -26,6 +26,10 @@ For non-interactive or automated runs, set `SYNC_AUTO_CONFIRM=yes` to skip the c
 
 Bug reports and pull requests are welcome on GitHub at <https://github.com/parasquid/nittymail/issues>
 
+## Gmail IMAP Extensions
+
+This project uses Gmail-specific IMAP attributes for richer metadata. See docs/gmail-imap-extensions.md for details on X-GM-LABELS, X-GM-MSGID, and X-GM-THRID.
+
 ## License
 
 This program is free software: you can redistribute it and/or modify
