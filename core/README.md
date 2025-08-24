@@ -86,7 +86,16 @@ THREADS=4 docker compose run --rm ruby ../cli.rb sync
 # Using CLI flag
 docker compose run --rm ruby ../cli.rb sync --threads 4
 ```
-*Keep thread counts reasonable (2-8) to avoid Gmail IMAP throttling.*
+
+⚠️ **IMPORTANT: Gmail IMAP Connection Limits**
+- Gmail allows a **maximum of 15 simultaneous IMAP connections** per account
+- Using too many threads may result in connection failures or temporary account blocking
+- **Recommended thread counts:**
+  - **1-4 threads**: Safe for most accounts
+  - **5-8 threads**: Use with caution, monitor for errors
+  - **9+ threads**: Not recommended, likely to hit Gmail limits
+- If you encounter "Too many simultaneous connections" errors, reduce thread count
+- For details, see: https://support.google.com/mail/answer/7126229
 
 **Complete CLI example with all options:**
 ```bash
@@ -108,6 +117,33 @@ docker compose run --rm ruby ../cli.rb help sync
 ```bash
 sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 ```
+
+## Troubleshooting
+
+### Gmail Connection Issues
+
+**"Too many simultaneous connections" errors:**
+- Gmail limits accounts to **15 simultaneous IMAP connections**
+- Reduce the `--threads` parameter (try 1-4 threads)
+- Wait a few minutes before retrying if temporarily blocked
+- Reference: https://support.google.com/mail/answer/7126229
+
+**Authentication failures:**
+- Ensure IMAP is enabled in Gmail settings
+- Use App Passwords for 2FA-enabled accounts
+- Verify your email and password are correct
+- Check for typos in your `.env` file
+
+**Database corruption errors:**
+- Stop any running sync processes
+- Backup your existing database: `cp data/your-email.sqlite3 data/backup.sqlite3`
+- Remove the corrupted file to start fresh: `rm data/your-email.sqlite3`
+- The sync will recreate the database automatically
+
+**Performance optimization:**
+- Start with 1 thread for initial sync, then increase gradually
+- Monitor system resources (CPU, memory, network)
+- Large mailboxes may take several hours to complete
 
 ## Contributing
 
