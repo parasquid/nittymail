@@ -81,6 +81,19 @@ end
 # IMAP
 imap_address = ENV["ADDRESS"]
 imap_password = ENV["PASSWORD"]
+
+# Confirm account before proceeding
+if $stdin.tty?
+  print "This will initiate a sync for #{imap_address}. Continue? [y/N]: "
+  answer = $stdin.gets&.strip&.downcase
+  unless ["y", "yes"].include?(answer)
+    puts "Aborted by user."
+    exit 1
+  end
+else
+  puts "Starting sync for #{imap_address}"
+end
+
 Mail.defaults do
   retriever_method :imap, address: "imap.gmail.com",
     port: 993,
