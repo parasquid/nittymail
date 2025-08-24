@@ -4,30 +4,80 @@ This folder contains some common functionality, among which is a simple syncing 
 
 ## Usage
 
-You will need to enable IMAP for the Gmail account that will be synced. Support documentation can be found at <https://support.google.com/mail/answer/7126229>
+### Prerequisites
 
-If the account has 2FA enabled, an app password will need to be generated and used instead of the account password. More documentation found at <https://support.google.com/accounts/answer/185833>
+Before running NittyMail, you need to prepare your Gmail account:
 
-Configuration is done through the `.env` file; there is a sample `.env.sample` that can be copied and modified as necessary.
+#### 1. Enable IMAP Access
+1. Open Gmail in your web browser
+2. Click the gear icon (⚙️) in the top right corner
+3. Select **"See all settings"**
+4. Go to the **"Forwarding and POP/IMAP"** tab
+5. In the **"IMAP access"** section, select **"Enable IMAP"**
+6. Click **"Save Changes"** at the bottom
 
-A docker-compose.yml has been provided for convenience. With `docker ` and `docker-compose` installed:
+*Reference: [Gmail IMAP documentation](https://support.google.com/mail/answer/7126229)*
+
+#### 2. Set Up App Password (Required for 2FA accounts)
+If your Gmail account has 2-Factor Authentication enabled, you'll need an App Password:
+
+1. Go to your [Google Account settings](https://myaccount.google.com/)
+2. Select **"Security"** from the left sidebar
+3. Under **"How you sign in to Google"**, click **"2-Step Verification"**
+4. Scroll down and click **"App passwords"**
+5. Select **"Mail"** from the dropdown
+6. Choose **"Other (Custom name)"** and enter "NittyMail"
+7. Click **"Generate"**
+8. **Copy the 16-character password** - you'll use this instead of your regular Gmail password
+
+*Reference: [Google App Passwords documentation](https://support.google.com/accounts/answer/185833)*
+
+#### 3. Configure NittyMail
+1. Copy the sample configuration file:
+   ```bash
+   cp core/config/.env.sample core/config/.env
+   ```
+
+2. Edit `core/config/.env` with your details:
+   ```bash
+   ADDRESS="your-email@gmail.com"
+   PASSWORD="your-app-password-or-regular-password"
+   DATABASE="data/your-email.sqlite3"
+   ```
+
+### Running NittyMail
+
+With Docker and Docker Compose installed:
 
 ``` bash
-# you can also add this alias to your terminal's configuration
-alias dcr='docker compose run --rm'
+# Install dependencies
+docker compose run --rm ruby bundle
 
-dcr ruby bundle
+# Run the sync (you'll be prompted to confirm)
+docker compose run --rm ruby ./sync.rb
+
+# Optional: Add this alias to your terminal configuration for convenience
+alias dcr='docker compose run --rm'
 dcr ruby ./sync.rb
 ```
 
-For non-interactive or automated runs, set `SYNC_AUTO_CONFIRM=yes` to skip the confirmation prompt.
+### Advanced Options
 
-To speed up large mailbox syncs, you can use threads:
-
+**Automated/Non-interactive runs:**
 ```bash
-THREADS=4 dcr ruby ./sync.rb
+SYNC_AUTO_CONFIRM=yes docker compose run --rm ruby ./sync.rb
 ```
-Keep values reasonable to avoid IMAP throttling.
+
+**Multi-threaded sync for large mailboxes:**
+```bash
+THREADS=4 docker compose run --rm ruby ./sync.rb
+```
+*Keep thread counts reasonable (2-8) to avoid Gmail IMAP throttling.*
+
+**Verify sync results:**
+```bash
+sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
+```
 
 ## Contributing
 
