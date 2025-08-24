@@ -11,15 +11,15 @@
 
 ## Build, Test, and Development Commands
 - Policy: Use Docker only. Do not use host Ruby/Bundler.
-- Install deps: `cd core && docker compose run --rm -u 1000:1000 ruby bundle`
-- Run sync: `cd core && docker compose run --rm -u 1000:1000 ruby ./sync.rb`
-- Lint (StandardRB): `cd core && docker compose run --rm -u 1000:1000 ruby bundle exec standardrb`
-- Lint (RuboCop): `cd core && docker compose run --rm -u 1000:1000 ruby bundle exec rubocop`
+- Install deps: `cd core && docker compose run --rm ruby bundle`
+- Run sync: `cd core && docker compose run --rm ruby ./sync.rb`
+- Lint (StandardRB): `cd core && docker compose run --rm ruby bundle exec standardrb`
+- Lint (RuboCop): `cd core && docker compose run --rm ruby bundle exec rubocop`
 - Verify DB rows: `sqlite3 core/data/<email>.sqlite3 'SELECT COUNT(*) FROM email;'`
 Note: Configure `core/config/.env` first (see below).
 
 ## Coding Style & Naming Conventions
-- Language: Ruby 3.1.x (see Docker image).
+- Language: Ruby 3.4.x (Docker image).
 - Indentation: 2 spaces; UTF‑8 strings.
 - Files: snake_case for `.rb`; constants in `SCREAMING_SNAKE_CASE`.
 - Linters: StandardRB (`bundle exec standardrb`) and RuboCop (`bundle exec rubocop`) configured to follow Standard.
