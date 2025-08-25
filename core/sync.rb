@@ -85,9 +85,8 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
   date = begin
     mail&.date
   rescue Mail::Field::NilParseError
-    new_date = attrs["INTERNALDATE"].to_s.force_encoding("UTF-8")
-    puts "Error parsing date, now trying to parse #{new_date}"
-    Time.parse(new_date)
+    puts "Error parsing date for #{mail}"
+    raise
   end
 
   {
