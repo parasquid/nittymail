@@ -177,8 +177,9 @@ module NittyMail
         Mail.connection do |imap|
           imap.select(mbox_name)
           uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
-          max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).count || 1
-          max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
+          # Use the maximum stored UID (per mailbox + uidvalidity), not a row count
+          max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid)
+          max_uid = 1 if max_uid.nil? || max_uid.to_i < 1 # IMAP UID search minimum is 1
           puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
         end
         # Queue UIDs and process with worker IMAP connections
@@ -186,10 +187,12 @@ module NittyMail
           imap.select(mbox_name)
           imap.uid_search("UID #{max_uid}:*")
         end
-        puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} thread#{threads_count == 1 ? '' : 's'}"
-        
+        thread_word = "threads"
+        thread_word = "thread" if threads_count == 1
+        puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
+
         progress = ProgressBar.create(
-          title: "#{mbox_name}",
+          title: mbox_name,
           total: uids.size,
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )

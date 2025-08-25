@@ -18,6 +18,13 @@
 - Verify DB rows: `sqlite3 core/data/<email>.sqlite3 'SELECT COUNT(*) FROM email;'`
 Note: Configure `core/config/.env` first (see below).
 
+### Linting Details (Docker)
+- Working directory in the container is `/app/core`.
+- RuboCop must be pointed at the root config: `--config ../.rubocop.yml`.
+- Install gems first with `docker compose run --rm ruby bundle`.
+- Auto-fix safe issues: `docker compose run --rm ruby bundle exec standardrb --fix .`.
+- Both linters must pass (exit code 0) before commits/PRs.
+
 ## Coding Style & Naming Conventions
 - Language: Ruby 3.4.x (Docker image).
 - Indentation: 2 spaces; UTF‑8 strings.

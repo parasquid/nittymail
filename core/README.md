@@ -118,6 +118,29 @@ docker compose run --rm ruby ./cli.rb help sync
 sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 ```
 
+## Linting
+
+Run linters inside Docker (do not use host Ruby):
+
+```bash
+# 1) Install gems in the container (once per Gemfile change)
+docker compose run --rm ruby bundle
+
+# 2) StandardRB (project style)
+docker compose run --rm ruby bundle exec standardrb .
+
+# 3) RuboCop (uses repo root config)
+docker compose run --rm ruby bundle exec rubocop --config ../.rubocop.yml .
+
+# Optional: auto-fix straightforward issues
+docker compose run --rm ruby bundle exec standardrb --fix .
+```
+
+Notes:
+- Container working directory is `/app/core`, hence RuboCop uses `--config ../.rubocop.yml`.
+- Both linters must pass with zero offenses before commits/PRs.
+- If a linter exits non‑zero without obvious output, re‑run; StandardRB may only signal failures via exit status. Use `--fix` where safe, then re‑run.
+
 ## Troubleshooting
 
 ### Gmail Connection Issues
