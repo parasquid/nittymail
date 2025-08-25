@@ -85,8 +85,8 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
   date = begin
     mail&.date
   rescue Mail::Field::NilParseError
-    puts "Error parsing date for #{mail}"
-    raise
+    puts "Error parsing date for #{mail&.subject}"
+    nil
   end
 
   {
