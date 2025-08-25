@@ -17,6 +17,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 require "bundler/setup"
+require "time"
 require "debug"
 require "mail"
 require "sequel"
@@ -81,6 +82,14 @@ end
 
 # Build a DB record from a Mail object and IMAP attrs
 def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:)
+  date = begin
+    mail&.date
+  rescue Mail::Field::NilParseError
+    new_date = attrs["INTERNALDATE"].to_s.force_encoding("UTF-8")
+    puts "Error parsing date, now trying to parse #{new_date}"
+    Time.parse(new_date)
+  end
+
   {
     address: imap_address,
     mailbox: mbox_name.force_encoding("UTF-8"),
@@ -88,7 +97,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     uidvalidity: uidvalidity,
 
     message_id: mail&.message_id&.force_encoding("UTF-8"),
-    date: mail&.date,
+    date:,
     from: mail&.from&.to_json&.force_encoding("UTF-8"),
     subject: mail&.subject&.force_encoding("UTF-8"),
     has_attachments: mail ? mail.has_attachments? : false,
@@ -113,6 +122,8 @@ def log_processing(mbox_name:, uid:, mail:, flags_json:)
 
   date = mail&.date
   puts "sent on #{date}"
+rescue Mail::Field::NilParseError
+  puts "sent on unknown date"
 end
 
 module NittyMail
@@ -237,15 +248,15 @@ module NittyMail
 
               mail = Mail.read_from_string(attrs["RFC822"])
               flags_json = attrs["FLAGS"].to_json
-              log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+              log_processing(mbox_name:, uid:, mail:, flags_json:)
               rec = build_record(
-                imap_address: imap_address,
-                mbox_name: mbox_name,
-                uid: uid,
-                uidvalidity: uidvalidity,
-                mail: mail,
-                attrs: attrs,
-                flags_json: flags_json
+                imap_address:,
+                mbox_name:,
+                uid:,
+                uidvalidity:,
+                mail:,
+                attrs:,
+                flags_json:
               )
               write_queue << rec
             end
