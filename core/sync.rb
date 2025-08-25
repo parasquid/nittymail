@@ -109,8 +109,10 @@ end
 def log_processing(mbox_name:, uid:, mail:, flags_json:)
   subj = mail&.subject
   from = mail&.from&.to_json
+  print "processing mail in mailbox #{mbox_name} with uid: #{uid} from #{from} and subject: #{subj} #{flags_json} "
+
   date = mail&.date
-  puts "processing mail in mailbox #{mbox_name} with uid: #{uid} sent on #{date} from #{from} and subject: #{subj} #{flags_json}"
+  puts "sent on #{date}"
 end
 
 module NittyMail
