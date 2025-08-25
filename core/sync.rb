@@ -181,123 +181,77 @@ module NittyMail
           max_uid = 1 if max_uid.zero? # minimum for imap key search is 1
           puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
         end
-        if threads_count == 1
-          # Get total count for progress bar
-          total_uids = Mail.connection do |imap|
-            imap.select(mbox_name)
-            imap.uid_search("UID #{max_uid}:*").size
-          end
-          
-          progress = ProgressBar.create(
-            title: "#{mbox_name}",
-            total: total_uids,
-            format: "%t: |%B| %p%% (%c/%C) [%e]"
-          )
-          
-          Mail.find read_only: true, count: :all, mailbox: mbox_name, keys: "#{max_uid}:*" do |mail, imap, uid|
-            # patch in Gmail specific extensions
-            patch(imap)
-            attrs = {
-              "X-GM-LABELS" => imap.uid_fetch(uid, ["X-GM-LABELS"]).first.attr["X-GM-LABELS"],
-              "X-GM-MSGID" => imap.uid_fetch(uid, ["X-GM-MSGID"]).first.attr["X-GM-MSGID"],
-              "X-GM-THRID" => imap.uid_fetch(uid, ["X-GM-THRID"]).first.attr["X-GM-THRID"]
-            }
-            flags_json = imap.uid_fetch(uid, ["FLAGS"]).first.attr["FLAGS"].to_json
-            begin
-              log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
-            rescue Mail::Field::NilParseError
-              mail.date = nil
-            end
+        # Queue UIDs and process with worker IMAP connections
+        uids = Mail.connection do |imap|
+          imap.select(mbox_name)
+          imap.uid_search("UID #{max_uid}:*")
+        end
+        puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} thread#{threads_count == 1 ? '' : 's'}"
+        
+        progress = ProgressBar.create(
+          title: "#{mbox_name}",
+          total: uids.size,
+          format: "%t: |%B| %p%% (%c/%C) [%e]"
+        )
 
-            rec = build_record(
-              imap_address: imap_address,
-              mbox_name: mbox_name,
-              uid: uid,
-              uidvalidity: uidvalidity,
-              mail: mail,
-              attrs: attrs,
-              flags_json: flags_json
-            )
+        uid_queue = Queue.new
+        uids.each { |u| uid_queue << u }
+
+        write_queue = Queue.new
+
+        writer = Thread.new do
+          loop do
+            rec = write_queue.pop
+            break if rec == :__DONE__
+
             begin
               email.insert(rec)
             rescue Sequel::UniqueConstraintViolation
-              puts "#{mbox_name} #{uid} #{uidvalidity} already exists, skipping ..."
+              puts "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."
             end
             progress.increment
           end
-        else
-          # Multi-threaded: queue UIDs and process with worker IMAP connections
-          uids = Mail.connection do |imap|
-            imap.select(mbox_name)
-            imap.uid_search("UID #{max_uid}:*")
-          end
-          puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} threads"
-          
-          progress = ProgressBar.create(
-            title: "#{mbox_name}",
-            total: uids.size,
-            format: "%t: |%B| %p%% (%c/%C) [%e]"
-          )
-
-          uid_queue = Queue.new
-          uids.each { |u| uid_queue << u }
-
-          write_queue = Queue.new
-
-          writer = Thread.new do
-            loop do
-              rec = write_queue.pop
-              break if rec == :__DONE__
-
-              begin
-                email.insert(rec)
-              rescue Sequel::UniqueConstraintViolation
-                puts "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."
-              end
-              progress.increment
-            end
-          end
-
-          workers = Array.new(threads_count) do
-            Thread.new do
-              imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
-              imap.login(imap_address, imap_password)
-              imap.select(mbox_name)
-              patch(imap)
-              loop do
-                begin
-                  uid = uid_queue.pop(true)
-                rescue ThreadError
-                  uid = nil
-                end
-                break unless uid
-
-                attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
-                next unless attrs
-
-                mail = Mail.read_from_string(attrs["RFC822"])
-                flags_json = attrs["FLAGS"].to_json
-                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
-                rec = build_record(
-                  imap_address: imap_address,
-                  mbox_name: mbox_name,
-                  uid: uid,
-                  uidvalidity: uidvalidity,
-                  mail: mail,
-                  attrs: attrs,
-                  flags_json: flags_json
-                )
-                write_queue << rec
-              end
-              imap.logout
-              imap.disconnect
-            end
-          end
-
-          workers.each(&:join)
-          write_queue << :__DONE__
-          writer.join
         end
+
+        workers = Array.new(threads_count) do
+          Thread.new do
+            imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+            imap.login(imap_address, imap_password)
+            imap.select(mbox_name)
+            patch(imap)
+            loop do
+              begin
+                uid = uid_queue.pop(true)
+              rescue ThreadError
+                uid = nil
+              end
+              break unless uid
+
+              attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
+              next unless attrs
+
+              mail = Mail.read_from_string(attrs["RFC822"])
+              flags_json = attrs["FLAGS"].to_json
+              log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json)
+              rec = build_record(
+                imap_address: imap_address,
+                mbox_name: mbox_name,
+                uid: uid,
+                uidvalidity: uidvalidity,
+                mail: mail,
+                attrs: attrs,
+                flags_json: flags_json
+              )
+              write_queue << rec
+            end
+            imap.logout
+            imap.disconnect
+          end
+        end
+
+        workers.each(&:join)
+        write_queue << :__DONE__
+        writer.join
         puts
       end
     end
