@@ -55,6 +55,9 @@ Note: Configure `core/config/.env` first (see below).
 - Suggested (future): RSpec with unit tests around IMAP parsing and DB writes.
 - Quick check: run sync against a test account; query counts and spot‑check fields.
 
+### Edge Cases
+- Messages with missing/invalid `Date:` header: the Mail gem may raise `Mail::Field::NilParseError` when parsing. The sync logic intentionally sets `date = NULL` and proceeds to avoid aborting the run. Downstream consumers should tolerate `NULL` dates or derive a timestamp from other sources if required (e.g., `INTERNALDATE` or `Received` headers).
+
 ## Commit & Pull Request Guidelines
 - **MANDATORY**: Run linting before every commit. Both StandardRB and RuboCop must pass with zero offenses.
   - `docker compose run --rm ruby bundle exec standardrb .`

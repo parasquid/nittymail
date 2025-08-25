@@ -168,6 +168,18 @@ Notes:
 - Monitor system resources (CPU, memory, network)
 - Large mailboxes may take several hours to complete
 
+### Messages without a Date header
+
+Some messages in the wild have a missing or invalid `Date:` header. When the Mail gem cannot parse a date, NittyMail does not fail the sync. Instead, it sets the `date` field to `NULL` for that record and continues.
+
+- Behavior: records with unparsable or absent dates are inserted with `date = NULL`.
+- Rationale: avoid guessing dates from other headers; prevents incorrect metadata.
+- Inspect affected rows:
+  ```bash
+  sqlite3 core/data/your-email.sqlite3 "SELECT COUNT(*) FROM email WHERE date IS NULL;"
+  ```
+  You can later derive a date from other headers (e.g., `Received`) or IMAP `INTERNALDATE` downstream if needed.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at <https://github.com/parasquid/nittymail/issues>
