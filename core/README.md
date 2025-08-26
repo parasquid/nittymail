@@ -99,7 +99,7 @@ docker compose run --rm ruby ./cli.rb sync --mailbox-threads 4
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
-- Message fetching still uses `--threads` per mailbox, processed sequentially after preflight.
+- Message fetching still uses `--threads` per mailbox, processed sequentially after preflight. Messages are fetched in batches (default 100 UIDs per request) to reduce IMAP round‑trips.
 - Keep totals under Gmail’s ~15 connection limit. Example safe combos: `MAILBOX_THREADS=4` and `--threads 4` (preflight and fetch phases do not overlap).
 
 **Purge old UIDVALIDITY generations (optional):**
@@ -154,10 +154,14 @@ sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 - `UIDVALIDITY` is required; if Gmail does not provide it during preflight or worker selection, the sync aborts with an error.
 - If `UIDVALIDITY` changes between preflight and fetch, the sync aborts for that mailbox; rerun to proceed under the new generation.
 - Mailboxes with zero missing UIDs (nothing to fetch) are skipped to save time and connections.
+ - Read‑only IMAP: mailboxes are opened with `EXAMINE` and bodies are fetched with `BODY.PEEK[]`, so the sync does not mark messages as read or change flags.
 
 ### Performance considerations
 
-- Server‑diff requires the server to return the full UID list for each mailbox; this is efficient server‑side but can be sizable over the wire for very large mailboxes (tens/hundreds of thousands of messages). Preflight is parallelized with `MAILBOX_THREADS` to mitigate wall‑clock time.
+- Batched fetch: messages are fetched in batches (default size: 100 UIDs) using `UID FETCH` with `BODY.PEEK[]`, `FLAGS`, Gmail extensions, and `UID`. This significantly reduces round‑trips vs one‑by‑one fetch.
+- Connection safety: using `EXAMINE` keeps sessions read‑only; `BODY.PEEK[]` avoids setting `\\Seen` on unread messages.
+
+ - Server‑diff requires the server to return the full UID list for each mailbox; this is efficient server‑side but can be sizable over the wire for very large mailboxes (tens/hundreds of thousands of messages). Preflight is parallelized with `MAILBOX_THREADS` to mitigate wall‑clock time.
 
 ## Linting
 

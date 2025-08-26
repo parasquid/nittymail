@@ -96,3 +96,4 @@ Note: Configure `core/config/.env` first (see below).
 - Workers re‑check `UIDVALIDITY` after `SELECT`; a mismatch aborts with an error.
 - Persistence via `sequel` to SQLite; one table `email` indexed by mailbox, UID, and validity.
 - Optimization: Mailboxes with zero missing UIDs are skipped during the fetch phase.
+ - Read‑only and batched fetches: workers use `EXAMINE` and `UID FETCH` with `BODY.PEEK[]` in batches (default 100 UIDs) to avoid changing flags and reduce round‑trips.

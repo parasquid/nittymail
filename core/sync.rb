@@ -109,7 +109,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     x_gm_thrid: attrs["X-GM-THRID"].to_s.force_encoding("UTF-8"),
     flags: flags_json.force_encoding("UTF-8"),
 
-    encoded: (mail ? mail.encoded : attrs["RFC822"])
+    encoded: (mail ? mail.encoded : (attrs["BODY[]"] || attrs["RFC822"]))
       .to_s
       .force_encoding("UTF-8")
       .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
@@ -215,7 +215,7 @@ module NittyMail
             break unless mailbox
 
             mbox_name = mailbox.name
-            imap.select(mbox_name)
+            imap.examine(mbox_name)
             uidvalidity = imap.responses["UIDVALIDITY"]&.first
             raise "UIDVALIDITY missing for mailbox #{mbox_name}" if uidvalidity.nil?
 
@@ -263,8 +263,10 @@ module NittyMail
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
 
-        uid_queue = Queue.new
-        uids.each { |u| uid_queue << u }
+        # Build batches to reduce round-trips
+        fetch_batch_size = 100
+        batch_queue = Queue.new
+        uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
 
         write_queue = Queue.new
 
@@ -286,7 +288,8 @@ module NittyMail
           Thread.new do
             imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
             imap.login(imap_address, imap_password)
-            imap.select(mbox_name)
+            # Use read-only EXAMINE to avoid changing flags like \\Seen
+            imap.examine(mbox_name)
             patch(imap)
             worker_uidvalidity = imap.responses["UIDVALIDITY"]&.first
             raise "UIDVALIDITY missing for mailbox #{mbox_name} in worker" if worker_uidvalidity.nil?
@@ -294,29 +297,35 @@ module NittyMail
               raise "UIDVALIDITY changed for mailbox #{mbox_name} (preflight=#{uidvalidity}, worker=#{worker_uidvalidity}). Please rerun."
             end
             loop do
-              begin
-                uid = uid_queue.pop(true)
+              batch = begin
+                batch_queue.pop(true)
               rescue ThreadError
-                uid = nil
+                nil
               end
-              break unless uid
+              break unless batch
 
-              attrs = imap.uid_fetch(uid, %w[RFC822 X-GM-LABELS X-GM-MSGID X-GM-THRID FLAGS]).first&.attr
-              next unless attrs
-
-              mail = Mail.read_from_string(attrs["RFC822"])
-              flags_json = attrs["FLAGS"].to_json
-              log_processing(mbox_name:, uid:, mail:, flags_json:)
-              rec = build_record(
-                imap_address:,
-                mbox_name:,
-                uid:,
-                uidvalidity:,
-                mail:,
-                attrs:,
-                flags_json:
-              )
-              write_queue << rec
+              # Fetch multiple messages at once; BODY.PEEK[] avoids setting \\Seen
+              fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
+              fetched = imap.uid_fetch(batch, fetch_items) || []
+              fetched.each do |fd|
+                attrs = fd.attr
+                next unless attrs
+                raw = attrs["BODY[]"] || attrs["RFC822"]
+                mail = Mail.read_from_string(raw)
+                uid = attrs["UID"]
+                flags_json = attrs["FLAGS"].to_json
+                log_processing(mbox_name:, uid:, mail:, flags_json:)
+                rec = build_record(
+                  imap_address:,
+                  mbox_name:,
+                  uid:,
+                  uidvalidity:,
+                  mail:,
+                  attrs:,
+                  flags_json:
+                )
+                write_queue << rec
+              end
             end
             imap.logout
             imap.disconnect
