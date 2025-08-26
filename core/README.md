@@ -87,6 +87,21 @@ THREADS=4 docker compose run --rm ruby ./cli.rb sync
 docker compose run --rm ruby ./cli.rb sync --threads 4
 ```
 
+**Mailbox preflight concurrency (discover UIDs per mailbox in parallel):**
+```bash
+# Using environment variable
+MAILBOX_THREADS=4 docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --mailbox-threads 4
+```
+
+Notes:
+- CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
+- Preflight opens up to `MAILBOX_THREADS` IMAP connections to query mailbox UID lists in parallel.
+- Message fetching still uses `--threads` per mailbox, processed sequentially after preflight.
+- Keep totals under Gmail’s ~15 connection limit. Example safe combos: `MAILBOX_THREADS=4` and `--threads 4` (preflight and fetch phases do not overlap).
+
 ⚠️ **IMPORTANT: Gmail IMAP Connection Limits**
 - Gmail allows a **maximum of 15 simultaneous IMAP connections** per account
 - Using too many threads may result in connection failures or temporary account blocking
@@ -103,6 +118,7 @@ docker compose run --rm ruby ./cli.rb sync \
   --address user@gmail.com \
   --password app-password \
   --database data/backup.sqlite3 \
+  --mailbox-threads 4 \
   --threads 4 \
   --auto-confirm
 ```

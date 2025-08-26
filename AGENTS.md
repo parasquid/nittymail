@@ -78,6 +78,8 @@ Note: Configure `core/config/.env` first (see below).
 - **Optional Variables**:
   - `SYNC_AUTO_CONFIRM=yes`: Skip confirmation prompt for automated runs
   - `THREADS=<n>`: Number of worker threads (default: 1, keep reasonable to avoid throttling)
+  - `MAILBOX_THREADS=<n>`: Number of threads used to preflight mailboxes (discover UID lists) in parallel; defaults to 1. Keep combined IMAP connections under Gmail limits.
+  - CLI flags override env when provided: `--threads N` and `--mailbox-threads N`. If neither flag nor env var is provided, both default to 1.
 - **Adding New Config**: When adding new environment variables, update both `.env.sample` and documentation.
 - **Validation**: Add validation for new config options; fail fast with clear error messages.
 

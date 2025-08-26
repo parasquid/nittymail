@@ -24,6 +24,7 @@ require "sequel"
 require "json"
 require "net/imap"
 require "ruby-progressbar"
+require "thread"
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -127,11 +128,11 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads)
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       Thread.abort_on_exception = true if threads_count > 1
@@ -176,31 +177,62 @@ module NittyMail
 
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
-      mailboxes.each do |mailbox|
-        # mailboxes with attr :Noselect cannpt be selected so we skip those
-        next if mailbox.attr.include?(:Noselect)
+      selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
 
-        mbox_name = mailbox.name
+      # Preflight mailbox checks (uidvalidity, max_uid, and UID list) in parallel
+      mailbox_threads = mailbox_threads.to_i
+      mailbox_threads = 1 if mailbox_threads < 1
+
+      preflight_results = []
+      preflight_mutex = Mutex.new
+      db_mutex = Mutex.new
+
+      # Use a queue to distribute work across mailbox preflight threads
+      mbox_queue = Queue.new
+      selectable_mailboxes.each { |mb| mbox_queue << mb }
+
+      preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
+        Thread.new do
+          # Each preflight thread uses its own IMAP connection
+          imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+          imap.login(imap_address, imap_password)
+          loop do
+            mailbox = begin
+              mbox_queue.pop(true)
+            rescue ThreadError
+              nil
+            end
+            break unless mailbox
+
+            mbox_name = mailbox.name
+            imap.select(mbox_name)
+            uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
+            max_uid = db_mutex.synchronize do
+              email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid)
+            end
+            max_uid = 1 if max_uid.nil? || max_uid.to_i < 1
+            uids = imap.uid_search("UID #{max_uid}:*")
+
+            preflight_mutex.synchronize do
+              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, max_uid: max_uid, uids: uids}
+            end
+          end
+          imap.logout
+          imap.disconnect
+        end
+      end
+      preflight_workers.each(&:join)
+
+      # Process each mailbox (sequentially) using preflight results
+      preflight_results.each do |pf|
+        mbox_name = pf[:name]
+        uidvalidity = pf[:uidvalidity]
+        uids = pf[:uids]
+        max_uid = pf[:max_uid]
+
         puts "processing mailbox #{mbox_name}"
-
-        # get the max uid for a mailbox, paying attention to the uidvalidity
-        # we have to "throw away" the cached records if the uidvalidity changes
-        uidvalidity = max_uid = 1
-        Mail.connection do |imap|
-          imap.select(mbox_name)
-          uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
-          # Use the maximum stored UID (per mailbox + uidvalidity), not a row count
-          max_uid = email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid)
-          max_uid = 1 if max_uid.nil? || max_uid.to_i < 1 # IMAP UID search minimum is 1
-          puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
-        end
-        # Queue UIDs and process with worker IMAP connections
-        uids = Mail.connection do |imap|
-          imap.select(mbox_name)
-          imap.uid_search("UID #{max_uid}:*")
-        end
-        thread_word = "threads"
-        thread_word = "thread" if threads_count == 1
+        puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
+        thread_word = threads_count == 1 ? "thread" : "threads"
         puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
 
         progress = ProgressBar.create(

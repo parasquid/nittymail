@@ -32,7 +32,8 @@ class NittyMailCLI < Thor
   option :address, aliases: "-a", desc: "Gmail address to sync", type: :string
   option :password, aliases: "-p", desc: "Gmail password or app password", type: :string
   option :database, aliases: "-d", desc: "SQLite database file path", type: :string
-  option :threads, aliases: "-t", desc: "Number of threads for parallel processing", type: :numeric, default: 1
+  option :threads, aliases: "-t", desc: "Number of threads for parallel processing (default: 1)", type: :numeric
+  option :mailbox_threads, aliases: "-m", desc: "Threads for mailbox preflight (UID discovery) (default: 1)", type: :numeric
   option :auto_confirm, aliases: "-y", desc: "Skip confirmation prompt", type: :boolean, default: false
   def sync
     # Get configuration from CLI options or environment variables
@@ -41,6 +42,7 @@ class NittyMailCLI < Thor
     database_path = options[:database] || ENV["DATABASE"]
     threads_count = options[:threads] || (ENV["THREADS"] || "1").to_i
     auto_confirm = options[:auto_confirm] || (ENV["SYNC_AUTO_CONFIRM"] && %w[1 true yes y].include?(ENV["SYNC_AUTO_CONFIRM"].to_s.downcase))
+    mailbox_threads = options[:mailbox_threads] || (ENV["MAILBOX_THREADS"] || "1").to_i
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -76,7 +78,8 @@ class NittyMailCLI < Thor
       imap_address: imap_address,
       imap_password: imap_password,
       database_path: database_path,
-      threads_count: threads_count
+      threads_count: threads_count,
+      mailbox_threads: mailbox_threads
     )
   end
 
