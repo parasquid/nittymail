@@ -245,6 +245,13 @@ module NittyMail
         mbox_name = pf[:name]
         uidvalidity = pf[:uidvalidity]
         uids = pf[:uids]
+        # Skip mailboxes with nothing to fetch
+        if uids.nil? || uids.empty?
+          puts "skipping mailbox #{mbox_name} (nothing to fetch)"
+          puts
+          next
+        end
+
         puts "processing mailbox #{mbox_name}"
         puts "uidvalidty is #{uidvalidity}"
         thread_word = (threads_count == 1) ? "thread" : "threads"

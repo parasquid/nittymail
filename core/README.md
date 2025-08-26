@@ -153,6 +153,7 @@ sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 - UID discovery uses a server‑diff (UID `1:*` vs local DB) to avoid gaps when resuming.
 - `UIDVALIDITY` is required; if Gmail does not provide it during preflight or worker selection, the sync aborts with an error.
 - If `UIDVALIDITY` changes between preflight and fetch, the sync aborts for that mailbox; rerun to proceed under the new generation.
+- Mailboxes with zero missing UIDs (nothing to fetch) are skipped to save time and connections.
 
 ### Performance considerations
 

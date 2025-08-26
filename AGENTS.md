@@ -95,3 +95,4 @@ Note: Configure `core/config/.env` first (see below).
 - Preflight uses a server‑diff per mailbox (`UID 1:*` vs local DB for current `UIDVALIDITY`) to compute missing UIDs.
 - Workers re‑check `UIDVALIDITY` after `SELECT`; a mismatch aborts with an error.
 - Persistence via `sequel` to SQLite; one table `email` indexed by mailbox, UID, and validity.
+- Optimization: Mailboxes with zero missing UIDs are skipped during the fetch phase.
