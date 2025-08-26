@@ -79,6 +79,7 @@ Note: Configure `core/config/.env` first (see below).
   - `SYNC_AUTO_CONFIRM=yes`: Skip confirmation prompt for automated runs
   - `THREADS=<n>`: Number of worker threads (default: 1, keep reasonable to avoid throttling)
   - `MAILBOX_THREADS=<n>`: Number of threads used to preflight mailboxes (discover UID lists) in parallel; defaults to 1. Keep combined IMAP connections under Gmail limits.
+  - `PURGE_OLD_VALIDITY=yes`: Automatically delete rows from older UIDVALIDITY generations after a successful mailbox sync when a change is detected.
   - CLI flags override env when provided: `--threads N` and `--mailbox-threads N`. If neither flag nor env var is provided, both default to 1.
 - **Adding New Config**: When adding new environment variables, update both `.env.sample` and documentation.
 - **Validation**: Add validation for new config options; fail fast with clear error messages.
@@ -91,4 +92,6 @@ Note: Configure `core/config/.env` first (see below).
 
 ## Architecture Overview
 - IMAP fetch via `mail` gem, with Gmail extensions patched at runtime.
+- Preflight uses a server‑diff per mailbox (`UID 1:*` vs local DB for current `UIDVALIDITY`) to compute missing UIDs.
+- Workers re‑check `UIDVALIDITY` after `SELECT`; a mismatch aborts with an error.
 - Persistence via `sequel` to SQLite; one table `email` indexed by mailbox, UID, and validity.

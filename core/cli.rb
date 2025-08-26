@@ -35,6 +35,7 @@ class NittyMailCLI < Thor
   option :threads, aliases: "-t", desc: "Number of threads for parallel processing (default: 1)", type: :numeric
   option :mailbox_threads, aliases: "-m", desc: "Threads for mailbox preflight (UID discovery) (default: 1)", type: :numeric
   option :auto_confirm, aliases: "-y", desc: "Skip confirmation prompt", type: :boolean, default: false
+  option :purge_old_validity, desc: "Purge rows from older UIDVALIDITY generations after successful sync", type: :boolean, default: false
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -43,6 +44,7 @@ class NittyMailCLI < Thor
     threads_count = options[:threads] || (ENV["THREADS"] || "1").to_i
     auto_confirm = options[:auto_confirm] || (ENV["SYNC_AUTO_CONFIRM"] && %w[1 true yes y].include?(ENV["SYNC_AUTO_CONFIRM"].to_s.downcase))
     mailbox_threads = options[:mailbox_threads] || (ENV["MAILBOX_THREADS"] || "1").to_i
+    purge_old_validity = options[:purge_old_validity] || (ENV["PURGE_OLD_VALIDITY"] && %w[1 true yes y].include?(ENV["PURGE_OLD_VALIDITY"].to_s.downcase))
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -79,7 +81,9 @@ class NittyMailCLI < Thor
       imap_password: imap_password,
       database_path: database_path,
       threads_count: threads_count,
-      mailbox_threads: mailbox_threads
+      mailbox_threads: mailbox_threads,
+      purge_old_validity: purge_old_validity,
+      auto_confirm: auto_confirm
     )
   end
 

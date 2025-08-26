@@ -98,9 +98,22 @@ docker compose run --rm ruby ./cli.rb sync --mailbox-threads 4
 
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
-- Preflight opens up to `MAILBOX_THREADS` IMAP connections to query mailbox UID lists in parallel.
+- Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
 - Message fetching still uses `--threads` per mailbox, processed sequentially after preflight.
 - Keep totals under Gmail’s ~15 connection limit. Example safe combos: `MAILBOX_THREADS=4` and `--threads 4` (preflight and fetch phases do not overlap).
+
+**Purge old UIDVALIDITY generations (optional):**
+```bash
+# CLI flag (auto purge when a change is detected)
+docker compose run --rm ruby ./cli.rb sync --purge-old-validity
+
+# Environment variable (same behavior)
+PURGE_OLD_VALIDITY=yes docker compose run --rm ruby ./cli.rb sync
+```
+Behavior:
+- When Gmail rotates a mailbox’s `UIDVALIDITY`, rows from prior generations remain in the DB.
+- With `--purge-old-validity` (or `PURGE_OLD_VALIDITY=yes`), NittyMail automatically deletes those older rows after a successful mailbox sync.
+- Without the flag, you will be prompted to purge when a change is detected (skipped in non‑TTY/non‑interactive runs unless the flag is set).
 
 ⚠️ **IMPORTANT: Gmail IMAP Connection Limits**
 - Gmail allows a **maximum of 15 simultaneous IMAP connections** per account
@@ -120,7 +133,8 @@ docker compose run --rm ruby ./cli.rb sync \
   --database data/backup.sqlite3 \
   --mailbox-threads 4 \
   --threads 4 \
-  --auto-confirm
+  --auto-confirm \
+  --purge-old-validity
 ```
 
 **View available commands and options:**
@@ -133,6 +147,16 @@ docker compose run --rm ruby ./cli.rb help sync
 ```bash
 sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 ```
+
+## Behavior & Guarantees
+
+- UID discovery uses a server‑diff (UID `1:*` vs local DB) to avoid gaps when resuming.
+- `UIDVALIDITY` is required; if Gmail does not provide it during preflight or worker selection, the sync aborts with an error.
+- If `UIDVALIDITY` changes between preflight and fetch, the sync aborts for that mailbox; rerun to proceed under the new generation.
+
+### Performance considerations
+
+- Server‑diff requires the server to return the full UID list for each mailbox; this is efficient server‑side but can be sizable over the wire for very large mailboxes (tens/hundreds of thousands of messages). Preflight is parallelized with `MAILBOX_THREADS` to mitigate wall‑clock time.
 
 ## Linting
 

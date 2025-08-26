@@ -130,11 +130,11 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm)
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       Thread.abort_on_exception = true if threads_count > 1
@@ -181,7 +181,7 @@ module NittyMail
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
 
-      # Preflight mailbox checks (uidvalidity, max_uid, and UID list) in parallel
+      # Preflight mailbox checks (uidvalidity and UID diff) in parallel
       mailbox_threads = mailbox_threads.to_i
       mailbox_threads = 1 if mailbox_threads < 1
 
@@ -216,16 +216,19 @@ module NittyMail
 
             mbox_name = mailbox.name
             imap.select(mbox_name)
-            uidvalidity = imap.responses["UIDVALIDITY"]&.first || 1
-            max_uid = db_mutex.synchronize do
-              email.where(mailbox: mbox_name, uidvalidity: uidvalidity).max(:uid)
+            uidvalidity = imap.responses["UIDVALIDITY"]&.first
+            raise "UIDVALIDITY missing for mailbox #{mbox_name}" if uidvalidity.nil?
+
+            # Server-diff: compute UIDs that are on server but not in DB
+            server_uids = imap.uid_search("UID 1:*")
+            db_uids = db_mutex.synchronize do
+              email.where(mailbox: mbox_name, uidvalidity: uidvalidity).select_map(:uid)
             end
-            max_uid = 1 if max_uid.nil? || max_uid.to_i < 1
-            uids = imap.uid_search("UID #{max_uid}:*")
+            uids = server_uids - db_uids
 
             preflight_mutex.synchronize do
-              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, max_uid: max_uid, uids: uids}
-              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, from_uid=#{max_uid}, found=#{uids.size}")
+              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids}
+              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size} (server=#{server_uids.size}, db=#{db_uids.size})")
               preflight_progress.increment
             end
           end
@@ -242,10 +245,8 @@ module NittyMail
         mbox_name = pf[:name]
         uidvalidity = pf[:uidvalidity]
         uids = pf[:uids]
-        max_uid = pf[:max_uid]
-
         puts "processing mailbox #{mbox_name}"
-        puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
+        puts "uidvalidty is #{uidvalidity}"
         thread_word = (threads_count == 1) ? "thread" : "threads"
         puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
 
@@ -280,6 +281,11 @@ module NittyMail
             imap.login(imap_address, imap_password)
             imap.select(mbox_name)
             patch(imap)
+            worker_uidvalidity = imap.responses["UIDVALIDITY"]&.first
+            raise "UIDVALIDITY missing for mailbox #{mbox_name} in worker" if worker_uidvalidity.nil?
+            if worker_uidvalidity.to_i != uidvalidity.to_i
+              raise "UIDVALIDITY changed for mailbox #{mbox_name} (preflight=#{uidvalidity}, worker=#{worker_uidvalidity}). Please rerun."
+            end
             loop do
               begin
                 uid = uid_queue.pop(true)
@@ -313,6 +319,27 @@ module NittyMail
         workers.each(&:join)
         write_queue << :__DONE__
         writer.join
+        # Optionally purge old UIDVALIDITY generations for this mailbox
+        other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
+        unless other_validities.empty?
+          do_purge = false
+          if purge_old_validity
+            do_purge = true
+          elsif $stdin.tty? && !auto_confirm
+            print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
+            ans = $stdin.gets&.strip&.downcase
+            do_purge = %w[y yes].include?(ans)
+          end
+          if do_purge
+            count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
+            @db.transaction do
+              email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
+            end
+            puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
+          else
+            puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
+          end
+        end
         puts
       end
     end
