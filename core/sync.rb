@@ -24,7 +24,9 @@ require "sequel"
 require "json"
 require "net/imap"
 require "ruby-progressbar"
-require "thread"
+
+# Ensure immediate flushing so output appears promptly in Docker
+$stdout.sync = true
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -191,6 +193,14 @@ module NittyMail
       mbox_queue = Queue.new
       selectable_mailboxes.each { |mb| mbox_queue << mb }
 
+      thread_word = (mailbox_threads == 1) ? "thread" : "threads"
+      puts "preflighting #{selectable_mailboxes.size} mailboxes with #{mailbox_threads} #{thread_word}"
+      preflight_progress = ProgressBar.create(
+        title: "preflight",
+        total: selectable_mailboxes.size,
+        format: "%t: |%B| %p%% (%c/%C) [%e]"
+      )
+
       preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
         Thread.new do
           # Each preflight thread uses its own IMAP connection
@@ -215,6 +225,8 @@ module NittyMail
 
             preflight_mutex.synchronize do
               preflight_results << {name: mbox_name, uidvalidity: uidvalidity, max_uid: max_uid, uids: uids}
+              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, from_uid=#{max_uid}, found=#{uids.size}")
+              preflight_progress.increment
             end
           end
           imap.logout
@@ -222,6 +234,8 @@ module NittyMail
         end
       end
       preflight_workers.each(&:join)
+
+      puts
 
       # Process each mailbox (sequentially) using preflight results
       preflight_results.each do |pf|
@@ -232,7 +246,7 @@ module NittyMail
 
         puts "processing mailbox #{mbox_name}"
         puts "uidvalidty is #{uidvalidity} and max_uid is #{max_uid}"
-        thread_word = threads_count == 1 ? "thread" : "threads"
+        thread_word = (threads_count == 1) ? "thread" : "threads"
         puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
 
         progress = ProgressBar.create(
