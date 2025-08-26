@@ -96,10 +96,19 @@ MAILBOX_THREADS=4 docker compose run --rm ruby ./cli.rb sync
 docker compose run --rm ruby ./cli.rb sync --mailbox-threads 4
 ```
 
+**Configure UID fetch batch size:**
+```bash
+# Using environment variable (default: 100)
+FETCH_BATCH_SIZE=200 docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --fetch-batch-size 200
+```
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
-- Message fetching still uses `--threads` per mailbox, processed sequentially after preflight. Messages are fetched in batches (default 100 UIDs per request) to reduce IMAP round‑trips.
+- Message fetching still uses `--threads` per mailbox, processed sequentially after preflight. Messages are fetched in batches (default 100 UIDs per request, configurable via `--fetch-batch-size`/`FETCH_BATCH_SIZE`) to reduce IMAP round‑trips.
 - Keep totals under Gmail’s ~15 connection limit. Example safe combos: `MAILBOX_THREADS=4` and `--threads 4` (preflight and fetch phases do not overlap).
 
 **Purge old UIDVALIDITY generations (optional):**

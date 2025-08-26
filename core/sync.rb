@@ -130,13 +130,14 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size)
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
+      fetch_batch_size = 1 if fetch_batch_size.to_i < 1
       Thread.abort_on_exception = true if threads_count > 1
       Mail.defaults do
         retriever_method :imap, address: "imap.gmail.com",
@@ -264,7 +265,6 @@ module NittyMail
         )
 
         # Build batches to reduce round-trips
-        fetch_batch_size = 100
         batch_queue = Queue.new
         uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
 
