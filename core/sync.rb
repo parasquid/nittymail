@@ -88,7 +88,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
   date = begin
     mail&.date
   rescue Mail::Field::NilParseError
-    puts "Error parsing date for #{mail&.subject}"
+    warn "Error parsing date for #{mail&.subject}"
     nil
   end
 
@@ -117,15 +117,21 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 end
 
 # Log a concise processing line (handles odd headers safely)
-def log_processing(mbox_name:, uid:, mail:, flags_json:)
+def log_processing(mbox_name:, uid:, mail:, flags_json:, progress: nil)
   subj = mail&.subject
   from = mail&.from&.to_json
-  print "processing mail in mailbox #{mbox_name} with uid: #{uid} from #{from} and subject: #{subj} #{flags_json} "
-
-  date = mail&.date
-  puts "sent on #{date}"
-rescue Mail::Field::NilParseError
-  puts "sent on unknown date"
+  suffix = begin
+    date = mail&.date
+    "sent on #{date}"
+  rescue Mail::Field::NilParseError
+    "sent on unknown date"
+  end
+  line = "processing mail in mailbox #{mbox_name} with uid: #{uid} from #{from} and subject: #{subj} #{flags_json} #{suffix}"
+  if progress
+    progress.log(line)
+  else
+    puts line
+  end
 end
 
 module NittyMail
@@ -278,7 +284,8 @@ module NittyMail
             begin
               email.insert(rec)
             rescue Sequel::UniqueConstraintViolation
-              puts "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."
+              # Log through the progress bar to avoid clobbering
+              progress.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
             end
             progress.increment
           end
@@ -314,7 +321,7 @@ module NittyMail
                 mail = Mail.read_from_string(raw)
                 uid = attrs["UID"]
                 flags_json = attrs["FLAGS"].to_json
-                log_processing(mbox_name:, uid:, mail:, flags_json:)
+                log_processing(mbox_name:, uid:, mail:, flags_json:, progress: progress)
                 rec = build_record(
                   imap_address:,
                   mbox_name:,
