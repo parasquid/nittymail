@@ -95,6 +95,30 @@ Note: Configure `core/config/.env` first (see below).
     EOF`
 - Shell quoting tips: use single quotes around `EOF` to avoid interpolation; ensure `EOF` is on its own line with no trailing spaces; avoid unescaped backslashes in the body.
 
+#### Do not put literal `\n` in messages
+- Never type `\n` inside `-m` strings expecting it to become a newline — it will be stored literally.
+- If you see backslashes in your message content, stop and use `-F` with a file or the heredoc approach above.
+
+#### Verify before pushing
+- Check for literal `\n` sequences in your recent commit bodies:
+  - `git log -n 5 --pretty=%B | grep -F '\\n' && echo 'Found literal \\n in commit messages' && exit 1 || true`
+- Inspect the last commit body exactly as Git sees it:
+  - `git log -1 --pretty=%B`
+  - `git log -1 --pretty=%B | sed -n 'l'` (shows control chars; `\n` should not appear literally)
+
+#### If you slipped, fix it immediately
+- Amend the last commit with a proper multi-line body:
+  - `git commit --amend -F - << 'EOF'
+    type(scope): subject
+
+    Why:
+    - rationale here
+
+    What:
+    - changes here
+    EOF`
+- For multiple bad commits, rebase or re-create them: save patches, reset, re-apply, and recommit with corrected messages; then `git push --force-with-lease`.
+
 ## Configuration Management
 - **Environment Variables**: All configuration via environment variables or `.env` file.
 - **Required Variables**:
