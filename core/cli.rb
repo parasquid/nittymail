@@ -37,6 +37,7 @@ class NittyMailCLI < Thor
   option :auto_confirm, aliases: "-y", desc: "Skip confirmation prompt", type: :boolean, default: false
   option :purge_old_validity, desc: "Purge rows from older UIDVALIDITY generations after successful sync", type: :boolean, default: false
   option :fetch_batch_size, aliases: "-b", desc: "UID FETCH batch size (default: 100)", type: :numeric
+  option :ignore_mailboxes, aliases: "-I", desc: "Comma-separated mailbox names/patterns to ignore (supports * and ?)", type: :string
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -47,6 +48,8 @@ class NittyMailCLI < Thor
     mailbox_threads = options[:mailbox_threads] || (ENV["MAILBOX_THREADS"] || "1").to_i
     purge_old_validity = options[:purge_old_validity] || (ENV["PURGE_OLD_VALIDITY"] && %w[1 true yes y].include?(ENV["PURGE_OLD_VALIDITY"].to_s.downcase))
     fetch_batch_size = options[:fetch_batch_size] || (ENV["FETCH_BATCH_SIZE"] || "100").to_i
+    ignore_mailboxes_raw = options[:ignore_mailboxes] || ENV["MAILBOX_IGNORE"]
+    ignore_mailboxes = (ignore_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -87,7 +90,8 @@ class NittyMailCLI < Thor
       mailbox_threads: mailbox_threads,
       purge_old_validity: purge_old_validity,
       auto_confirm: auto_confirm,
-      fetch_batch_size: fetch_batch_size
+      fetch_batch_size: fetch_batch_size,
+      ignore_mailboxes: ignore_mailboxes
     )
   end
 

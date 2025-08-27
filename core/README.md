@@ -105,6 +105,18 @@ FETCH_BATCH_SIZE=200 docker compose run --rm ruby ./cli.rb sync
 docker compose run --rm ruby ./cli.rb sync --fetch-batch-size 200
 ```
 
+**Ignore specific mailboxes (skip syncing them):**
+```bash
+# Using environment variable (comma-separated; supports * and ? wildcards)
+MAILBOX_IGNORE="[Gmail]/*,Spam,Trash" docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --ignore-mailboxes "[Gmail]/*,Spam,Trash"
+```
+Notes:
+- Patterns are matched case-insensitively against full mailbox names.
+- `*` matches any sequence; `?` matches a single character. Brackets in names (e.g., `[Gmail]`) are handled literally.
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
@@ -142,6 +154,7 @@ docker compose run --rm ruby ./cli.rb sync \
   --database data/backup.sqlite3 \
   --mailbox-threads 4 \
   --threads 4 \
+  --ignore-mailboxes "[Gmail]/*,Spam" \
   --auto-confirm \
   --purge-old-validity
 ```

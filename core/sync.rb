@@ -109,7 +109,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     x_gm_thrid: attrs["X-GM-THRID"].to_s.force_encoding("UTF-8"),
     flags: flags_json.force_encoding("UTF-8"),
 
-    encoded: (mail ? mail.encoded : (attrs["BODY[]"] || attrs["RFC822"]))
+    encoded: (attrs["BODY[]"] || attrs["RFC822"])
       .to_s
       .force_encoding("UTF-8")
       .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
@@ -136,11 +136,11 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [])
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes)
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -187,6 +187,28 @@ module NittyMail
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
+
+      # Filter out ignored mailboxes if configured
+      ignore_mailboxes ||= []
+      ignore_mailboxes = ignore_mailboxes.compact.map(&:to_s).map(&:strip).reject(&:empty?)
+      if ignore_mailboxes.any?
+        # Convert simple glob patterns (* and ?) to regex safely
+        regexes = ignore_mailboxes.map do |pat|
+          escaped = Regexp.escape(pat)
+          escaped = escaped.gsub(/\\\*/m, ".*")
+          escaped = escaped.gsub(/\\\?/m, ".")
+          Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
+        end
+
+        before = selectable_mailboxes.size
+        ignored, kept = selectable_mailboxes.partition { |mb| regexes.any? { |rx| rx.match?(mb.name) } }
+        selectable_mailboxes = kept
+        if ignored.any?
+          ignored_names = ignored.map(&:name)
+          puts "ignoring #{ignored_names.size} mailbox(es): #{ignored_names.join(", ")}"
+        end
+        puts "will consider #{selectable_mailboxes.size} selectable mailbox(es) after ignore filter (was #{before})"
+      end
 
       # Preflight mailbox checks (uidvalidity and UID diff) in parallel
       mailbox_threads = mailbox_threads.to_i
