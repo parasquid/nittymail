@@ -1,0 +1,19 @@
+---
+# Limit Solargraph indexing by excluding large/generated/vendor dirs
+include:
+  - "**/*.rb"
+exclude:
+  - "**/vendor/**"
+  - "**/.bundle/**"
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/tmp/**"
+  - "**/log/**"
+  - "core/vendor/**"
+  - "core/data/**"
+  - "core/config/.env"
+reporters:
+  - rubocop
+domains: []
+require: []
+plugins: []
