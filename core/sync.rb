@@ -287,7 +287,7 @@ module NittyMail
         puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
 
         progress = ProgressBar.create(
-          title: mbox_name,
+          title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})",
           total: uids.size,
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
