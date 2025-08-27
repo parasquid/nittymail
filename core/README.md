@@ -116,6 +116,8 @@ docker compose run --rm ruby ./cli.rb sync --ignore-mailboxes "[Gmail]/*,Spam,Tr
 Notes:
 - Patterns are matched case-insensitively against full mailbox names.
 - `*` matches any sequence; `?` matches a single character. Brackets in names (e.g., `[Gmail]`) are handled literally.
+- Default recommendation: ignore Spam and Trash to reduce unnecessary data and speed up syncs. Example:
+  - `MAILBOX_IGNORE="Spam,Trash"`
 
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.

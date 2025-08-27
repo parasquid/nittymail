@@ -85,7 +85,7 @@ Note: Configure `core/config/.env` first (see below).
   - `MAILBOX_THREADS=<n>`: Number of threads used to preflight mailboxes (discover UID lists) in parallel; defaults to 1. Keep combined IMAP connections under Gmail limits.
   - `PURGE_OLD_VALIDITY=yes`: Automatically delete rows from older UIDVALIDITY generations after a successful mailbox sync when a change is detected.
   - `FETCH_BATCH_SIZE=<n>`: Number of UIDs per `UID FETCH` request (default: 100). CLI flag `--fetch-batch-size` overrides.
-  - `MAILBOX_IGNORE="[Gmail]/*,Spam,Trash"`: Comma-separated mailbox names/patterns to skip (supports `*` and `?`). CLI flag `--ignore-mailboxes` overrides.
+  - `MAILBOX_IGNORE="Spam,Trash"`: Comma-separated mailbox names/patterns to skip (supports `*` and `?`). Default recommendation is to ignore Spam and Trash to reduce unnecessary data. CLI flag `--ignore-mailboxes` overrides.
   - CLI flags override env when provided: `--threads N` and `--mailbox-threads N`. If neither flag nor env var is provided, both default to 1.
 - **Adding New Config**: When adding new environment variables, update both `.env.sample` and documentation.
 - **Validation**: Add validation for new config options; fail fast with clear error messages.
