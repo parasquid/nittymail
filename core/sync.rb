@@ -30,9 +30,11 @@ $stdout.sync = true
 
 # Encode any string-ish value to UTF-8 safely, replacing invalid/undef bytes
 def safe_utf8(value)
-  value.to_s
-    .force_encoding("UTF-8")
-    .encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
+  # Avoid mutating frozen strings (e.g., literals under frozen_string_literal)
+  s = value.to_s
+  s = s.dup if s.frozen?
+  # Transcode treating input as binary bytes; replace problematic sequences
+  s.encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
 end
 
 # JSON-encode an Array or scalar after UTF-8 sanitization; never raise
