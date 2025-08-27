@@ -375,13 +375,33 @@ module NittyMail
 
         write_queue = Queue.new
 
+        # Use a prepared insert with bind parameters to safely handle
+        # any bytes/newlines/quotes in values (especially large bodies).
+        insert_stmt = email.prepare(
+          :insert, :insert_email,
+          address: :$address,
+          mailbox: :$mailbox,
+          uid: :$uid,
+          uidvalidity: :$uidvalidity,
+          message_id: :$message_id,
+          date: :$date,
+          from: :$from,
+          subject: :$subject,
+          has_attachments: :$has_attachments,
+          x_gm_labels: :$x_gm_labels,
+          x_gm_msgid: :$x_gm_msgid,
+          x_gm_thrid: :$x_gm_thrid,
+          flags: :$flags,
+          encoded: :$encoded
+        )
+
         writer = Thread.new do
           loop do
             rec = write_queue.pop
             break if rec == :__DONE__
 
             begin
-              email.insert(rec)
+              insert_stmt.call(rec)
             rescue Sequel::UniqueConstraintViolation
               # Log through the progress bar to avoid clobbering
               progress.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
