@@ -77,6 +77,24 @@ Note: Configure `core/config/.env` first (see below).
 - PRs: include purpose, approach, test plan (commands/output), and any related issue (e.g., "Fixes #123").
 - AI agents: Always run linting commands before staging any commit. Do not proceed with commits if linting fails. Use conventional commit format.
 
+### Multi-line Commit Messages (Newlines)
+- Prefer multiple `-m` flags for portability: `git commit -m "feat: subject" -m "Why: ..." -m "What: ..."`.
+- For longer bodies, use a file: write to `COMMIT_MSG.txt` and run `git commit -F COMMIT_MSG.txt`.
+- Or use a heredoc to pass a body with proper newlines:
+  - `git commit --amend -F - << 'EOF'
+    feat(scope): concise subject
+
+    Why:
+    - one or two bullets
+
+    What:
+    - short list of changes
+
+    Notes:
+    - optional caveats
+    EOF`
+- Shell quoting tips: use single quotes around `EOF` to avoid interpolation; ensure `EOF` is on its own line with no trailing spaces; avoid unescaped backslashes in the body.
+
 ## Configuration Management
 - **Environment Variables**: All configuration via environment variables or `.env` file.
 - **Required Variables**:
