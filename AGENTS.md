@@ -1,3 +1,24 @@
+# AI Agent MUST: Commit Messages
+
+Always create multi-line commit messages without literal "\n". Use one of these exact patterns:
+
+- Heredoc (preferred):
+  - `git commit -F - << 'EOF'
+    type(scope): subject
+
+    Why:
+    - short bullets
+
+    What:
+    - short bullets
+    EOF`
+- Multiple messages (each `-m` is a paragraph):
+  - `git commit -m "type(scope): subject" -m "Why:" -m "- short bullet" -m "" -m "What:" -m "- short bullet"`
+
+Rules:
+- Never include the characters "\n" inside any `-m` string.
+- Prefer the heredoc when you need multi-line bullets or longer bodies.
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
