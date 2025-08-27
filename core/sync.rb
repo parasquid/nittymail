@@ -36,13 +36,14 @@ def safe_utf8(value)
 end
 
 # JSON-encode an Array or scalar after UTF-8 sanitization; never raise
-def safe_json(value)
+def safe_json(value, on_error: nil)
   if value.is_a?(Array)
     value.map { |v| safe_utf8(v) }.to_json
   else
     safe_utf8(value).to_json
   end
 rescue JSON::GeneratorError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+  warn(on_error) if on_error
   value.is_a?(Array) ? "[]" : "\"\""
 end
 
@@ -118,7 +119,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 
     message_id: safe_utf8(mail&.message_id),
     date:,
-    from: safe_json(mail&.from),
+    from: safe_json(mail&.from, on_error: "encoding error for 'from' while building record; subject: #{safe_utf8(mail&.subject)}"),
     subject: safe_utf8(mail&.subject),
     has_attachments: mail ? mail.has_attachments? : false,
 
@@ -134,7 +135,7 @@ end
 # Log a concise processing line (handles odd headers safely)
 def log_processing(mbox_name:, uid:, mail:, flags_json:, progress: nil)
   subj = safe_utf8(mail&.subject)
-  from = safe_json(mail&.from)
+  from = safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}")
   suffix = begin
     date = mail&.date
     "sent on #{date}"
