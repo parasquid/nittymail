@@ -69,6 +69,10 @@ Note: Configure `core/config/.env` first (see below).
 - **Commit Format**: Use Conventional Commits format: `<type>(<scope>): <description>`
   - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
   - Examples: `feat(sync): add multi-threading support`, `fix(imap): handle nil message ids`, `docs: update threading usage`
+- **Include the Why for significant changes**: For user-facing or behavior-changing commits, add a short rationale section in the body explaining why the change is needed. Prefer a structured body with:
+  - `Why:` one or two bullets on motivation
+  - `What:` concise list of changes
+  - `Notes:` optional caveats or follow-ups
 - Group related changes; avoid unrelated refactors.
 - PRs: include purpose, approach, test plan (commands/output), and any related issue (e.g., "Fixes #123").
 - AI agents: Always run linting commands before staging any commit. Do not proceed with commits if linting fails. Use conventional commit format.
