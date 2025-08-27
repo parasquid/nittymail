@@ -81,6 +81,19 @@ def parse_mail_safely(raw, mbox_name:, uid:)
   raise(last_error || ArgumentError.new("unparseable message for mailbox=#{mbox_name} uid=#{uid}"))
 end
 
+# Best-effort subject extraction without tripping on bad bytes
+def extract_subject(mail, raw)
+  begin
+    return safe_utf8(mail&.subject)
+  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+    # fall through to raw
+  end
+  headers = raw.to_s.split(/\r?\n\r?\n/, 2).first.to_s
+  m = headers.match(/^Subject:\s*(.*?)(?:\r?\n(?![ \t])|\z)/m)
+  subj = m ? m[1].gsub(/\r?\n[ \t]+/, " ").strip : ""
+  safe_utf8(subj)
+end
+
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
   class << gmail_imap.instance_variable_get(:@parser)
@@ -137,13 +150,15 @@ def patch(gmail_imap)
 end
 
 # Build a DB record from a Mail object and IMAP attrs
-def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:)
+def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:, raw:)
   date = begin
     mail&.date
   rescue Mail::Field::NilParseError
     warn "Error parsing date for #{mail&.subject}"
     nil
   end
+
+  subject_str = extract_subject(mail, raw)
 
   {
     address: imap_address,
@@ -153,8 +168,13 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 
     message_id: safe_utf8(mail&.message_id),
     date:,
-    from: safe_json(mail&.from, on_error: "encoding error for 'from' while building record; subject: #{safe_utf8(mail&.subject)}"),
-    subject: safe_utf8(mail&.subject),
+    from: begin
+      safe_json(mail&.from)
+    rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+      warn "encoding error for 'from' while building record; subject: #{subject_str}"
+      "[]"
+    end,
+    subject: subject_str,
     has_attachments: mail ? mail.has_attachments? : false,
 
     x_gm_labels: attrs["X-GM-LABELS"].to_s.force_encoding("UTF-8"),
@@ -162,14 +182,19 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     x_gm_thrid: attrs["X-GM-THRID"].to_s.force_encoding("UTF-8"),
     flags: flags_json.force_encoding("UTF-8"),
 
-    encoded: safe_utf8(attrs["BODY[]"] || attrs["RFC822"])
+    encoded: safe_utf8(raw)
   }
 end
 
 # Log a concise processing line (handles odd headers safely)
-def log_processing(mbox_name:, uid:, mail:, flags_json:, progress: nil)
-  subj = safe_utf8(mail&.subject)
-  from = safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}")
+def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil)
+  subj = extract_subject(mail, raw)
+  from = begin
+    safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}")
+  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+    warn "encoding error for 'from' during logging; subject: #{subj}"
+    "[]"
+  end
   suffix = begin
     date = mail&.date
     "sent on #{date}"
@@ -393,7 +418,7 @@ module NittyMail
                 raw = attrs["BODY[]"] || attrs["RFC822"]
                 mail = parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
                 flags_json = attrs["FLAGS"].to_json
-                log_processing(mbox_name:, uid:, mail:, flags_json:, progress: progress)
+                log_processing(mbox_name:, uid:, mail:, flags_json:, raw: raw, progress: progress)
                 rec = build_record(
                   imap_address:,
                   mbox_name:,
@@ -401,7 +426,8 @@ module NittyMail
                   uidvalidity:,
                   mail:,
                   attrs:,
-                  flags_json:
+                  flags_json:,
+                  raw: raw
                 )
                 write_queue << rec
               end
