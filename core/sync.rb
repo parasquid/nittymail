@@ -282,7 +282,7 @@ module NittyMail
         end
 
         puts "processing mailbox #{mbox_name}"
-        puts "uidvalidty is #{uidvalidity}"
+        puts "uidvalidity is #{uidvalidity}"
         thread_word = (threads_count == 1) ? "thread" : "threads"
         puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
 
