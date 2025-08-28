@@ -157,7 +157,7 @@ end
 def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:, raw:, strict_errors: false)
   date = begin
     mail&.date
-  rescue Mail::Field::NilParseError
+  rescue Mail::Field::NilParseError, ArgumentError
     raise if strict_errors
     warn "Error parsing date for #{mail&.subject}"
     nil
@@ -205,7 +205,8 @@ def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil, st
   suffix = begin
     date = mail&.date
     "sent on #{date}"
-  rescue Mail::Field::NilParseError
+  rescue Mail::Field::NilParseError, ArgumentError
+    raise if strict_errors
     "sent on unknown date"
   end
   line = "processing mail in mailbox #{mbox_name} with uid: #{uid} from #{from} and subject: #{subj} #{flags_json} #{suffix}"
