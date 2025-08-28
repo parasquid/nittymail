@@ -38,13 +38,14 @@ def safe_utf8(value)
 end
 
 # JSON-encode an Array or scalar after UTF-8 sanitization; never raise
-def safe_json(value, on_error: nil)
+def safe_json(value, on_error: nil, strict_errors: false)
   if value.is_a?(Array)
     value.map { |v| safe_utf8(v) }.to_json
   else
     safe_utf8(value).to_json
   end
 rescue JSON::GeneratorError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+  raise if strict_errors
   warn(on_error) if on_error
   value.is_a?(Array) ? "[]" : "\"\""
 end
@@ -84,10 +85,11 @@ def parse_mail_safely(raw, mbox_name:, uid:)
 end
 
 # Best-effort subject extraction without tripping on bad bytes
-def extract_subject(mail, raw)
+def extract_subject(mail, raw, strict_errors: false)
   begin
     return safe_utf8(mail&.subject)
   rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+    raise if strict_errors
     # fall through to raw
   end
   headers = raw.to_s.split(/\r?\n\r?\n/, 2).first.to_s
@@ -152,15 +154,16 @@ def patch(gmail_imap)
 end
 
 # Build a DB record from a Mail object and IMAP attrs
-def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:, raw:)
+def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, flags_json:, raw:, strict_errors: false)
   date = begin
     mail&.date
   rescue Mail::Field::NilParseError
+    raise if strict_errors
     warn "Error parsing date for #{mail&.subject}"
     nil
   end
 
-  subject_str = extract_subject(mail, raw)
+  subject_str = extract_subject(mail, raw, strict_errors: strict_errors)
 
   {
     address: imap_address,
@@ -171,8 +174,9 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     message_id: safe_utf8(mail&.message_id),
     date:,
     from: begin
-      safe_json(mail&.from)
+      safe_json(mail&.from, strict_errors: strict_errors)
     rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+      raise if strict_errors
       warn "encoding error for 'from' while building record; subject: #{subject_str}"
       "[]"
     end,
@@ -189,11 +193,12 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 end
 
 # Log a concise processing line (handles odd headers safely)
-def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil)
-  subj = extract_subject(mail, raw)
+def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil, strict_errors: false)
+  subj = extract_subject(mail, raw, strict_errors: strict_errors)
   from = begin
-    safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}")
+    safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: strict_errors)
   rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+    raise if strict_errors
     warn "encoding error for 'from' during logging; subject: #{subj}"
     "[]"
   end
@@ -213,11 +218,12 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [])
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors)
+      @strict_errors = !!strict_errors
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -402,7 +408,8 @@ module NittyMail
 
             begin
               insert_stmt.call(rec)
-            rescue Sequel::UniqueConstraintViolation
+            rescue Sequel::UniqueConstraintViolation => e
+              raise e if @strict_errors
               # Log through the progress bar to avoid clobbering
               progress.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
             end
@@ -440,7 +447,7 @@ module NittyMail
                 raw = attrs["BODY[]"] || attrs["RFC822"]
                 mail = parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
                 flags_json = attrs["FLAGS"].to_json
-                log_processing(mbox_name:, uid:, mail:, flags_json:, raw: raw, progress: progress)
+                log_processing(mbox_name:, uid:, mail:, flags_json:, raw: raw, progress: progress, strict_errors: @strict_errors)
                 rec = build_record(
                   imap_address:,
                   mbox_name:,
@@ -449,7 +456,8 @@ module NittyMail
                   mail:,
                   attrs:,
                   flags_json:,
-                  raw: raw
+                  raw: raw,
+                  strict_errors: @strict_errors
                 )
                 write_queue << rec
               end
