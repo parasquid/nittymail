@@ -164,7 +164,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 
   {
     address: imap_address,
-    mailbox: mbox_name.force_encoding("UTF-8"),
+    mailbox: safe_utf8(mbox_name),
     uid: uid,
     uidvalidity: uidvalidity,
 
@@ -179,10 +179,10 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     subject: subject_str,
     has_attachments: mail ? mail.has_attachments? : false,
 
-    x_gm_labels: attrs["X-GM-LABELS"].to_s.force_encoding("UTF-8"),
-    x_gm_msgid: attrs["X-GM-MSGID"].to_s.force_encoding("UTF-8"),
-    x_gm_thrid: attrs["X-GM-THRID"].to_s.force_encoding("UTF-8"),
-    flags: flags_json.force_encoding("UTF-8"),
+    x_gm_labels: safe_utf8(attrs["X-GM-LABELS"].to_s),
+    x_gm_msgid: safe_utf8(attrs["X-GM-MSGID"].to_s),
+    x_gm_thrid: safe_utf8(attrs["X-GM-THRID"].to_s),
+    flags: safe_utf8(flags_json),
 
     encoded: safe_utf8(raw)
   }
