@@ -247,7 +247,6 @@ module NittyMail
           total: uids.size,
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
-        embed_progress = nil
 
         result = NittyMail::MailboxRunner.run(
           imap_address:,
@@ -261,13 +260,9 @@ module NittyMail
           retry_attempts: @retry_attempts,
           strict_errors: @strict_errors,
           progress:,
-          embed_progress: embed_progress,
           quiet: @quiet,
           embedding: {
-            enabled: @embed_enabled && !(@ollama_host.nil? || @ollama_host.strip.empty?),
-            ollama_host: @ollama_host,
-            model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
-            dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+            enabled: false
           }
         )
 

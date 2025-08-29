@@ -205,7 +205,7 @@ Behavior:
 - If you encounter "Too many simultaneous connections" errors, reduce thread count
 - For details, see: https://support.google.com/mail/answer/7126229
 
-**Complete CLI example with all options:**
+**Complete CLI example with all options (mail download only; embeddings via `embed` subcommand):**
 ```bash
 docker compose run --rm ruby ./cli.rb sync \
   --address user@gmail.com \

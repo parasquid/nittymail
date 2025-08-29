@@ -48,23 +48,13 @@ For each embedded field, a row is inserted (or upserted) into `email_vec` and an
 - `dimension`: vector dimension
 - `created_at`: timestamp
 
-## Running a sync with embeddings enabled (or disabled)
+## Embedding workflow
 
-1) Start or ensure Ollama is running and has the model you want:
+Embeddings are not performed during `sync`. First run `sync` to download mail, then use the `embed` subcommand to generate/store vectors.
+
+Start or ensure Ollama is running and has the model you want:
 ```bash
 ollama pull mxbai-embed-large
-```
-
-2) Run the sync with `OLLAMA_HOST` set (or `--ollama-host`):
-```bash
-docker compose run --rm \
-  -e OLLAMA_HOST=http://localhost:11434 \
-  ruby ./cli.rb sync --database data/your.sqlite3 --address user@gmail.com --password app_pass
-```
-
-3) Verify vectors were stored:
-```bash
-sqlite3 core/data/your.sqlite3 '\n.mode box\n.headers on\nSELECT * FROM email_vec_meta LIMIT 5;'
 ```
 
 ## Querying for similar messages
@@ -123,6 +113,4 @@ Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed`
 - References:
   - sqlite-vec Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
   - Demo script: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
-# Disable embeddings during sync (downloads mail only)
-docker compose run --rm \
-  ruby ./cli.rb sync --no-embed --database data/your.sqlite3 --address user@gmail.com --password app_pass
+Note: the `sync` command downloads mail only. Use `embed` for vector generation.
