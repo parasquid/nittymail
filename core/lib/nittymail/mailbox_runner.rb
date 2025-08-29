@@ -21,7 +21,12 @@ module NittyMail
           rec = write_queue.pop
           break if rec == :__DONE__
           begin
-            insert_stmt.call(rec)
+            to_bind = rec
+            if to_bind.key?(:__embed_fields__)
+              to_bind = to_bind.dup
+              to_bind.delete(:__embed_fields__)
+            end
+            insert_stmt.call(to_bind)
           rescue Sequel::UniqueConstraintViolation => e
             raise e if strict_errors
             progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
@@ -46,14 +51,12 @@ module NittyMail
               raise e if strict_errors
             end
           end
-          progress&.increment
         end
       end
 
       workers = Array.new(threads_count) do
         Thread.new do
-          client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
-          client.reconnect_and_select(mbox_name, uidvalidity)
+          client = nil
           loop do
             break if mailbox_abort
             batch = begin
@@ -62,6 +65,12 @@ module NittyMail
               nil
             end
             break unless batch
+
+            # Lazy connect: only open IMAP connection when there's a batch to fetch
+            unless client
+              client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+              client.reconnect_and_select(mbox_name, uidvalidity)
+            end
 
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
             begin
@@ -110,9 +119,11 @@ module NittyMail
                 end
               end
               write_queue << rec
+              # Increment progress per message processed (not per batch)
+              progress&.increment
             end
           end
-          client.close
+          client&.close
         end
       end
 

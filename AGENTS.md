@@ -31,12 +31,18 @@ Run the test suite in Docker and ensure it exits 0 before committing any code th
 
 Use `standardrb --fix` as the primary linter/formatter before any commit or manual edits. Treat it as the canonical linter for this repo.
 
+Recommended: run `./bin/lint` before every commit. It will:
+- Install gems (if needed)
+- Run `standardrb --fix .`
+- Verify StandardRB and RuboCop
+
+Manual commands (if you don’t use the script):
 - Install gems: `docker compose run --rm ruby bundle`
 - Lint/fix: `docker compose run --rm ruby bundle exec standardrb --fix .`
 - Verify: `docker compose run --rm ruby bundle exec standardrb .`
 - Verify: `docker compose run --rm ruby bundle exec rubocop --config ../.rubocop.yml .`
-- Only if issues remain should you apply minimal manual fixes, then re-run both linters.
-- Do not commit until both linters pass with zero offenses.
+
+Do not commit until both linters pass with zero offenses.
 
 # Repository Guidelines
 
