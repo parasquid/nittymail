@@ -25,7 +25,7 @@ module NittyMail
 
       total = ds.count
       puts "Embedding #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
-      progress = ProgressBar.create(title: "embed", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      progress = ProgressBar.create(title: "embed", total: 0, format: "%t: |%B| %p%% (%c/%C) [%e]")
 
       job_queue = Queue.new
       write_queue = Queue.new
@@ -37,7 +37,8 @@ module NittyMail
           break if job == :__STOP__
           begin
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: model, dimension: dimension)
-            progress.log("embedded #{job[:item_type]} id=#{job[:email_id]}") unless quiet
+            progress.increment
+            progress.log("embedded #{job[:item_type]} id=#{job[:email_id]} | queues: job=#{job_queue.size} write=#{write_queue.size}") unless quiet
           rescue => e
             progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
           end
@@ -69,6 +70,7 @@ module NittyMail
           subj = row[:subject].to_s
           if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
             job_queue << {email_id: row[:id], item_type: :subject, text: subj}
+            progress.total = progress.total + 1
             enqueued = true
           end
         end
@@ -81,6 +83,7 @@ module NittyMail
           end
           if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
             job_queue << {email_id: row[:id], item_type: :body, text: body_text}
+            progress.total = progress.total + 1
             enqueued = true
           end
         end
@@ -89,8 +92,8 @@ module NittyMail
         end
       rescue => e
         progress.log("enqueue error id=#{row[:id]}: #{e.class}: #{e.message}")
-      ensure
-        progress.increment
+
+        # no-op: progress increments when upserts complete
       end
 
       # Signal workers to stop and wait
