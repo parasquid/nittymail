@@ -265,6 +265,18 @@ Notes:
 - Both linters must pass with zero offenses before commits/PRs.
 - If a linter exits non‑zero without obvious output, re‑run; StandardRB may only signal failures via exit status. Use `--fix` where safe, then re‑run.
 
+## Architecture Overview
+
+Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused on orchestration:
+
+- `util.rb`: encoding (`safe_utf8`), JSON (`safe_json`), Mail parsing (`parse_mail_safely`), and subject extraction.
+- `logging.rb`: small helpers for log formatting (e.g., `format_uids_preview`).
+- `gmail_patch.rb`: applies Gmail extensions to Ruby's `Net::IMAP` response parser.
+- `db.rb`: database schema bootstrap (`ensure_schema!`), prepared insert builder, and pruning helpers.
+- `preflight.rb`: computes per‑mailbox diffs (to_fetch, db_only) and sizes.
+
+`sync.rb` ties these together: preflights mailboxes, processes UIDs in batches with retry/backoff, writes via a single writer thread, and optionally prunes rows missing on the server.
+
 ## Troubleshooting
 
 ### Gmail Connection Issues
