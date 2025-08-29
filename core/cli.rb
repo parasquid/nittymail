@@ -43,6 +43,7 @@ class NittyMailCLI < Thor
   option :prune_missing, aliases: "-P", desc: "Delete DB rows for UIDs missing on server (per mailbox/current UIDVALIDITY)", type: :boolean, default: false
   option :quiet, aliases: "-q", desc: "Quiet mode: only show progress bars and high-level operations", type: :boolean, default: false
   option :sqlite_wal, desc: "Enable SQLite WAL journaling for better write performance", type: :boolean, default: true
+  option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -64,6 +65,7 @@ class NittyMailCLI < Thor
     else
       options[:sqlite_wal]
     end
+    ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -110,7 +112,8 @@ class NittyMailCLI < Thor
       retry_attempts:,
       prune_missing:,
       quiet:,
-      sqlite_wal:
+      sqlite_wal:,
+      ollama_host:
     )
   end
 

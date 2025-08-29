@@ -30,6 +30,7 @@ require_relative "lib/nittymail/logging"
 require_relative "lib/nittymail/gmail_patch"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/preflight"
+require_relative "lib/nittymail/embeddings"
 require_relative "lib/nittymail/imap_client"
 require_relative "lib/nittymail/mailbox_runner"
 
@@ -109,15 +110,16 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false, sqlite_wal: true)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false, sqlite_wal: true, ollama_host: nil)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal, ollama_host)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal, ollama_host)
       @strict_errors = !!strict_errors
       @retry_attempts = retry_attempts.to_i
       @prune_missing = !!prune_missing
       @quiet = !!quiet
+      @ollama_host = ollama_host
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -257,7 +259,13 @@ module NittyMail
           retry_attempts: @retry_attempts,
           strict_errors: @strict_errors,
           progress:,
-          quiet: @quiet
+          quiet: @quiet,
+          embedding: {
+            enabled: !(@ollama_host.nil? || @ollama_host.strip.empty?),
+            ollama_host: @ollama_host,
+            model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
+            dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+          }
         )
 
         # Optionally prune rows that no longer exist on the server for this mailbox

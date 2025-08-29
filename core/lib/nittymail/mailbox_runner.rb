@@ -6,7 +6,7 @@ require_relative "imap_client"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false)
+    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false, embedding: {enabled: false})
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -25,6 +25,26 @@ module NittyMail
           rescue Sequel::UniqueConstraintViolation => e
             raise e if strict_errors
             progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
+          end
+          # Resolve the inserted email id to attach embeddings if requested
+          if embedding[:enabled]
+            begin
+              email_id = email_ds.where(mailbox: rec[:mailbox], uid: rec[:uid], uidvalidity: rec[:uidvalidity]).get(:id)
+              if email_id
+                fields = rec[:__embed_fields__] || {}
+                NittyMail::Embeddings.embed_fields_for_email!(
+                  email_ds.db,
+                  email_id: email_id,
+                  fields: fields,
+                  ollama_host: embedding[:ollama_host],
+                  model: embedding[:model],
+                  dimension: embedding[:dimension]
+                )
+              end
+            rescue => e
+              progress&.log("embedding error for uid=#{rec[:uid]}: #{e.class}: #{e.message}")
+              raise e if strict_errors
+            end
           end
           progress&.increment
         end
@@ -72,6 +92,23 @@ module NittyMail
                 raw:,
                 strict_errors:
               )
+              # Prepare embedding fields (subject + body text)
+              if embedding[:enabled]
+                begin
+                  subj = rec[:subject].to_s
+                  body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
+                  # Basic HTML strip if needed
+                  if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
+                    body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+                  end
+                  rec[:__embed_fields__] = {}
+                  rec[:__embed_fields__][:subject] = subj if subj && !subj.empty?
+                  rec[:__embed_fields__][:body] = body_text if body_text && !body_text.empty?
+                rescue => e
+                  progress&.log("embedding field prep error for uid=#{uid}: #{e.class}: #{e.message}")
+                  raise e if strict_errors
+                end
+              end
               write_queue << rec
             end
           end
