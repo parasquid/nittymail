@@ -59,15 +59,15 @@ module NittyMail
               mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
               flags_json = attrs["FLAGS"].to_json
               rec = build_record(
-                imap_address: imap_address,
-                mbox_name: mbox_name,
-                uid: uid,
-                uidvalidity: uidvalidity,
-                mail: mail,
-                attrs: attrs,
-                flags_json: flags_json,
-                raw: raw,
-                strict_errors: strict_errors
+                imap_address:,
+                mbox_name:,
+                uid:,
+                uidvalidity:,
+                mail:,
+                attrs:,
+                flags_json:,
+                raw:,
+                strict_errors:
               )
               write_queue << rec
             end

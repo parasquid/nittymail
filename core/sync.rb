@@ -239,17 +239,17 @@ module NittyMail
         )
 
         result = NittyMail::MailboxRunner.run(
-          imap_address: imap_address,
-          imap_password: imap_password,
+          imap_address:,
+          imap_password:,
           email_ds: email,
-          mbox_name: mbox_name,
-          uidvalidity: uidvalidity,
-          uids: uids,
-          threads_count: threads_count,
-          fetch_batch_size: fetch_batch_size,
+          mbox_name:,
+          uidvalidity:,
+          uids:,
+          threads_count:,
+          fetch_batch_size:,
           retry_attempts: @retry_attempts,
           strict_errors: @strict_errors,
-          progress: progress
+          progress:
         )
 
         # Optionally prune rows that no longer exist on the server for this mailbox

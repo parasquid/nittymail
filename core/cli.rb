@@ -89,18 +89,18 @@ class NittyMailCLI < Thor
 
     # Perform the sync using the library
     NittyMail::Sync.perform(
-      imap_address: imap_address,
-      imap_password: imap_password,
-      database_path: database_path,
-      threads_count: threads_count,
-      mailbox_threads: mailbox_threads,
-      purge_old_validity: purge_old_validity,
-      auto_confirm: auto_confirm,
-      fetch_batch_size: fetch_batch_size,
-      ignore_mailboxes: ignore_mailboxes,
-      strict_errors: strict_errors,
-      retry_attempts: retry_attempts,
-      prune_missing: prune_missing
+      imap_address:,
+      imap_password:,
+      database_path:,
+      threads_count:,
+      mailbox_threads:,
+      purge_old_validity:,
+      auto_confirm:,
+      fetch_batch_size:,
+      ignore_mailboxes:,
+      strict_errors:,
+      retry_attempts:,
+      prune_missing:
     )
   end
 
