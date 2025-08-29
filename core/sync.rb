@@ -23,6 +23,7 @@ require "mail"
 require "sequel"
 require "json"
 require "net/imap"
+require "openssl"
 require "ruby-progressbar"
 
 # Ensure immediate flushing so output appears promptly in Docker
@@ -420,16 +421,30 @@ module NittyMail
 
         workers = Array.new(threads_count) do
           Thread.new do
-            imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
-            imap.login(imap_address, imap_password)
-            # Use read-only EXAMINE to avoid changing flags like \\Seen
-            imap.examine(mbox_name)
-            patch(imap)
-            worker_uidvalidity = imap.responses["UIDVALIDITY"]&.first
-            raise "UIDVALIDITY missing for mailbox #{mbox_name} in worker" if worker_uidvalidity.nil?
-            if worker_uidvalidity.to_i != uidvalidity.to_i
-              raise "UIDVALIDITY changed for mailbox #{mbox_name} (preflight=#{uidvalidity}, worker=#{worker_uidvalidity}). Please rerun."
+            # Helper to (re)connect IMAP and select mailbox
+            reconnect = proc do
+              if defined?(imap) && imap
+                begin
+                  imap.logout
+                  imap.disconnect
+                rescue
+                end
+              end
+
+              imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+              imap.login(imap_address, imap_password)
+              # Use read-only EXAMINE to avoid changing flags like \\Seen
+              imap.examine(mbox_name)
+              patch(imap)
+              worker_uidvalidity = imap.responses["UIDVALIDITY"]&.first
+              raise "UIDVALIDITY missing for mailbox #{mbox_name} in worker" if worker_uidvalidity.nil?
+              if worker_uidvalidity.to_i != uidvalidity.to_i
+                raise "UIDVALIDITY changed for mailbox #{mbox_name} (preflight=#{uidvalidity}, worker=#{worker_uidvalidity}). Please rerun."
+              end
+              imap
             end
+
+            imap = reconnect.call
             loop do
               batch = begin
                 batch_queue.pop(true)
@@ -440,7 +455,24 @@ module NittyMail
 
               # Fetch multiple messages at once; BODY.PEEK[] avoids setting \\Seen
               fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
-              fetched = imap.uid_fetch(batch, fetch_items) || []
+              attempts = 0
+              fetched = []
+              begin
+                attempts += 1
+                fetched = imap.uid_fetch(batch, fetch_items) || []
+              rescue OpenSSL::SSL::SSLError, IOError => e
+                progress.log("IMAP read error (#{e.class}: #{e.message}) on #{mbox_name}; retrying (attempt #{attempts})...")
+                if attempts < 3
+                  sleep 1 * attempts
+                  imap = reconnect.call
+                  retry
+                else
+                  # Give up this batch for now; push it back and continue
+                  progress.log("Giving up batch #{batch.inspect} after #{attempts} attempts; re-queueing")
+                  batch_queue << batch
+                  next
+                end
+              end
               fetched.each do |fd|
                 attrs = fd.attr
                 next unless attrs
