@@ -26,19 +26,12 @@ require "net/imap"
 require "openssl"
 require "ruby-progressbar"
 require_relative "lib/nittymail/util"
+require_relative "lib/nittymail/logging"
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
 
-# Format a concise preview of UIDs slated for syncing
-def format_uids_preview(uids)
-  return "uids to be synced: []" if uids.nil? || uids.empty?
-  preview_count = [uids.size, 5].min
-  preview = uids.first(preview_count).join(", ")
-  more = uids.size - preview_count
-  suffix = (more > 0) ? ", ... (#{more} more uids)" : ""
-  "uids to be synced: [#{preview}#{suffix}]"
-end
+# format moved to NittyMail::Logging
 
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
@@ -289,7 +282,7 @@ module NittyMail
               # Log counts
               preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_uids.size}, db=#{db_uids.size})")
               # Log preview of UIDs to be synced (first 5, then summary)
-              preflight_progress.log(format_uids_preview(uids))
+              preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
               preflight_progress.increment
             end
           end
