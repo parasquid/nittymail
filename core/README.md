@@ -209,6 +209,20 @@ sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 - Mailboxes with zero missing UIDs (nothing to fetch) are skipped to save time and connections.
  - Read‑only IMAP: mailboxes are opened with `EXAMINE` and bodies are fetched with `BODY.PEEK[]`, so the sync does not mark messages as read or change flags.
 
+### Local Deletions Are Re-synced
+
+If you delete a row from the local `email` table for a message that still exists on the server under the current `UIDVALIDITY`, it will be re-synced on the next run.
+
+Why this happens (mechanism):
+- During preflight, NittyMail computes the set difference per mailbox: `server_uids - db_uids` for the current `UIDVALIDITY`.
+- Any UID present on the server but missing in the local DB is considered “to fetch”, so the message is downloaded again.
+- A unique constraint on `(mailbox, uid, uidvalidity)` prevents duplicate rows when rerunning.
+
+When it will not be restored:
+- The message was deleted on the server (its UID won’t be in `server_uids`).
+- You delete a row from an older `UIDVALIDITY` generation; only the current generation’s UIDs are considered.
+- The mailbox is ignored via `MAILBOX_IGNORE`/`--ignore-mailboxes`.
+
 ### Performance considerations
 
 - Batched fetch: messages are fetched in batches (default size: 100 UIDs) using `UID FETCH` with `BODY.PEEK[]`, `FLAGS`, Gmail extensions, and `UID`. This significantly reduces round‑trips vs one‑by‑one fetch.
