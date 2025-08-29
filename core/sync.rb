@@ -220,13 +220,14 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing)
       @strict_errors = !!strict_errors
       @retry_attempts = retry_attempts.to_i
+      @prune_missing = !!prune_missing
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -340,10 +341,11 @@ module NittyMail
               email.where(mailbox: mbox_name, uidvalidity: uidvalidity).select_map(:uid)
             end
             uids = server_uids - db_uids
+            db_only = db_uids - server_uids
 
             preflight_mutex.synchronize do
-              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids}
-              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size} (server=#{server_uids.size}, db=#{db_uids.size})")
+              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids, db_only: db_only}
+              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_uids.size}, db=#{db_uids.size})")
               preflight_progress.increment
             end
           end
@@ -509,6 +511,22 @@ module NittyMail
         workers.each(&:join)
         write_queue << :__DONE__
         writer.join
+
+        # Optionally prune rows that no longer exist on the server for this mailbox
+        if @prune_missing && !mailbox_abort
+          db_only = pf[:db_only] || []
+          if db_only.any?
+            count = db_only.size
+            @db.transaction do
+              email.where(mailbox: mbox_name, uidvalidity: uidvalidity, uid: db_only).delete
+            end
+            puts "Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})"
+          else
+            puts "No rows to prune for '#{mbox_name}'"
+          end
+        elsif @prune_missing && mailbox_abort
+          puts "Skipped pruning for '#{mbox_name}' due to mailbox abort"
+        end
         # Optionally purge old UIDVALIDITY generations for this mailbox
         other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
         unless other_validities.empty?

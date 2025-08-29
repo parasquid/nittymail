@@ -223,6 +223,18 @@ When it will not be restored:
 - You delete a row from an older `UIDVALIDITY` generation; only the current generation’s UIDs are considered.
 - The mailbox is ignored via `MAILBOX_IGNORE`/`--ignore-mailboxes`.
 
+### Moves Between Mailboxes
+
+Gmail can expose the same message in multiple mailboxes (labels). A move typically removes the label for the source mailbox and adds the label for the destination.
+
+- Insert at destination: When a message appears under a new mailbox, it has a new UID for that mailbox. Preflight detects it as missing locally and inserts a new row.
+- Remove from source: By default, NittyMail does not delete rows when UIDs disappear from a mailbox. The original row remains, so you may see two rows for the same message (use `x_gm_msgid` to correlate).
+- Recommendation: ignore Trash/Spam to reduce duplicates, or dedupe by `x_gm_msgid` in queries.
+
+Optional pruning:
+- Enable `--prune-missing` (or `PRUNE_MISSING=yes`) to delete rows whose UIDs are no longer present on the server for the mailbox’s current UIDVALIDITY.
+- Pruning runs after a mailbox finishes processing, based on the preflight diff; it skips pruning if the mailbox aborted due to repeated errors.
+
 ### Performance considerations
 
 - Batched fetch: messages are fetched in batches (default size: 100 UIDs) using `UID FETCH` with `BODY.PEEK[]`, `FLAGS`, Gmail extensions, and `UID`. This significantly reduces round‑trips vs one‑by‑one fetch.
