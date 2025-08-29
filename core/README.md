@@ -338,9 +338,9 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 
 ### Vector Search (sqlite-vec)
 
-We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content.
+We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content. The full guide moved to `docs/vector-embeddings.md`.
 
-References (highly recommended):
+References:
 - Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
 - Minimal example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
 
@@ -488,7 +488,18 @@ vec_rowid = NittyMail::DB.upsert_email_embedding!(
 
 Notes:
 - The helpers validate vector length and pack to float32 BLOBs.
-- they ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
+- They ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
+
+Enable embeddings during sync:
+```bash
+# Environment variable
+OLLAMA_HOST=http://localhost:11434 docker compose run --rm ruby ./cli.rb sync
+
+# Or CLI flag
+docker compose run --rm ruby ./cli.rb sync --ollama-host http://localhost:11434
+```
+
+See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
 
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).

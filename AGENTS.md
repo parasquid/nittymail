@@ -107,6 +107,12 @@ Defaults and constraints:
   - `email_vec` (virtual, vec0): stores the vector BLOB in `embedding`.
   - `email_vec_meta`: maps `email_vec.rowid` to `email.id` with (`item_type`, `model`, `dimension`, `created_at`).
 
+Embedding via Ollama during sync:
+- Set `OLLAMA_HOST` (or use `--ollama-host`) to enable per-email embeddings.
+- Model and dimension follow `EMBEDDING_MODEL` and `SQLITE_VEC_DIMENSION`.
+- Subject and body are embedded on insert; failures are logged (and raised when `--strict-errors`).
+See `docs/vector-embeddings.md` for a complete guide.
+
 Loading the extension (already wired in NittyMail):
 ```ruby
 db.synchronize do |conn|
