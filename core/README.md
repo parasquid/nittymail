@@ -336,6 +336,44 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 
 `sync.rb` ties these together: preflights mailboxes, processes UIDs in batches with retry/backoff, writes via a single writer thread, and optionally prunes rows missing on the server.
 
+### Vector Search (sqlite-vec)
+
+This branch introduces schema support for vector embeddings via sqlite-vec (no fallback storage).
+
+- Requirement: the sqlite-vec extension must be available to SQLite inside the container.
+- Configuration:
+  - `SQLITE_VEC_EXTENSION`: path to the sqlite-vec shared library (e.g., `/app/core/vendor/sqlite-vec/vec0`). If unset, we attempt to `load_extension('vec0')` by name.
+  - `SQLITE_VEC_DIMENSION`: embedding dimension used when creating the virtual table (default: `1024`).
+
+On startup, the DB layer attempts to load the extension and creates:
+- `email_vec` (virtual table): `CREATE VIRTUAL TABLE IF NOT EXISTS email_vec USING vec0(embedding float[DIM])`
+- `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`).
+
+If the extension cannot be loaded, an error is raised and the process aborts (no non-vec fallback is created).
+
+Recommended defaults (Ollama):
+- Default model: `mxbai-embed-large` (English, high quality)
+- Default dimension: 1024 (matches `mxbai-embed-large`)
+- Alternative multilingual option: `bge-m3` (also 1024-dim)
+
+Quick start with Ollama:
+```bash
+# Pull the default high-quality embedding model (English)
+ollama pull mxbai-embed-large
+
+# Verify dimension by generating a sample embedding
+curl -s http://localhost:11434/api/embeddings \
+  -d '{"model":"mxbai-embed-large","prompt":"hello world"}' | jq '.embedding | length'
+
+# Ensure the DB table dimension matches your model dimension (1024)
+export SQLITE_VEC_DIMENSION=1024
+# If the vec table already exists with a different DIM, drop/recreate it before proceeding.
+```
+
+Notes:
+- sqlite-vec dimensions are fixed per table; standardizing on 1024 enables strong recall with manageable storage.
+- If you need to experiment with multiple dimensions/models, create separate vec tables per dimension and track them separately.
+
 ## Troubleshooting
 
 ### Gmail Connection Issues

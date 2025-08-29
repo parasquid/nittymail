@@ -18,3 +18,9 @@ gem "thor"
 gem "rubocop", require: false
 gem "rubocop-sequel", require: false
 gem "standard", require: false
+
+# Testing (optional)
+group :development, :test do
+  gem "rspec"
+  gem "rspec-given"
+end
