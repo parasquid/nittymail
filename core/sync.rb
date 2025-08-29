@@ -31,6 +31,7 @@ require_relative "lib/nittymail/gmail_patch"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/preflight"
 require_relative "lib/nittymail/imap_client"
+require_relative "lib/nittymail/mailbox_runner"
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
