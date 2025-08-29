@@ -29,6 +29,8 @@ require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/logging"
 require_relative "lib/nittymail/gmail_patch"
 require_relative "lib/nittymail/db"
+require_relative "lib/nittymail/preflight"
+require_relative "lib/nittymail/imap_client"
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
@@ -189,22 +191,17 @@ module NittyMail
             break unless mailbox
 
             mbox_name = mailbox.name
-            imap.examine(mbox_name)
-            uidvalidity = imap.responses["UIDVALIDITY"]&.first
-            raise "UIDVALIDITY missing for mailbox #{mbox_name}" if uidvalidity.nil?
-
-            # Server-diff: compute UIDs that are on server but not in DB
-            server_uids = imap.uid_search("UID 1:*")
-            db_uids = db_mutex.synchronize do
-              email.where(mailbox: mbox_name, uidvalidity: uidvalidity).select_map(:uid)
-            end
-            uids = server_uids - db_uids
-            db_only = db_uids - server_uids
+            pfcalc = NittyMail::Preflight.compute(imap, email, mbox_name, db_mutex)
+            uidvalidity = pfcalc[:uidvalidity]
+            uids = pfcalc[:to_fetch]
+            db_only = pfcalc[:db_only]
+            server_size = pfcalc[:server_size]
+            db_size = pfcalc[:db_size]
 
             preflight_mutex.synchronize do
               preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids, db_only: db_only}
               # Log counts
-              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_uids.size}, db=#{db_uids.size})")
+              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
               # Log preview of UIDs to be synced (first 5, then summary)
               preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
               preflight_progress.increment
@@ -272,30 +269,8 @@ module NittyMail
 
         workers = Array.new(threads_count) do
           Thread.new do
-            # Helper to (re)connect IMAP and select mailbox
-            reconnect = proc do
-              if defined?(imap) && imap
-                begin
-                  imap.logout
-                  imap.disconnect
-                rescue
-                end
-              end
-
-              imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
-              imap.login(imap_address, imap_password)
-              # Use read-only EXAMINE to avoid changing flags like \\Seen
-              imap.examine(mbox_name)
-              patch(imap)
-              worker_uidvalidity = imap.responses["UIDVALIDITY"]&.first
-              raise "UIDVALIDITY missing for mailbox #{mbox_name} in worker" if worker_uidvalidity.nil?
-              if worker_uidvalidity.to_i != uidvalidity.to_i
-                raise "UIDVALIDITY changed for mailbox #{mbox_name} (preflight=#{uidvalidity}, worker=#{worker_uidvalidity}). Please rerun."
-              end
-              imap
-            end
-
-            imap = reconnect.call
+            imap_client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+            imap_client.reconnect_and_select(mbox_name, uidvalidity)
             loop do
               break if mailbox_abort
               batch = begin
@@ -307,24 +282,12 @@ module NittyMail
 
               # Fetch multiple messages at once; BODY.PEEK[] avoids setting \\Seen
               fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
-              attempts = 0
-              fetched = []
               begin
-                attempts += 1
-                fetched = imap.uid_fetch(batch, fetch_items) || []
-              rescue OpenSSL::SSL::SSLError, IOError => e
-                progress.log("IMAP read error (#{e.class}: #{e.message}) on #{mbox_name}; retrying (attempt #{attempts})...")
-                # Retry indefinitely only when set to -1. If 0, do not retry.
-                if @retry_attempts == -1 || attempts < @retry_attempts
-                  sleep 1 * attempts
-                  imap = reconnect.call
-                  retry
-                else
-                  # Exhausted retries: abort this mailbox and proceed to the next one
-                  mailbox_abort = true
-                  progress.log("Aborting mailbox '#{mbox_name}' after #{attempts} failed attempt(s); proceeding to next mailbox")
-                  break
-                end
+                fetched = imap_client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: @retry_attempts, progress: progress)
+              rescue => _e
+                mailbox_abort = true
+                progress.log("Aborting mailbox '#{mbox_name}' after #{@retry_attempts} failed attempt(s); proceeding to next mailbox")
+                break
               end
               fetched.each do |fd|
                 attrs = fd.attr
@@ -348,8 +311,7 @@ module NittyMail
                 write_queue << rec
               end
             end
-            imap.logout
-            imap.disconnect
+            imap_client.close
           end
         end
 
