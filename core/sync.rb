@@ -205,6 +205,10 @@ module NittyMail
               preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
               # Log preview of UIDs to be synced (first 5, then summary)
               preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
+              # If pruning is disabled but we detected candidates, inform the user upfront
+              if !@prune_missing && db_only.any?
+                preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
+              end
               preflight_progress.increment
             end
           end
