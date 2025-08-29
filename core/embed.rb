@@ -38,7 +38,6 @@ module NittyMail
           begin
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: model, dimension: dimension)
             progress.increment
-            progress.log("embedded #{job[:item_type]} id=#{job[:email_id]} | queues: job=#{job_queue.size} write=#{write_queue.size}") unless quiet
           rescue => e
             progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
           end
@@ -55,7 +54,7 @@ module NittyMail
               if vector && vector.length == dimension
                 write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector}
               else
-                progress.log("skip id=#{job[:email_id]} #{job[:item_type]} (dimension mismatch)") unless quiet
+                # dimension mismatch: counted as error, do not log per-item to avoid scroll
               end
             rescue => e
               progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
@@ -65,13 +64,12 @@ module NittyMail
       end
 
       ds.each do |row|
-        enqueued = false
         if item_types.include?("subject")
           subj = row[:subject].to_s
           if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
             job_queue << {email_id: row[:id], item_type: :subject, text: subj}
             progress.total = progress.total + 1
-            enqueued = true
+            true
           end
         end
         if item_types.include?("body")
@@ -84,12 +82,10 @@ module NittyMail
           if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
             job_queue << {email_id: row[:id], item_type: :body, text: body_text}
             progress.total = progress.total + 1
-            enqueued = true
+            true
           end
         end
-        unless enqueued
-          progress.log("skip id=#{row[:id]} (nothing to embed or already present)") unless quiet
-        end
+        # if nothing enqueued, remain silent to keep bar anchored
       rescue => e
         progress.log("enqueue error id=#{row[:id]}: #{e.class}: #{e.message}")
 
