@@ -57,7 +57,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 
   {
     address: imap_address,
-    mailbox: safe_utf8(mbox_name),
+    mailbox: NittyMail::Util.safe_utf8(mbox_name),
     uid: uid,
     uidvalidity: uidvalidity,
 
