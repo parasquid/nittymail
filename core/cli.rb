@@ -39,6 +39,7 @@ class NittyMailCLI < Thor
   option :fetch_batch_size, aliases: "-b", desc: "UID FETCH batch size (default: 100)", type: :numeric
   option :ignore_mailboxes, aliases: "-I", desc: "Comma-separated mailbox names/patterns to ignore (supports * and ?)", type: :string
   option :strict_errors, aliases: "-S", desc: "Raise exceptions instead of swallowing/logging certain recoverable errors", type: :boolean, default: false
+  option :retry_attempts, aliases: "-R", desc: "Max IMAP retry attempts per batch (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -52,6 +53,7 @@ class NittyMailCLI < Thor
     ignore_mailboxes_raw = options[:ignore_mailboxes] || ENV["MAILBOX_IGNORE"]
     ignore_mailboxes = (ignore_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
     strict_errors = options[:strict_errors] || (ENV["STRICT_ERRORS"] && %w[1 true yes y].include?(ENV["STRICT_ERRORS"].to_s.downcase))
+    retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -94,7 +96,8 @@ class NittyMailCLI < Thor
       auto_confirm: auto_confirm,
       fetch_batch_size: fetch_batch_size,
       ignore_mailboxes: ignore_mailboxes,
-      strict_errors: strict_errors
+      strict_errors: strict_errors,
+      retry_attempts: retry_attempts
     )
   end
 

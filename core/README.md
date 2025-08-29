@@ -105,6 +105,19 @@ FETCH_BATCH_SIZE=200 docker compose run --rm ruby ./cli.rb sync
 docker compose run --rm ruby ./cli.rb sync --fetch-batch-size 200
 ```
 
+**Control IMAP retry attempts (for transient SSL/IO errors):**
+```bash
+# Using environment variable (default: 3; -1 retries indefinitely; 0 disables retries)
+RETRY_ATTEMPTS=5 docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --retry-attempts 5
+```
+Behavior:
+- On transient errors like `SSL_read: unexpected eof while reading`, NittyMail reconnects and retries the batch.
+- `RETRY_ATTEMPTS = -1` (or `--retry-attempts -1`) retries indefinitely with backoff.
+- `RETRY_ATTEMPTS = 0` (or `--retry-attempts 0`) disables retries (a failing batch is skipped for this run).
+
 **Ignore specific mailboxes (skip syncing them):**
 ```bash
 # Using environment variable (comma-separated; supports * and ? wildcards)
@@ -172,6 +185,7 @@ docker compose run --rm ruby ./cli.rb sync \
   --mailbox-threads 4 \
   --threads 4 \
   --ignore-mailboxes "[Gmail]/*,Spam" \
+  --retry-attempts 5 \
   --auto-confirm \
   --purge-old-validity
 ```

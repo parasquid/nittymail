@@ -220,12 +220,13 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts)
       @strict_errors = !!strict_errors
+      @retry_attempts = retry_attempts.to_i
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -462,14 +463,14 @@ module NittyMail
                 fetched = imap.uid_fetch(batch, fetch_items) || []
               rescue OpenSSL::SSL::SSLError, IOError => e
                 progress.log("IMAP read error (#{e.class}: #{e.message}) on #{mbox_name}; retrying (attempt #{attempts})...")
-                if attempts < 3
+                # Retry indefinitely only when set to -1. If 0, do not retry.
+                if @retry_attempts == -1 || attempts < @retry_attempts
                   sleep 1 * attempts
                   imap = reconnect.call
                   retry
                 else
-                  # Give up this batch for now; push it back and continue
-                  progress.log("Giving up batch #{batch.inspect} after #{attempts} attempts; re-queueing")
-                  batch_queue << batch
+                  # Give up this batch for now without re-queuing to avoid infinite loops
+                  progress.log("Skipping batch #{batch.inspect} after #{attempts} attempts (max=#{@retry_attempts})")
                   next
                 end
               end
