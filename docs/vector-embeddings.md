@@ -83,6 +83,35 @@ SQL
 }
 ```
 
+## Backfilling embeddings for existing emails
+
+Use the CLI subcommand to embed already-synced emails:
+
+```bash
+# Embed all emails in the DB (subject + body) using OLLAMA_HOST
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3
+
+# Embed only for a specific address, and only subjects
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3 --address user@gmail.com --item-types subject
+
+# Limit processing for smoke testing
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3 --limit 100
+```
+
+Flags and environment:
+- `--database` (or `DATABASE` env): path to the SQLite DB.
+- `--ollama-host` (or `OLLAMA_HOST`): base URL to Ollama; required to run embeddings.
+- `--item-types`: comma-separated list from `subject,body` (default both).
+- `--address`: optional filter to process only rows for a given Gmail address.
+- `--model` (or `EMBEDDING_MODEL`): embedding model name; defaults to `mxbai-embed-large`.
+- `--dimension` (or `SQLITE_VEC_DIMENSION`): vector dimension; defaults to `1024`.
+
 ## Notes & Tips
 
 - Dimension lock-in: the vec table’s dimension is fixed at creation; keep `SQLITE_VEC_DIMENSION` consistent with your model.
@@ -91,4 +120,3 @@ SQL
 - References:
   - sqlite-vec Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
   - Demo script: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
-
