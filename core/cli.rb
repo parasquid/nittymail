@@ -136,6 +136,8 @@ class NittyMailCLI < Thor
   option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
   option :model, desc: "Embedding model name (defaults to EMBEDDING_MODEL or mxbai-embed-large)", type: :string
   option :dimension, desc: "Embedding dimension (defaults to SQLITE_VEC_DIMENSION or 1024)", type: :numeric
+  option :threads, aliases: "-t", desc: "Number of embedding worker threads (default from THREADS or 2)", type: :numeric
+  option :retry_attempts, aliases: "-R", desc: "Max embedding retry attempts (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
   def embed
     database_path = options[:database] || ENV["DATABASE"]
@@ -148,6 +150,8 @@ class NittyMailCLI < Thor
     limit = options[:limit]&.to_i
     offset = options[:offset]&.to_i
     quiet = options[:quiet]
+    threads_count = (options[:threads] || (ENV["THREADS"] || "2").to_i).to_i
+    retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
 
     NittyMail::Embed.perform(
       database_path: database_path,
@@ -158,7 +162,9 @@ class NittyMailCLI < Thor
       address_filter: address_filter,
       limit: limit,
       offset: offset,
-      quiet: quiet
+      quiet: quiet,
+      threads_count: threads_count,
+      retry_attempts: retry_attempts
     )
   end
 end
