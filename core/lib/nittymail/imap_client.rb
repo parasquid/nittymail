@@ -42,7 +42,7 @@ module NittyMail
         attempts += 1
         begin
           return @imap.uid_fetch(batch, fetch_items) || []
-        rescue OpenSSL::SSL::SSLError, IOError => e
+        rescue OpenSSL::SSL::SSLError, IOError, Errno::ECONNRESET => e
           progress&.log("IMAP read error (#{e.class}: #{e.message}) on #{mailbox_name}; retrying (attempt #{attempts})...")
           if retry_attempts == -1 || attempts < retry_attempts
             sleep 1 * attempts
