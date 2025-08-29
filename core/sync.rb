@@ -25,78 +25,19 @@ require "json"
 require "net/imap"
 require "openssl"
 require "ruby-progressbar"
+require_relative "lib/nittymail/util"
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
 
-# Encode any string-ish value to UTF-8 safely, replacing invalid/undef bytes
-def safe_utf8(value)
-  # Avoid mutating frozen strings (e.g., literals under frozen_string_literal)
-  s = value.to_s
-  s = s.dup if s.frozen?
-  # Transcode treating input as binary bytes; replace problematic sequences
-  s.encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
-end
-
-# JSON-encode an Array or scalar after UTF-8 sanitization; never raise
-def safe_json(value, on_error: nil, strict_errors: false)
-  if value.is_a?(Array)
-    value.map { |v| safe_utf8(v) }.to_json
-  else
-    safe_utf8(value).to_json
-  end
-rescue JSON::GeneratorError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
-  raise if strict_errors
-  warn(on_error) if on_error
-  value.is_a?(Array) ? "[]" : "\"\""
-end
-
-# Parse raw RFC822/IMAP payload into a Mail object safely.
-# Returns a Mail::Message or nil on parse/encoding errors, logging a warning.
-def parse_mail_safely(raw, mbox_name:, uid:)
-  str = raw.to_s
-  # 1) Try as binary bytes
-  begin
-    return Mail.read_from_string(str.b)
-  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError => e1
-    warn "mail parse error (binary) mailbox=#{mbox_name} uid=#{uid}: #{e1.class}: #{e1.message}; retrying with UTF-8 sanitized"
-    last_error = e1
-  end
-
-  # 2) Try as sanitized UTF-8 (replace invalid/undef)
-  begin
-    sanitized = safe_utf8(str)
-    return Mail.read_from_string(sanitized)
-  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError => e2
-    warn "mail parse error (sanitized UTF-8) mailbox=#{mbox_name} uid=#{uid}: #{e2.class}: #{e2.message}; retrying with scrubbed UTF-8"
-    last_error = e2
-  end
-
-  # 3) Try scrubbed UTF-8 (replace problematic sequences)
-  begin
-    scrubbed = str.dup.force_encoding("UTF-8").scrub
-    return Mail.read_from_string(scrubbed)
-  rescue => e3
-    warn "mail parse error (scrubbed) mailbox=#{mbox_name} uid=#{uid}: #{e3.class}: #{e3.message}; rethrowing"
-    last_error = e3
-  end
-
-  # 4) Last resort: surface the failure to the caller for custom handling
-  raise(last_error || ArgumentError.new("unparseable message for mailbox=#{mbox_name} uid=#{uid}"))
-end
-
-# Best-effort subject extraction without tripping on bad bytes
-def extract_subject(mail, raw, strict_errors: false)
-  begin
-    return safe_utf8(mail&.subject)
-  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-    raise if strict_errors
-    # fall through to raw
-  end
-  headers = raw.to_s.split(/\r?\n\r?\n/, 2).first.to_s
-  m = headers.match(/^Subject:\s*(.*?)(?:\r?\n(?![ \t])|\z)/m)
-  subj = m ? m[1].gsub(/\r?\n[ \t]+/, " ").strip : ""
-  safe_utf8(subj)
+# Format a concise preview of UIDs slated for syncing
+def format_uids_preview(uids)
+  return "uids to be synced: []" if uids.nil? || uids.empty?
+  preview_count = [uids.size, 5].min
+  preview = uids.first(preview_count).join(", ")
+  more = uids.size - preview_count
+  suffix = (more > 0) ? ", ... (#{more} more uids)" : ""
+  "uids to be synced: [#{preview}#{suffix}]"
 end
 
 # patch only this instance of Net::IMAP::ResponseParser
@@ -164,7 +105,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     nil
   end
 
-  subject_str = extract_subject(mail, raw, strict_errors: strict_errors)
+  subject_str = NittyMail::Util.extract_subject(mail, raw, strict_errors: strict_errors)
 
   {
     address: imap_address,
@@ -172,10 +113,10 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     uid: uid,
     uidvalidity: uidvalidity,
 
-    message_id: safe_utf8(mail&.message_id),
+    message_id: NittyMail::Util.safe_utf8(mail&.message_id),
     date:,
     from: begin
-      safe_json(mail&.from, strict_errors: strict_errors)
+      NittyMail::Util.safe_json(mail&.from, strict_errors: strict_errors)
     rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
       raise if strict_errors
       warn "encoding error for 'from' while building record; subject: #{subject_str}"
@@ -184,20 +125,20 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     subject: subject_str,
     has_attachments: mail ? mail.has_attachments? : false,
 
-    x_gm_labels: safe_utf8(attrs["X-GM-LABELS"].to_s),
-    x_gm_msgid: safe_utf8(attrs["X-GM-MSGID"].to_s),
-    x_gm_thrid: safe_utf8(attrs["X-GM-THRID"].to_s),
-    flags: safe_utf8(flags_json),
+    x_gm_labels: NittyMail::Util.safe_utf8(attrs["X-GM-LABELS"].to_s),
+    x_gm_msgid: NittyMail::Util.safe_utf8(attrs["X-GM-MSGID"].to_s),
+    x_gm_thrid: NittyMail::Util.safe_utf8(attrs["X-GM-THRID"].to_s),
+    flags: NittyMail::Util.safe_utf8(flags_json),
 
-    encoded: safe_utf8(raw)
+    encoded: NittyMail::Util.safe_utf8(raw)
   }
 end
 
 # Log a concise processing line (handles odd headers safely)
 def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil, strict_errors: false)
-  subj = extract_subject(mail, raw, strict_errors: strict_errors)
+  subj = NittyMail::Util.extract_subject(mail, raw, strict_errors: strict_errors)
   from = begin
-    safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: strict_errors)
+    NittyMail::Util.safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: strict_errors)
   rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
     raise if strict_errors
     warn "encoding error for 'from' during logging; subject: #{subj}"
@@ -348,15 +289,7 @@ module NittyMail
               # Log counts
               preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_uids.size}, db=#{db_uids.size})")
               # Log preview of UIDs to be synced (first 5, then summary)
-              if uids && !uids.empty?
-                preview_count = [uids.size, 5].min
-                preview = uids.first(preview_count).join(", ")
-                more = uids.size - preview_count
-                suffix = (more > 0) ? ", ... (#{more} more uids)" : ""
-                preflight_progress.log("uids to be synced: [#{preview}#{suffix}]")
-              else
-                preflight_progress.log("uids to be synced: []")
-              end
+              preflight_progress.log(format_uids_preview(uids))
               preflight_progress.increment
             end
           end
@@ -497,7 +430,7 @@ module NittyMail
                 next unless attrs
                 uid = attrs["UID"]
                 raw = attrs["BODY[]"] || attrs["RFC822"]
-                mail = parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
+                mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
                 flags_json = attrs["FLAGS"].to_json
                 log_processing(mbox_name:, uid:, mail:, flags_json:, raw: raw, progress: progress, strict_errors: @strict_errors)
                 rec = build_record(
