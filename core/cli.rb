@@ -141,7 +141,7 @@ class NittyMailCLI < Thor
     dimension = (options[:dimension] || (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i).to_i
     item_types = (options[:item_types] || "subject,body").split(",").map { |s| s.strip.downcase }.uniq & %w[subject body]
     item_types = %w[subject body] if item_types.empty?
-    address_filter = options[:address]
+    address_filter = options[:address] || ENV["ADDRESS"]
     limit = options[:limit]&.to_i
     offset = options[:offset]&.to_i
     quiet = options[:quiet]

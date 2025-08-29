@@ -105,12 +105,15 @@ docker compose run --rm \
 ```
 
 Flags and environment:
-- `--database` (or `DATABASE` env): path to the SQLite DB.
-- `--ollama-host` (or `OLLAMA_HOST`): base URL to Ollama; required to run embeddings.
+- `--database` or `DATABASE`: path to the SQLite DB (same as sync).
+- `--address` or `ADDRESS`: filter rows for a given Gmail address (same as sync).
+- `--ollama-host` or `OLLAMA_HOST`: base URL to Ollama; required to run embeddings.
+- `--model` or `EMBEDDING_MODEL`: embedding model name; defaults to `mxbai-embed-large`.
+- `--dimension` or `SQLITE_VEC_DIMENSION`: vector dimension; defaults to `1024`.
 - `--item-types`: comma-separated list from `subject,body` (default both).
-- `--address`: optional filter to process only rows for a given Gmail address.
-- `--model` (or `EMBEDDING_MODEL`): embedding model name; defaults to `mxbai-embed-large`.
-- `--dimension` (or `SQLITE_VEC_DIMENSION`): vector dimension; defaults to `1024`.
+- `--limit`, `--offset`, `--quiet`: processing controls.
+
+Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed` without flags and it will target the same database and address.
 
 ## Notes & Tips
 
