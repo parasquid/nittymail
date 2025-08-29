@@ -501,6 +501,19 @@ docker compose run --rm ruby ./cli.rb sync --ollama-host http://localhost:11434
 
 See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
 
+Backfill embeddings for existing emails:
+```bash
+# Use the same env vars as sync (DATABASE, ADDRESS) and OLLAMA_HOST
+DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
+  docker compose run --rm ruby ./cli.rb embed
+
+# Or pass flags explicitly
+docker compose run --rm ruby ./cli.rb embed \
+  --database data/your.sqlite3 \
+  --ollama-host http://localhost:11434 \
+  --item-types subject,body
+```
+
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
 - The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.

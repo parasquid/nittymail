@@ -113,6 +113,12 @@ Embedding via Ollama during sync:
 - Subject and body are embedded on insert; failures are logged (and raised when `--strict-errors`).
 See `docs/vector-embeddings.md` for a complete guide.
 
+Backfilling embeddings (CLI):
+- Use `./cli.rb embed` to embed existing rows without re-syncing IMAP.
+- Shares env defaults with sync: `DATABASE`, `ADDRESS`, `EMBEDDING_MODEL`, `SQLITE_VEC_DIMENSION`, plus `OLLAMA_HOST`.
+- Example:
+  - `DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 docker compose run --rm ruby ./cli.rb embed`
+
 Loading the extension (already wired in NittyMail):
 ```ruby
 db.synchronize do |conn|
