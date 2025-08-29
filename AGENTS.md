@@ -19,6 +19,14 @@ Rules:
 - Never include the characters "\n" inside any `-m` string.
 - Prefer the heredoc when you need multi-line bullets or longer bodies.
 
+# AI Agent MUST: Tests Pass Before Commit
+
+Run the test suite in Docker and ensure it exits 0 before committing any code that adds or changes behavior.
+
+- Install gems: `docker compose run --rm ruby bundle`
+- Run tests: `docker compose run --rm ruby bundle exec rspec`
+- Only commit after tests are green. If tests fail, fix code and/or update tests, then re-run.
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
