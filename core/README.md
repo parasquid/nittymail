@@ -186,6 +186,7 @@ docker compose run --rm ruby ./cli.rb sync \
   --threads 4 \
   --ignore-mailboxes "[Gmail]/*,Spam" \
   --retry-attempts 5 \
+  --prune-missing \
   --auto-confirm \
   --purge-old-validity
 ```
@@ -201,6 +202,19 @@ docker compose run --rm ruby ./cli.rb help sync
 sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 ```
 
+**Prune rows missing on server (optional):**
+```bash
+# CLI flag (delete rows whose UIDs are no longer present)
+docker compose run --rm ruby ./cli.rb sync --prune-missing
+
+# Environment variable (same behavior)
+PRUNE_MISSING=yes docker compose run --rm ruby ./cli.rb sync
+```
+Behavior:
+- When enabled, after a mailbox finishes processing successfully, NittyMail deletes rows whose UIDs are not present on the server for that mailbox and its current `UIDVALIDITY`.
+- If pruning is disabled but candidates exist, NittyMail logs a message indicating the count and that no pruning will occur.
+- If a mailbox aborts due to repeated connection errors, pruning for that mailbox is skipped.
+
 ## Behavior & Guarantees
 
 - UID discovery uses a server‑diff (UID `1:*` vs local DB) to avoid gaps when resuming.
@@ -208,6 +222,22 @@ sqlite3 core/data/your-email.sqlite3 'SELECT COUNT(*) FROM email;'
 - If `UIDVALIDITY` changes between preflight and fetch, the sync aborts for that mailbox; rerun to proceed under the new generation.
 - Mailboxes with zero missing UIDs (nothing to fetch) are skipped to save time and connections.
  - Read‑only IMAP: mailboxes are opened with `EXAMINE` and bodies are fetched with `BODY.PEEK[]`, so the sync does not mark messages as read or change flags.
+
+### Preflight Output
+
+Before fetching, NittyMail performs a per‑mailbox preflight that shows what will happen:
+
+- Counts line with UIDVALIDITY, to_fetch (new UIDs on server), to_prune (rows present locally but not on server), and server/DB sizes.
+- A preview of UIDs to be synced (first 5 shown), for example:
+  - `uids to be synced: [101, 102, 103, 104, 105, ... (42 more uids)]`
+- If pruning is disabled but candidates exist, an informational message like:
+  - `prune candidates present: 42 (prune disabled; no pruning will be performed)`
+
+### Retry and Abort Behavior
+
+- Transient IMAP errors such as `SSL_read: unexpected eof while reading` (OpenSSL::SSL::SSLError), `IOError`, and `Errno::ECONNRESET` trigger a reconnect + retry with backoff.
+- Retries are controlled by `--retry-attempts` (default: 3; `-1` means retry indefinitely, `0` disables retries).
+- If a batch continues to fail and retries are exhausted, NittyMail aborts processing of the current mailbox and proceeds to the next; an informational message is logged.
 
 ### Local Deletions Are Re-synced
 
