@@ -99,6 +99,19 @@ Note: Configure `core/config/.env` first (see below).
 - **Version Compatibility**: Note any version requirements or compatibility changes.
 - **AI Agents**: When implementing features, always check if existing documentation needs updates. Documentation debt creates confusion.
 
+## Query Command (LLM + Tools)
+
+- The `query` CLI calls an Ollama chat model with tools exclusively. If the LLM fails or doesn't support tools, the CLI returns a clear error message directing the user to ensure Ollama is running with a tool-capable model.
+- Default model is `qwen2.5:7b-instruct` (excellent tool calling support). Alternative models: `llama3.1:8b-instruct` for more capability or `llama3.2:3b` for speed (limited tool support).
+- Default limit is 100 when the prompt does not specify a number.
+- Tool-based capabilities:
+  - Date ranges: `between A and B`, `from A to B`, `since A`, `before B` (A/B as `YYYY` or `YYYY-MM-DD`).
+  - Mailbox: `in inbox/sent/[Gmail]/All Mail`, `label <name>`.
+  - Sender: domain (`from @example.com`) or substring (`from ayaka`).
+  - Topic: `about/regarding/on <topic>` → vector search (requires embeddings; may fall back to subject contains).
+  - Email retrieval: by ID, UID+mailbox, Message-ID, or sender+date combinations.
+- Update both `core/README.md` and `docs/query.md` when changing query behavior, flags, or defaults.
+
 ## Vector Embeddings (sqlite-vec via Ruby)
 
 - We use the sqlite-vec Ruby gem to enable vector search in SQLite. Load the extension using the gem helper against the underlying SQLite3 connection; do not shell out or specify `.so` paths manually.
@@ -269,3 +282,18 @@ Notes:
 - Persistence via `sequel` to SQLite; one table `email` indexed by mailbox, UID, and validity.
 - Optimization: Mailboxes with zero missing UIDs are skipped during the fetch phase.
  - Read‑only and batched fetches: workers use `EXAMINE` and `UID FETCH` with `BODY.PEEK[]` in batches (default 100 UIDs) to avoid changing flags and reduce round‑trips.
+
+## Recent Query System Changes (2025)
+
+### Removal of Heuristic Fallback (Breaking Change)
+- **What Changed**: Removed heuristic string parsing fallback from the `query` command
+- **Previous Behavior**: When LLM failed or didn't support tools, CLI would fall back to regex-based pattern matching for query parsing
+- **New Behavior**: Query command now requires a working Ollama instance with a tool-capable model; returns clear error messages on failure
+- **Rationale**: Simplifies codebase, ensures consistent LLM-powered natural language processing, eliminates dual code paths
+- **Migration**: Ensure Ollama is running with a tool-capable model (e.g., `qwen2.5:7b-instruct`) before using query functionality
+
+### Default Model Change
+- **Previous Default**: `llama3.2:3b` (fast but limited tool support)
+- **New Default**: `qwen2.5:7b-instruct` (excellent tool calling support, good performance)
+- **Rationale**: Better tool calling reliability, improved query accuracy, still reasonable resource requirements
+- **Backward Compatibility**: Old model can still be used by specifying `--model llama3.2:3b`

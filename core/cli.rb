@@ -22,6 +22,7 @@ require "dotenv/load"
 require "thor"
 require_relative "sync"
 require_relative "embed"
+require_relative "query"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
@@ -166,6 +167,48 @@ class NittyMailCLI < Thor
       threads_count: threads_count,
       retry_attempts: retry_attempts
     )
+  end
+
+  desc "query PROMPT", "Ask questions against your mail using an LLM with DB tools"
+  option :database, aliases: "-d", desc: "SQLite database file path (defaults to DATABASE)", type: :string
+  option :address, aliases: "-a", desc: "Gmail address context (defaults to ADDRESS)", type: :string
+  option :ollama_host, desc: "Ollama base URL for chat (e.g., http://localhost:11434)", type: :string
+  option :model, desc: "Chat model name (default: qwen2.5:7b-instruct)", type: :string
+  option :limit, aliases: "-n", desc: "Default result limit when unspecified (default: 100)", type: :numeric
+  option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
+  option :debug, desc: "Enable debug logging (shows Ollama requests/responses)", type: :boolean, default: false
+  def query(prompt = nil)
+    prompt ||= ARGV.last if prompt.nil? || prompt.strip.empty?
+    if prompt.nil? || prompt.strip.empty?
+      puts "Error: query requires a PROMPT argument"
+      puts "Example: ./cli.rb query 'show me 5 earliest emails'"
+      exit 1
+    end
+
+    database_path = options[:database] || ENV["DATABASE"]
+    address = options[:address] || ENV["ADDRESS"]
+    ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
+    model = options[:model] || ENV["QUERY_MODEL"] || "qwen2.5:7b-instruct"
+    default_limit = (options[:limit] || 100).to_i
+    quiet = options[:quiet]
+    debug = options[:debug]
+
+    unless database_path
+      puts "Error: DATABASE must be provided via --database or env"
+      exit 1
+    end
+
+    response = NittyMail::Query.perform(
+      database_path: database_path,
+      address: address,
+      ollama_host: ollama_host,
+      model: model,
+      prompt: prompt,
+      default_limit: default_limit,
+      quiet: quiet,
+      debug: debug
+    )
+    puts response
   end
 end
 

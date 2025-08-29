@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "sqlite3"
+require "sequel"
 require "sqlite_vec"
 
 module NittyMail

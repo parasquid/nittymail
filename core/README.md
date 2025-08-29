@@ -67,6 +67,38 @@ alias dcr='docker compose run --rm'
 dcr ruby ./cli.rb sync
 ```
 
+### Query (LLM + Tools)
+
+Ask natural-language questions against your mail using an Ollama chat model with database tools. See a full guide in `docs/query.md`.
+
+```bash
+# Basic: uses DATABASE and ADDRESS from .env
+docker compose run --rm ruby ./cli.rb query 'give me the 5 earliest emails I have'
+
+# Semantic: vector search (requires embeddings populated via `embed`)
+docker compose run --rm ruby ./cli.rb query 'show me 20 emails that talk about dancing'
+
+# Override defaults
+docker compose run --rm ruby ./cli.rb query \
+  --database core/data/your-email.sqlite3 \
+  --ollama-host http://localhost:11434 \
+  --model qwen2.5:7b-instruct \
+  --limit 100 'show me all mail from ayaka'
+```
+
+Capabilities:
+- Default limit 100 when not specified.
+- “earliest/oldest” and “latest/newest” sort by date.
+- Date ranges: “between 2015 and 2016”, “since 2019”, “before 2021-02-01”.
+- Mailbox filters: “in inbox/sent/[Gmail]/All Mail”, “label Work”.
+- Sender filters: “from @example.com”, “from ayaka”.
+- Topic search: “about/regarding/on <topic>” uses vector search with subject fallback.
+
+Notes:
+- Uses the same env vars as sync: `DATABASE` (required) and `ADDRESS` (optional, used as context filter when present).
+- Ollama must be reachable via `OLLAMA_HOST` or `--ollama-host`. Default chat model: `qwen2.5:7b-instruct` (excellent tool calling support). Override with `QUERY_MODEL` env var or `--model` flag. Alternative models: `llama3.1:8b-instruct` for more capability or `llama3.2:3b` for speed (limited tool support).
+- Populate embeddings first with `./cli.rb embed` for semantic queries.
+
 ### Advanced Options
 
 **Automated/Non-interactive runs:**
