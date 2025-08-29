@@ -56,7 +56,8 @@ module NittyMail
 
       workers = Array.new(threads_count) do
         Thread.new do
-          client = nil
+          client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+          client.reconnect_and_select(mbox_name, uidvalidity)
           loop do
             break if mailbox_abort
             batch = begin
@@ -65,12 +66,6 @@ module NittyMail
               nil
             end
             break unless batch
-
-            # Lazy connect: only open IMAP connection when there's a batch to fetch
-            unless client
-              client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
-              client.reconnect_and_select(mbox_name, uidvalidity)
-            end
 
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
             begin
@@ -123,7 +118,7 @@ module NittyMail
               progress&.increment
             end
           end
-          client&.close
+          client.close
         end
       end
 
