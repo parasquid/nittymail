@@ -27,6 +27,17 @@ Run the test suite in Docker and ensure it exits 0 before committing any code th
 - Run tests: `docker compose run --rm ruby bundle exec rspec`
 - Only commit after tests are green. If tests fail, fix code and/or update tests, then re-run.
 
+# AI Agent MUST: Auto-fix Lint First
+
+Always run StandardRB auto-fix before making manual style changes.
+
+- Install gems: `docker compose run --rm ruby bundle`
+- Auto-fix: `docker compose run --rm ruby bundle exec standardrb --fix .`
+- Verify: `docker compose run --rm ruby bundle exec standardrb .`
+- Verify: `docker compose run --rm ruby bundle exec rubocop --config ../.rubocop.yml .`
+- Only if issues remain should you apply targeted manual fixes, then re-run both linters.
+- Do not commit until both linters pass with zero offenses.
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
