@@ -63,11 +63,11 @@ module NittyMail
     # When wal is true, enable WAL journaling and lower synchronous to NORMAL.
     # Always set a busy_timeout to avoid immediate lock errors.
     def configure_performance!(db, wal: true)
-      # milliseconds
-      db.pragma_set(:busy_timeout, 5000)
+      # Use direct PRAGMA statements for compatibility across Sequel versions
+      db.run("PRAGMA busy_timeout = 5000")
       if wal
-        db.pragma_set(:journal_mode, :wal)
-        db.pragma_set(:synchronous, :normal)
+        db.run("PRAGMA journal_mode = WAL")
+        db.run("PRAGMA synchronous = NORMAL")
       end
       db
     end
