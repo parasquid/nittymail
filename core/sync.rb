@@ -345,7 +345,18 @@ module NittyMail
 
             preflight_mutex.synchronize do
               preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids, db_only: db_only}
+              # Log counts
               preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_uids.size}, db=#{db_uids.size})")
+              # Log preview of UIDs to be synced (first 5, then summary)
+              if uids && !uids.empty?
+                preview_count = [uids.size, 5].min
+                preview = uids.first(preview_count).join(", ")
+                more = uids.size - preview_count
+                suffix = (more > 0) ? ", ... (#{more} more uids)" : ""
+                preflight_progress.log("uids to be synced: [#{preview}#{suffix}]")
+              else
+                preflight_progress.log("uids to be synced: []")
+              end
               preflight_progress.increment
             end
           end
