@@ -3,6 +3,7 @@
 require_relative "util"
 require_relative "db"
 require_relative "imap_client"
+require "ruby-progressbar"
 
 module NittyMail
   class MailboxRunner
@@ -119,11 +120,18 @@ module NittyMail
                   rec[:__embed_fields__] = {}
                   rec[:__embed_fields__][:subject] = subj if subj && !subj.empty?
                   rec[:__embed_fields__][:body] = body_text if body_text && !body_text.empty?
-                  if embed_progress
-                    embed_mutex.synchronize do
-                      added = rec[:__embed_fields__].size
+                  embed_mutex.synchronize do
+                    added = rec[:__embed_fields__].size
+                    if added > 0
+                      if embed_progress.nil? && !quiet
+                        embed_progress = ProgressBar.create(
+                          title: "embed: #{mbox_name}",
+                          total: 0,
+                          format: "%t: |%B| %p%% (%c/%C) [%e]"
+                        )
+                      end
                       embed_counts[:enqueued] += added
-                      embed_progress.total = embed_progress.total + added if added > 0
+                      embed_progress.total = embed_progress.total + added if embed_progress
                     end
                   end
                 rescue => e
@@ -143,7 +151,7 @@ module NittyMail
       workers.each(&:join)
       write_queue << :__DONE__
       writer.join
-      if embedding[:enabled]
+      if embedding[:enabled] && embed_counts[:enqueued] > 0
         line = "embedding summary for '#{mbox_name}': enqueued=#{embed_counts[:enqueued]} embedded=#{embed_counts[:embedded]} errors=#{embed_counts[:errors]}"
         if progress
           progress.log(line)

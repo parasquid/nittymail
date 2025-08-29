@@ -248,13 +248,6 @@ module NittyMail
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
         embed_progress = nil
-        if !@quiet && @ollama_host && !@ollama_host.strip.empty? && (@embed_enabled != false)
-          embed_progress = ProgressBar.create(
-            title: "embed: #{mbox_name}",
-            total: 0,
-            format: "%t: |%B| %p%% (%c/%C) [%e]"
-          )
-        end
 
         result = NittyMail::MailboxRunner.run(
           imap_address:,
