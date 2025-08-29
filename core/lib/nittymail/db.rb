@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "sqlite3"
 require "sqlite_vec"
 
 module NittyMail
@@ -119,6 +120,63 @@ module NittyMail
       end
       @sqlite_vec_loaded = true
       true
+    end
+
+    # Insert a new embedding into the vec table and create a metadata row
+    # that links it to an existing email record.
+    #
+    # Params:
+    # - db: Sequel::Database connection (opened to the target SQLite file)
+    # - email_id: Integer ID from the `email` table
+    # - vector: Array(Float) embedding with exact length == dimension
+    # - item_type: String describing the source (e.g., 'body', 'subject')
+    # - model: String model identifier (defaults to ENV['EMBEDDING_MODEL'] or 'mxbai-embed-large')
+    # - dimension: Integer embedding dimension; defaults to ENV['SQLITE_VEC_DIMENSION'] or 1024
+    #
+    # Returns the rowid (Integer) in the vec virtual table for the inserted embedding.
+    def insert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
+      raise ArgumentError, "vector must be an Array of Floats" unless vector.is_a?(Array)
+      raise ArgumentError, "vector length #{vector.length} does not match dimension #{dimension}" unless vector.length == dimension
+
+      # Ensure schema and vec tables exist for the configured dimension
+      ensure_schema!(db)
+      ensure_vec_tables!(db, dimension: dimension)
+
+      packed = vector.pack("f*")
+      vec_rowid = nil
+      db.transaction do
+        db.synchronize do |conn|
+          conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
+          vec_rowid = conn.last_insert_row_id
+        end
+        db[:email_vec_meta].insert(vec_rowid: vec_rowid, email_id: email_id, item_type: item_type, model: model, dimension: dimension)
+      end
+      vec_rowid
+    end
+
+    # Upsert an embedding for a given (email_id, item_type, model).
+    # If metadata exists, update the underlying vector in-place; otherwise insert new.
+    # Returns the vec_rowid.
+    def upsert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
+      raise ArgumentError, "vector must be an Array of Floats" unless vector.is_a?(Array)
+      raise ArgumentError, "vector length #{vector.length} does not match dimension #{dimension}" unless vector.length == dimension
+
+      ensure_schema!(db)
+      ensure_vec_tables!(db, dimension: dimension)
+
+      packed = vector.pack("f*")
+      meta = db[:email_vec_meta].where(email_id: email_id, item_type: item_type, model: model).first
+      if meta
+        if meta[:dimension].to_i != dimension
+          raise ArgumentError, "existing embedding dimension #{meta[:dimension]} does not match requested dimension #{dimension}"
+        end
+        db.synchronize do |conn|
+          conn.execute("UPDATE email_vec SET embedding = ? WHERE rowid = ?", SQLite3::Blob.new(packed), meta[:vec_rowid])
+        end
+        meta[:vec_rowid]
+      else
+        insert_email_embedding!(db, email_id: email_id, vector: vector, item_type: item_type, model: model, dimension: dimension)
+      end
     end
   end
 end
