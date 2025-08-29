@@ -254,8 +254,8 @@ module NittyMail
         )
 
         # Optionally prune rows that no longer exist on the server for this mailbox
+        db_only = pf[:db_only] || []
         if @prune_missing && result != :aborted
-          db_only = pf[:db_only] || []
           if db_only.any?
             count = @db.transaction do
               NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
@@ -264,8 +264,10 @@ module NittyMail
           else
             puts "No rows to prune for '#{mbox_name}'"
           end
-        elsif @prune_missing && mailbox_abort
+        elsif @prune_missing && result == :aborted
           puts "Skipped pruning for '#{mbox_name}' due to mailbox abort"
+        elsif !@prune_missing && db_only.any?
+          puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
         end
         # Optionally purge old UIDVALIDITY generations for this mailbox
         other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
