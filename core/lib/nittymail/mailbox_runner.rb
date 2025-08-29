@@ -1,0 +1,86 @@
+# frozen_string_literal: true
+
+require_relative "util"
+require_relative "db"
+require_relative "imap_client"
+
+module NittyMail
+  class MailboxRunner
+    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil)
+      # Build batches
+      batch_queue = Queue.new
+      uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
+
+      write_queue = Queue.new
+      mailbox_abort = false
+
+      insert_stmt = NittyMail::DB.prepared_insert(email_ds)
+
+      writer = Thread.new do
+        loop do
+          rec = write_queue.pop
+          break if rec == :__DONE__
+          begin
+            insert_stmt.call(rec)
+          rescue Sequel::UniqueConstraintViolation => e
+            raise e if strict_errors
+            progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
+          end
+          progress&.increment
+        end
+      end
+
+      workers = Array.new(threads_count) do
+        Thread.new do
+          client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+          client.reconnect_and_select(mbox_name, uidvalidity)
+          loop do
+            break if mailbox_abort
+            batch = begin
+              batch_queue.pop(true)
+            rescue ThreadError
+              nil
+            end
+            break unless batch
+
+            fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
+            begin
+              fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: retry_attempts, progress: progress)
+            rescue => _e
+              mailbox_abort = true
+              progress&.log("Aborting mailbox '#{mbox_name}' after #{retry_attempts} failed attempt(s); proceeding to next mailbox")
+              break
+            end
+            fetched.each do |fd|
+              attrs = fd.attr
+              next unless attrs
+              uid = attrs["UID"]
+              raw = attrs["BODY[]"] || attrs["RFC822"]
+              mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
+              flags_json = attrs["FLAGS"].to_json
+              rec = build_record(
+                imap_address: imap_address,
+                mbox_name: mbox_name,
+                uid: uid,
+                uidvalidity: uidvalidity,
+                mail: mail,
+                attrs: attrs,
+                flags_json: flags_json,
+                raw: raw,
+                strict_errors: strict_errors
+              )
+              write_queue << rec
+            end
+          end
+          client.close
+        end
+      end
+
+      workers.each(&:join)
+      write_queue << :__DONE__
+      writer.join
+
+      mailbox_abort ? :aborted : :ok
+    end
+  end
+end

@@ -238,89 +238,22 @@ module NittyMail
           format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
 
-        # Build batches to reduce round-trips
-        batch_queue = Queue.new
-        uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
-
-        write_queue = Queue.new
-
-        # If set to true, all workers will stop processing this mailbox
-        mailbox_abort = false
-
-        # Use a prepared insert with bind parameters to safely handle
-        # any bytes/newlines/quotes in values (especially large bodies).
-        insert_stmt = NittyMail::DB.prepared_insert(email)
-
-        writer = Thread.new do
-          loop do
-            rec = write_queue.pop
-            break if rec == :__DONE__
-
-            begin
-              insert_stmt.call(rec)
-            rescue Sequel::UniqueConstraintViolation => e
-              raise e if @strict_errors
-              # Log through the progress bar to avoid clobbering
-              progress.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
-            end
-            progress.increment
-          end
-        end
-
-        workers = Array.new(threads_count) do
-          Thread.new do
-            imap_client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
-            imap_client.reconnect_and_select(mbox_name, uidvalidity)
-            loop do
-              break if mailbox_abort
-              batch = begin
-                batch_queue.pop(true)
-              rescue ThreadError
-                nil
-              end
-              break unless batch
-
-              # Fetch multiple messages at once; BODY.PEEK[] avoids setting \\Seen
-              fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
-              begin
-                fetched = imap_client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: @retry_attempts, progress: progress)
-              rescue => _e
-                mailbox_abort = true
-                progress.log("Aborting mailbox '#{mbox_name}' after #{@retry_attempts} failed attempt(s); proceeding to next mailbox")
-                break
-              end
-              fetched.each do |fd|
-                attrs = fd.attr
-                next unless attrs
-                uid = attrs["UID"]
-                raw = attrs["BODY[]"] || attrs["RFC822"]
-                mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
-                flags_json = attrs["FLAGS"].to_json
-                log_processing(mbox_name:, uid:, mail:, flags_json:, raw: raw, progress: progress, strict_errors: @strict_errors)
-                rec = build_record(
-                  imap_address:,
-                  mbox_name:,
-                  uid:,
-                  uidvalidity:,
-                  mail:,
-                  attrs:,
-                  flags_json:,
-                  raw: raw,
-                  strict_errors: @strict_errors
-                )
-                write_queue << rec
-              end
-            end
-            imap_client.close
-          end
-        end
-
-        workers.each(&:join)
-        write_queue << :__DONE__
-        writer.join
+        result = NittyMail::MailboxRunner.run(
+          imap_address: imap_address,
+          imap_password: imap_password,
+          email_ds: email,
+          mbox_name: mbox_name,
+          uidvalidity: uidvalidity,
+          uids: uids,
+          threads_count: threads_count,
+          fetch_batch_size: fetch_batch_size,
+          retry_attempts: @retry_attempts,
+          strict_errors: @strict_errors,
+          progress: progress
+        )
 
         # Optionally prune rows that no longer exist on the server for this mailbox
-        if @prune_missing && !mailbox_abort
+        if @prune_missing && result != :aborted
           db_only = pf[:db_only] || []
           if db_only.any?
             count = @db.transaction do
