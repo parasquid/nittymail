@@ -45,6 +45,7 @@ class NittyMailCLI < Thor
   option :quiet, aliases: "-q", desc: "Quiet mode: only show progress bars and high-level operations", type: :boolean, default: false
   option :sqlite_wal, desc: "Enable SQLite WAL journaling for better write performance", type: :boolean, default: true
   option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
+  option :embed, desc: "Enable embeddings during sync (use --no-embed to disable)", type: :boolean, default: true
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -67,6 +68,7 @@ class NittyMailCLI < Thor
       options[:sqlite_wal]
     end
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
+    embed_enabled = options[:embed]
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -114,7 +116,8 @@ class NittyMailCLI < Thor
       prune_missing:,
       quiet:,
       sqlite_wal:,
-      ollama_host:
+      ollama_host:,
+      embed_enabled:
     )
   end
 

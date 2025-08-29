@@ -490,13 +490,16 @@ Notes:
 - The helpers validate vector length and pack to float32 BLOBs.
 - They ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
 
-Enable embeddings during sync:
+Enable or disable embeddings during sync:
 ```bash
 # Environment variable
 OLLAMA_HOST=http://localhost:11434 docker compose run --rm ruby ./cli.rb sync
 
 # Or CLI flag
 docker compose run --rm ruby ./cli.rb sync --ollama-host http://localhost:11434
+
+# Disable embeddings (download only)
+docker compose run --rm ruby ./cli.rb sync --no-embed
 ```
 
 See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.

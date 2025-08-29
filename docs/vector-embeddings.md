@@ -48,7 +48,7 @@ For each embedded field, a row is inserted (or upserted) into `email_vec` and an
 - `dimension`: vector dimension
 - `created_at`: timestamp
 
-## Running a sync with embeddings enabled
+## Running a sync with embeddings enabled (or disabled)
 
 1) Start or ensure Ollama is running and has the model you want:
 ```bash
@@ -123,3 +123,6 @@ Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed`
 - References:
   - sqlite-vec Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
   - Demo script: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
+# Disable embeddings during sync (downloads mail only)
+docker compose run --rm \
+  ruby ./cli.rb sync --no-embed --database data/your.sqlite3 --address user@gmail.com --password app_pass
