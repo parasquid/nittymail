@@ -158,6 +158,24 @@ QUIET=yes docker compose run --rm ruby ./cli.rb sync
 Notes:
 - Quiet mode suppresses per-message logs (from, subject, flags) but keeps progress bars and high-level status.
 
+**SQLite performance (WAL journaling):**
+```bash
+# Default: WAL is enabled (best write concurrency)
+docker compose run --rm ruby ./cli.rb sync
+
+# Disable WAL if needed (creates fewer sidecar files):
+docker compose run --rm ruby ./cli.rb sync --no-sqlite-wal
+
+# Or via env var (overrides the CLI default)
+SQLITE_WAL=no docker compose run --rm ruby ./cli.rb sync
+```
+Rationale:
+- WAL (Write-Ahead Logging) improves write throughput and reduces lock contention when many inserts occur.
+- We also set a `busy_timeout` and `synchronous=NORMAL` for a good durability/performance balance when WAL is on.
+Notes:
+- WAL creates `-wal` and `-shm` sidecar files next to your `.sqlite3` file.
+- Some networked filesystems don’t like WAL; if you see file locking issues, try `--no-sqlite-wal`.
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
