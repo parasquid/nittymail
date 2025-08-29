@@ -34,7 +34,7 @@ docker compose run --rm ruby ./cli.rb query --model llama3.1:8b-instruct 'show m
 
 ## Prerequisites
 
-- Sync some mail into a SQLite DB (see `core/README.md`).
+- Sync some mail into a SQLite DB (see [`core/README.md`](../core/README.md)).
 - Ollama running and reachable via `OLLAMA_HOST` (e.g., `http://localhost:11434`).
 - For semantic topic search, populate embeddings first with `./cli.rb embed`.
 

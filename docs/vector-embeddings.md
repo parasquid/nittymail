@@ -59,7 +59,7 @@ ollama pull mxbai-embed-large
 
 ## Querying for similar messages
 
-Use `MATCH` against the vec table with a packed float32 query vector, joining metadata to map back to emails. See README for a complete example, or adapt this pattern:
+Use `MATCH` against the vec table with a packed float32 query vector, joining metadata to map back to emails. See [README](../core/README.md) for a complete example, or adapt this pattern:
 ```ruby
 qblob = SQLite3::Blob.new(query_vector.pack("f*"))
 rows = db.synchronize { |conn| conn.execute(<<~SQL, qblob)

@@ -4,6 +4,8 @@ This folder contains some common functionality, among which is a simple syncing 
 
 ## Usage
 
+**Note:** NittyMail is designed to be run via Docker, and a local Ruby installation is not required. All commands in this guide assume you have Docker and Docker Compose installed.
+
 ### Prerequisites
 
 Before running NittyMail, you need to prepare your Gmail account:
@@ -69,7 +71,7 @@ dcr ruby ./cli.rb sync
 
 ### Query (LLM + Tools)
 
-Ask natural-language questions against your mail using an Ollama chat model with database tools. See a full guide in `docs/query.md`.
+Ask natural-language questions against your mail using an Ollama chat model with database tools. See a full guide in [docs/query.md](../docs/query.md).
 
 ```bash
 # Basic: uses DATABASE and ADDRESS from .env
@@ -378,7 +380,7 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 
 ### Vector Search (sqlite-vec)
 
-We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content. The full guide moved to `docs/vector-embeddings.md`.
+We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content. The full guide moved to [docs/vector-embeddings.md](../docs/vector-embeddings.md).
 
 References:
 - Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
@@ -611,7 +613,7 @@ Bug reports and pull requests are welcome on GitHub at <https://github.com/paras
 
 ## Gmail IMAP Extensions
 
-This project uses Gmail-specific IMAP attributes for richer metadata. See docs/gmail-imap-extensions.md for details on X-GM-LABELS, X-GM-MSGID, and X-GM-THRID.
+This project uses Gmail-specific IMAP attributes for richer metadata. See [docs/gmail-imap-extensions.md](../docs/gmail-imap-extensions.md) for details on X-GM-LABELS, X-GM-MSGID, and X-GM-THRID.
 
 ## License
 
