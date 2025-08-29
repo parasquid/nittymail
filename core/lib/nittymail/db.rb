@@ -58,5 +58,31 @@ module NittyMail
       return 0 if uids.nil? || uids.empty?
       db[:email].where(mailbox: mailbox, uidvalidity: uidvalidity, uid: uids).delete
     end
+
+    # Configure SQLite pragmas for better concurrency and write performance.
+    # When wal is true, enable WAL journaling and lower synchronous to NORMAL.
+    # Always set a busy_timeout to avoid immediate lock errors.
+    def configure_performance!(db, wal: true)
+      # milliseconds
+      db.pragma_set(:busy_timeout, 5000)
+      if wal
+        db.pragma_set(:journal_mode, :wal)
+        db.pragma_set(:synchronous, :normal)
+      end
+      db
+    end
   end
+end
+
+# Configure SQLite pragmas for better concurrency and write performance.
+# When wal is true, enable WAL journaling and lower synchronous to NORMAL.
+# Always set a busy_timeout to avoid immediate lock errors.
+def configure_performance!(db, wal: true)
+  # milliseconds
+  db.pragma_set(:busy_timeout, 5000)
+  if wal
+    db.pragma_set(:journal_mode, :wal)
+    db.pragma_set(:synchronous, :normal)
+  end
+  db
 end
