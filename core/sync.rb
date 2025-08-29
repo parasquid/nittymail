@@ -384,6 +384,9 @@ module NittyMail
 
         write_queue = Queue.new
 
+        # If set to true, all workers will stop processing this mailbox
+        mailbox_abort = false
+
         # Use a prepared insert with bind parameters to safely handle
         # any bytes/newlines/quotes in values (especially large bodies).
         insert_stmt = email.prepare(
@@ -447,6 +450,7 @@ module NittyMail
 
             imap = reconnect.call
             loop do
+              break if mailbox_abort
               batch = begin
                 batch_queue.pop(true)
               rescue ThreadError
@@ -469,9 +473,10 @@ module NittyMail
                   imap = reconnect.call
                   retry
                 else
-                  # Give up this batch for now without re-queuing to avoid infinite loops
-                  progress.log("Skipping batch #{batch.inspect} after #{attempts} attempts (max=#{@retry_attempts})")
-                  next
+                  # Exhausted retries: abort this mailbox and proceed to the next one
+                  mailbox_abort = true
+                  progress.log("Aborting mailbox '#{mbox_name}' after #{attempts} failed attempt(s); proceeding to next mailbox")
+                  break
                 end
               end
               fetched.each do |fd|
