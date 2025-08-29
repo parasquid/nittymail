@@ -454,6 +454,42 @@ end
 pp rows
 ```
 
+Helper methods (recommended):
+```ruby
+require "sequel"
+require "sqlite3"
+require_relative "lib/nittymail/db"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+
+# Prepare your vector (length must equal SQLITE_VEC_DIMENSION, default 1024)
+vector = embed_text_with_ollama("some text to embed") # => Array(Float)
+
+# Insert a new embedding and link to email_id
+vec_rowid = NittyMail::DB.insert_email_embedding!(
+  db,
+  email_id: 123,
+  vector: vector,
+  item_type: "body",                      # or "subject", "snippet"
+  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
+  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+)
+
+# Or upsert by (email_id, item_type, model)
+vec_rowid = NittyMail::DB.upsert_email_embedding!(
+  db,
+  email_id: 123,
+  vector: vector,
+  item_type: "body",
+  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
+  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+)
+```
+
+Notes:
+- The helpers validate vector length and pack to float32 BLOBs.
+- they ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
+
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
 - The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
