@@ -1,0 +1,12 @@
+feat(rag): require sqlite-vec, 1024-dim default, docs for mxbai-embed-large
+
+Why:
+- Standardize on a high-quality OSS embedding setup via Ollama.
+- Avoid fallback schemas to ensure consistent vector search capabilities.
+
+What:
+- Require sqlite-vec; create email_vec + email_vec_meta (no fallback tables).
+- Default SQLITE_VEC_DIMENSION=1024 to match mxbai-embed-large/bge-m3.
+- Add SQLITE_VEC_EXTENSION and EMBEDDING_MODEL hints in .env.sample.
+- Update README vector section with defaults, Ollama quickstart, and notes.
+- Fix lint issues; both StandardRB and RuboCop pass.

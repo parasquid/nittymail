@@ -12,6 +12,7 @@ gem "net-smtp", require: false
 gem "ruby-progressbar"
 gem "sequel"
 gem "sqlite3"
+gem "sqlite-vec", require: false
 gem "thor"
 
 # Linting

@@ -342,10 +342,9 @@ This branch introduces schema support for vector embeddings via sqlite-vec (no f
 
 - Requirement: the sqlite-vec extension must be available to SQLite inside the container.
 - Configuration:
-  - `SQLITE_VEC_EXTENSION`: path to the sqlite-vec shared library (e.g., `/app/core/vendor/sqlite-vec/vec0`). If unset, we attempt to `load_extension('vec0')` by name.
   - `SQLITE_VEC_DIMENSION`: embedding dimension used when creating the virtual table (default: `1024`).
 
-On startup, the DB layer attempts to load the extension and creates:
+On startup, the DB layer uses the sqlite-vec Ruby gem to load the extension and creates:
 - `email_vec` (virtual table): `CREATE VIRTUAL TABLE IF NOT EXISTS email_vec USING vec0(embedding float[DIM])`
 - `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`).
 

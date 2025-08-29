@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "sqlite_vec"
+
 module NittyMail
   module DB
     module_function
@@ -107,45 +109,13 @@ module NittyMail
       end
     end
 
-    # Best-effort loading of sqlite-vec. If SQLITE_VEC_EXTENSION env var is set,
-    # attempts to load that library; otherwise tries 'vec0' by name.
+    # Load sqlite-vec via the Ruby gem helper.
     def load_sqlite_vec!(db)
       return true if defined?(@sqlite_vec_loaded) && @sqlite_vec_loaded
-      lib = ENV["SQLITE_VEC_EXTENSION"]
       db.synchronize do |conn|
-        begin
-          conn.enable_load_extension(true) if conn.respond_to?(:enable_load_extension)
-        rescue
-        end
-
-        if lib && !lib.empty?
-          begin
-            conn.load_extension(lib)
-          rescue
-            # try SQL fallback
-            begin
-              db.run("SELECT load_extension('#{lib.gsub("'", "''")}')")
-            rescue
-              raise "Failed to load sqlite-vec extension from #{lib}. Set SQLITE_VEC_EXTENSION to the shared library path inside the container."
-            end
-          end
-        else
-          # try default module name
-          begin
-            conn.load_extension("vec0")
-          rescue
-            begin
-              db.run("SELECT load_extension('vec0')")
-            rescue
-              raise "sqlite-vec extension not found. Provide SQLITE_VEC_EXTENSION pointing to the vec0 library."
-            end
-          end
-        end
-      ensure
-        begin
-          conn.enable_load_extension(false) if conn.respond_to?(:enable_load_extension)
-        rescue
-        end
+        conn.enable_load_extension(true) if conn.respond_to?(:enable_load_extension)
+        SqliteVec.load(conn)
+        conn.enable_load_extension(false) if conn.respond_to?(:enable_load_extension)
       end
       @sqlite_vec_loaded = true
       true

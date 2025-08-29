@@ -77,6 +77,7 @@ GEM
     ruby-progressbar (1.13.0)
     sequel (5.60.1)
     sorcerer (2.0.1)
+    sqlite-vec (0.1.6-x86_64-linux)
     sqlite3 (2.7.3-x86_64-linux-gnu)
     standard (1.50.0)
       language_server-protocol (~> 3.17.0.2)
@@ -113,6 +114,7 @@ DEPENDENCIES
   rubocop-sequel
   ruby-progressbar
   sequel
+  sqlite-vec
   sqlite3
   standard
   thor
