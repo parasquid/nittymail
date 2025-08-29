@@ -41,6 +41,7 @@ class NittyMailCLI < Thor
   option :strict_errors, aliases: "-S", desc: "Raise exceptions instead of swallowing/logging certain recoverable errors", type: :boolean, default: false
   option :retry_attempts, aliases: "-R", desc: "Max IMAP retry attempts per batch (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :prune_missing, aliases: "-P", desc: "Delete DB rows for UIDs missing on server (per mailbox/current UIDVALIDITY)", type: :boolean, default: false
+  option :quiet, aliases: "-q", desc: "Quiet mode: only show progress bars and high-level operations", type: :boolean, default: false
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -56,6 +57,7 @@ class NittyMailCLI < Thor
     strict_errors = options[:strict_errors] || (ENV["STRICT_ERRORS"] && %w[1 true yes y].include?(ENV["STRICT_ERRORS"].to_s.downcase))
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     prune_missing = options[:prune_missing] || (ENV["PRUNE_MISSING"] && %w[1 true yes y].include?(ENV["PRUNE_MISSING"].to_s.downcase))
+    quiet = options[:quiet] || (ENV["QUIET"] && %w[1 true yes y].include?(ENV["QUIET"].to_s.downcase))
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -100,7 +102,8 @@ class NittyMailCLI < Thor
       ignore_mailboxes:,
       strict_errors:,
       retry_attempts:,
-      prune_missing:
+      prune_missing:,
+      quiet:
     )
   end
 

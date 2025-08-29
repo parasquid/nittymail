@@ -147,6 +147,17 @@ Behavior:
   - Invalid or missing `Date:` headers that normally result in `date = NULL`
 - Intended for diagnosing problematic messages; expect the sync to abort on the first such case.
 
+**Quiet mode (reduced output):**
+```bash
+# Only show progress bars and high-level operations
+docker compose run --rm ruby ./cli.rb sync --quiet
+
+# Or via env var
+QUIET=yes docker compose run --rm ruby ./cli.rb sync
+```
+Notes:
+- Quiet mode suppresses per-message logs (from, subject, flags) but keeps progress bars and high-level status.
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.

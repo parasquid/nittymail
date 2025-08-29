@@ -109,14 +109,15 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet)
       @strict_errors = !!strict_errors
       @retry_attempts = retry_attempts.to_i
       @prune_missing = !!prune_missing
+      @quiet = !!quiet
       # Ensure threads count is valid
       threads_count = 1 if threads_count < 1
       fetch_batch_size = 1 if fetch_batch_size.to_i < 1
@@ -254,7 +255,8 @@ module NittyMail
           fetch_batch_size:,
           retry_attempts: @retry_attempts,
           strict_errors: @strict_errors,
-          progress:
+          progress:,
+          quiet: @quiet
         )
 
         # Optionally prune rows that no longer exist on the server for this mailbox

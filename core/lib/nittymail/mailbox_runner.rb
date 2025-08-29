@@ -6,7 +6,7 @@ require_relative "imap_client"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil)
+    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false)
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -58,6 +58,9 @@ module NittyMail
               raw = attrs["BODY[]"] || attrs["RFC822"]
               mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
               flags_json = attrs["FLAGS"].to_json
+              unless quiet
+                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: strict_errors)
+              end
               rec = build_record(
                 imap_address:,
                 mbox_name:,
