@@ -6,7 +6,7 @@ require_relative "imap_client"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false, embedding: {enabled: false})
+    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, embed_progress: nil, quiet: false, embedding: {enabled: false})
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -15,6 +15,9 @@ module NittyMail
       mailbox_abort = false
 
       insert_stmt = NittyMail::DB.prepared_insert(email_ds)
+
+      embed_mutex = Mutex.new
+      embed_counts = {enqueued: 0, embedded: 0, errors: 0}
 
       writer = Thread.new do
         loop do
@@ -44,9 +47,17 @@ module NittyMail
                   ollama_host: embedding[:ollama_host],
                   model: embedding[:model],
                   dimension: embedding[:dimension]
-                )
+                ) do |_item|
+                  embed_mutex.synchronize { embed_counts[:embedded] += 1 }
+                end
+                if embed_progress && fields.any?
+                  embed_mutex.synchronize do
+                    fields.size.times { embed_progress.increment }
+                  end
+                end
               end
             rescue => e
+              embed_mutex.synchronize { embed_counts[:errors] += 1 }
               progress&.log("embedding error for uid=#{rec[:uid]}: #{e.class}: #{e.message}")
               raise e if strict_errors
             end
@@ -108,6 +119,13 @@ module NittyMail
                   rec[:__embed_fields__] = {}
                   rec[:__embed_fields__][:subject] = subj if subj && !subj.empty?
                   rec[:__embed_fields__][:body] = body_text if body_text && !body_text.empty?
+                  if embed_progress
+                    embed_mutex.synchronize do
+                      added = rec[:__embed_fields__].size
+                      embed_counts[:enqueued] += added
+                      embed_progress.total = embed_progress.total + added if added > 0
+                    end
+                  end
                 rescue => e
                   progress&.log("embedding field prep error for uid=#{uid}: #{e.class}: #{e.message}")
                   raise e if strict_errors
@@ -125,6 +143,14 @@ module NittyMail
       workers.each(&:join)
       write_queue << :__DONE__
       writer.join
+      if embedding[:enabled]
+        line = "embedding summary for '#{mbox_name}': enqueued=#{embed_counts[:enqueued]} embedded=#{embed_counts[:embedded]} errors=#{embed_counts[:errors]}"
+        if progress
+          progress.log(line)
+        else
+          puts line
+        end
+      end
 
       mailbox_abort ? :aborted : :ok
     end

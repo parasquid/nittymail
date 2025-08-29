@@ -40,6 +40,8 @@ module NittyMail
           raise "embedding dimension mismatch: got #{vector.length}, expected #{dimension}"
         end
         NittyMail::DB.upsert_email_embedding!(db, email_id: email_id, vector: vector, item_type: item_type.to_s, model: model, dimension: dimension)
+        # signal one field embedded to any callers that track counts
+        yield(item_type) if block_given?
       end
     end
   end
