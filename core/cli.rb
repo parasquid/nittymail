@@ -21,10 +21,7 @@ require "bundler/setup"
 require "dotenv/load"
 require "thor"
 require_relative "sync"
-require_relative "lib/nittymail/util"
-require_relative "lib/nittymail/embeddings"
-require "sequel"
-require "ruby-progressbar"
+require_relative "embed"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
@@ -139,17 +136,7 @@ class NittyMailCLI < Thor
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
   def embed
     database_path = options[:database] || ENV["DATABASE"]
-    unless database_path
-      puts "Error: --database or DATABASE env var is required"
-      exit 1
-    end
-
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
-    if ollama_host.to_s.strip.empty?
-      puts "Error: OLLAMA_HOST must be set (env or --ollama-host) to run embeddings"
-      exit 1
-    end
-
     model = options[:model] || ENV["EMBEDDING_MODEL"] || "mxbai-embed-large"
     dimension = (options[:dimension] || (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i).to_i
     item_types = (options[:item_types] || "subject,body").split(",").map { |s| s.strip.downcase }.uniq & %w[subject body]
@@ -159,54 +146,17 @@ class NittyMailCLI < Thor
     offset = options[:offset]&.to_i
     quiet = options[:quiet]
 
-    db = Sequel.sqlite(database_path)
-    NittyMail::DB.configure_performance!(db, wal: true)
-    email_ds = NittyMail::DB.ensure_schema!(db)
-    NittyMail::DB.ensure_vec_tables!(db, dimension: dimension)
-
-    ds = email_ds
-    ds = ds.where(address: address_filter) if address_filter && !address_filter.strip.empty?
-    ds = ds.offset(offset) if offset && offset > 0
-    ds = ds.limit(limit) if limit && limit > 0
-
-    total = ds.count
-    puts "Embedding #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
-    progress = ProgressBar.create(title: "embed", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
-
-    ds.each do |row|
-      fields = {}
-      if item_types.include?("subject")
-        subj = row[:subject].to_s
-        fields[:subject] = subj if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
-      end
-      if item_types.include?("body")
-        raw = row[:encoded]
-        mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
-        body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
-        if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
-          body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
-        end
-        if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
-          fields[:body] = body_text
-        end
-      end
-      if fields.any?
-        NittyMail::Embeddings.embed_fields_for_email!(db, email_id: row[:id], fields: fields, ollama_host: ollama_host, model: model, dimension: dimension)
-        progress.log("embedded email id=#{row[:id]} types=#{fields.keys.join(",")}") unless quiet
-      else
-        progress.log("skip id=#{row[:id]} (nothing to embed or already present)") unless quiet
-      end
-    rescue => e
-      progress.log("error embedding id=#{row[:id]}: #{e.class}: #{e.message}")
-    ensure
-      progress.increment
-    end
-  end
-
-  no_commands do
-    def missing_embedding?(db, email_id, item_type, model)
-      !db[:email_vec_meta].where(email_id: email_id, item_type: item_type.to_s, model: model).first
-    end
+    NittyMail::Embed.perform(
+      database_path: database_path,
+      ollama_host: ollama_host,
+      model: model,
+      dimension: dimension,
+      item_types: item_types,
+      address_filter: address_filter,
+      limit: limit,
+      offset: offset,
+      quiet: quiet
+    )
   end
 end
 
