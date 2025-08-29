@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+msg_file="$1"
+
+# Reject commit messages that contain a literal backslash-n sequence (\\n)
+if grep -qF '\\n' "$msg_file"; then
+  echo "ERROR: Commit message contains a literal \\n sequence. Use a proper multi-line body." >&2
+  echo "Tips:" >&2
+  echo "- Use: git commit -F - << 'EOF' ... EOF" >&2
+  echo "- Or multiple -m flags for separate paragraphs." >&2
+  exit 1
+fi
+
+exit 0
+

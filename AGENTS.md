@@ -197,6 +197,10 @@ Notes:
 - Never type `\n` inside `-m` strings expecting it to become a newline — it will be stored literally.
 - If you see backslashes in your message content, stop and use `-F` with a file or the heredoc approach above.
 
+#### Enforced by commit hook
+- The repo sets `core.hooksPath` to `.githooks` and includes a `commit-msg` hook that rejects any commit message containing a literal `\n`.
+- If your commit is rejected, re-create it with one of the approved multi-line methods above.
+
 #### Verify before pushing
 - Check for literal `\n` sequences in your recent commit bodies:
   - `git log -n 5 --pretty=%B | grep -F '\\n' && echo 'Found literal \\n in commit messages' && exit 1 || true`
