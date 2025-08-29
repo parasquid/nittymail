@@ -28,6 +28,7 @@ require "ruby-progressbar"
 require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/logging"
 require_relative "lib/nittymail/gmail_patch"
+require_relative "lib/nittymail/db"
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
@@ -126,35 +127,7 @@ module NittyMail
       end
 
       @db = Sequel.sqlite(database_path)
-
-      unless @db.table_exists?(:email)
-        @db.create_table :email do
-          primary_key :id
-          String :address, index: true
-          String :mailbox, index: true
-          Bignum :uid, index: true, default: 0
-          Integer :uidvalidity, index: true, default: 0
-
-          String :message_id, index: true
-          DateTime :date, index: true
-          String :from, index: true
-          String :subject
-
-          Boolean :has_attachments, index: true, default: false
-
-          String :x_gm_labels
-          String :x_gm_msgid
-          String :x_gm_thrid
-          String :flags
-
-          String :encoded
-
-          unique %i[mailbox uid uidvalidity]
-          index %i[mailbox uidvalidity]
-        end
-      end
-
-      email = @db[:email]
+      email = NittyMail::DB.ensure_schema!(@db)
 
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
@@ -279,23 +252,7 @@ module NittyMail
 
         # Use a prepared insert with bind parameters to safely handle
         # any bytes/newlines/quotes in values (especially large bodies).
-        insert_stmt = email.prepare(
-          :insert, :insert_email,
-          address: :$address,
-          mailbox: :$mailbox,
-          uid: :$uid,
-          uidvalidity: :$uidvalidity,
-          message_id: :$message_id,
-          date: :$date,
-          from: :$from,
-          subject: :$subject,
-          has_attachments: :$has_attachments,
-          x_gm_labels: :$x_gm_labels,
-          x_gm_msgid: :$x_gm_msgid,
-          x_gm_thrid: :$x_gm_thrid,
-          flags: :$flags,
-          encoded: :$encoded
-        )
+        insert_stmt = NittyMail::DB.prepared_insert(email)
 
         writer = Thread.new do
           loop do
@@ -404,9 +361,8 @@ module NittyMail
         if @prune_missing && !mailbox_abort
           db_only = pf[:db_only] || []
           if db_only.any?
-            count = db_only.size
-            @db.transaction do
-              email.where(mailbox: mbox_name, uidvalidity: uidvalidity, uid: db_only).delete
+            count = @db.transaction do
+              NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
             end
             puts "Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})"
           else
