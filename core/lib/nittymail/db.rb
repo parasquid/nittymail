@@ -7,6 +7,35 @@ module NittyMail
   module DB
     module_function
 
+    # Open a Sequel SQLite connection with common settings.
+    # When load_vec is true, ensure sqlite-vec is loaded for every underlying connection.
+    def connect(database_path, wal: True, load_vec: false)
+      db = if load_vec
+        Sequel.sqlite(
+          database_path,
+          after_connect: proc do |conn|
+            begin
+              conn.enable_load_extension(true) if conn.respond_to?(:enable_load_extension)
+            rescue
+            end
+            begin
+              SqliteVec.load(conn)
+            rescue
+            ensure
+              begin
+                conn.enable_load_extension(false) if conn.respond_to?(:enable_load_extension)
+              rescue
+              end
+            end
+          end
+        )
+      else
+        Sequel.sqlite(database_path)
+      end
+      configure_performance!(db, wal: wal)
+      db
+    end
+
     def ensure_schema!(db)
       # Enable foreign keys for referential integrity
       begin
@@ -149,7 +178,7 @@ module NittyMail
           conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
           vec_rowid = conn.last_insert_row_id
         end
-        db[:email_vec_meta].insert(vec_rowid: vec_rowid, email_id: email_id, item_type: item_type, model: model, dimension: dimension)
+        db[:email_vec_meta].insert(vec_rowid: vec_rowid, email_id: email_id, item_type: item_type.to_s, model: model, dimension: dimension)
       end
       vec_rowid
     end
@@ -165,7 +194,8 @@ module NittyMail
       ensure_vec_tables!(db, dimension: dimension)
 
       packed = vector.pack("f*")
-      meta = db[:email_vec_meta].where(email_id: email_id, item_type: item_type, model: model).first
+      item_type_str = item_type.to_s
+      meta = db[:email_vec_meta].where(email_id: email_id, item_type: item_type_str, model: model).first
       if meta
         if meta[:dimension].to_i != dimension
           raise ArgumentError, "existing embedding dimension #{meta[:dimension]} does not match requested dimension #{dimension}"
@@ -175,7 +205,7 @@ module NittyMail
         end
         meta[:vec_rowid]
       else
-        insert_email_embedding!(db, email_id: email_id, vector: vector, item_type: item_type, model: model, dimension: dimension)
+        insert_email_embedding!(db, email_id: email_id, vector: vector, item_type: item_type_str, model: model, dimension: dimension)
       end
     end
   end

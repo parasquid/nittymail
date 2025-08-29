@@ -133,8 +133,7 @@ module NittyMail
           enable_ssl: true
       end
 
-      @db = Sequel.sqlite(database_path)
-      NittyMail::DB.configure_performance!(@db, wal: sqlite_wal)
+      @db = NittyMail::DB.connect(database_path, wal: sqlite_wal, load_vec: false)
       email = NittyMail::DB.ensure_schema!(@db)
 
       # get all mailboxes

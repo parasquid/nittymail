@@ -13,8 +13,7 @@ module NittyMail
       raise ArgumentError, "database_path is required" if database_path.to_s.strip.empty?
       raise ArgumentError, "ollama_host is required (set OLLAMA_HOST or pass --ollama-host)" if ollama_host.to_s.strip.empty?
 
-      db = Sequel.sqlite(database_path)
-      NittyMail::DB.configure_performance!(db, wal: true)
+      db = NittyMail::DB.connect(database_path, wal: true, load_vec: true)
       email_ds = NittyMail::DB.ensure_schema!(db)
       NittyMail::DB.ensure_vec_tables!(db, dimension: dimension)
 
@@ -25,19 +24,54 @@ module NittyMail
 
       total = ds.count
       puts "Embedding #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
-      progress = ProgressBar.create(title: "embed", total: 0, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      # Phase 1: plan all jobs to set a fixed progress total
+      plan_progress = ProgressBar.create(title: "plan (emails)", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      jobs = []
+      ds.each do |row|
+        if item_types.include?("subject")
+          subj = row[:subject].to_s
+          if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
+            jobs << {email_id: row[:id], item_type: :subject, text: subj}
+          end
+        end
+        if item_types.include?("body")
+          raw = row[:encoded]
+          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
+          body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
+          if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
+            body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+          end
+          if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
+            jobs << {email_id: row[:id], item_type: :body, text: body_text}
+          end
+        end
+        # if nothing enqueued, remain silent to keep bar anchored
+      rescue => e
+        plan_progress.log "enqueue error id=#{row[:id]}: #{e.class}: #{e.message}"
+      ensure
+        plan_progress.increment
+      end
+      plan_progress.finish
 
+      # Phase 2: execute jobs with a fixed total
+      progress = ProgressBar.create(title: "embed (jobs)", total: jobs.length, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
 
-      # Writer thread: serialize DB upserts for vec tables
       writer = Thread.new do
+        done = 0
+        last_log_at = Time.now
         loop do
           job = write_queue.pop
           break if job == :__STOP__
           begin
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: model, dimension: dimension)
             progress.increment
+            done += 1
+            if !quiet && ((done % 100).zero? || (Time.now - last_log_at) >= 2)
+              progress.log("embedded #{done}/#{progress.total} | queues: job=#{job_queue.size} write=#{write_queue.size}")
+              last_log_at = Time.now
+            end
           rescue => e
             progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
           end
@@ -51,11 +85,7 @@ module NittyMail
             break if job == :__STOP__
             begin
               vector = fetch_with_retry(ollama_host: ollama_host, model: model, text: job[:text], retry_attempts: retry_attempts)
-              if vector && vector.length == dimension
-                write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector}
-              else
-                # dimension mismatch: counted as error, do not log per-item to avoid scroll
-              end
+              write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == dimension
             rescue => e
               progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
             end
@@ -63,36 +93,7 @@ module NittyMail
         end
       end
 
-      ds.each do |row|
-        if item_types.include?("subject")
-          subj = row[:subject].to_s
-          if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
-            job_queue << {email_id: row[:id], item_type: :subject, text: subj}
-            progress.total = progress.total + 1
-            true
-          end
-        end
-        if item_types.include?("body")
-          raw = row[:encoded]
-          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
-          body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
-          if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
-            body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
-          end
-          if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
-            job_queue << {email_id: row[:id], item_type: :body, text: body_text}
-            progress.total = progress.total + 1
-            true
-          end
-        end
-        # if nothing enqueued, remain silent to keep bar anchored
-      rescue => e
-        progress.log("enqueue error id=#{row[:id]}: #{e.class}: #{e.message}")
-
-        # no-op: progress increments when upserts complete
-      end
-
-      # Signal workers to stop and wait
+      jobs.each { |j| job_queue << j }
       threads_count.to_i.times { job_queue << :__STOP__ }
       threads.each(&:join)
       write_queue << :__STOP__

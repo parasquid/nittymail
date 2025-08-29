@@ -105,6 +105,16 @@ Flags and environment:
 
 Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed` without flags and it will target the same database and address.
 
+
+## Progress Bars
+
+The `embed` subcommand shows two progress bars with different units:
+
+- plan (emails): counts how many email rows were scanned to build the job list. This stage does not call Ollama; it only reads from SQLite and parses local message bodies to decide whether to embed subject/body.
+- embed (jobs): counts how many embedding jobs (subject and/or body) are completed and written to sqlite-vec. Many emails have both fields, so the job total can be larger than the number of emails scanned.
+
+During the embed phase, a periodic summary line like `embedded X/Y | queues: job=A write=B` is logged to provide throughput context without disrupting the anchored bar.
+
 ## Notes & Tips
 
 - Dimension lock-in: the vec table’s dimension is fixed at creation; keep `SQLITE_VEC_DIMENSION` consistent with your model.
