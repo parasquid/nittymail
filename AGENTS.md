@@ -93,6 +93,64 @@ Note: Configure `core/config/.env` first (see below).
 - **Version Compatibility**: Note any version requirements or compatibility changes.
 - **AI Agents**: When implementing features, always check if existing documentation needs updates. Documentation debt creates confusion.
 
+## Vector Embeddings (sqlite-vec via Ruby)
+
+- We use the sqlite-vec Ruby gem to enable vector search in SQLite. Load the extension using the gem helper against the underlying SQLite3 connection; do not shell out or specify `.so` paths manually.
+- Read and follow:
+  - Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
+  - Minimal example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
+
+Defaults and constraints:
+- Default embedding model (Ollama): `mxbai-embed-large` (English, 1024‑dim). Multilingual alternative: `bge-m3` (also 1024‑dim).
+- `SQLITE_VEC_DIMENSION` must match your model output dimension; the `email_vec` table is created with `embedding float[DIM]` and DIM is fixed per table.
+- Schema created at boot:
+  - `email_vec` (virtual, vec0): stores the vector BLOB in `embedding`.
+  - `email_vec_meta`: maps `email_vec.rowid` to `email.id` with (`item_type`, `model`, `dimension`, `created_at`).
+
+Loading the extension (already wired in NittyMail):
+```ruby
+db.synchronize do |conn|
+  conn.enable_load_extension(true)
+  SqliteVec.load(conn)
+  conn.enable_load_extension(false)
+end
+```
+
+Insert embeddings and metadata (Sequel + SQLite3):
+```ruby
+vector = embed_text_with_ollama(...)   # => Array(Float), length == DIM
+packed = vector.pack("f*")            # float32 BLOB
+
+vec_rowid = nil
+db.transaction do
+  db.synchronize do |conn|
+    conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
+    vec_rowid = conn.last_insert_row_id
+  end
+  db[:email_vec_meta].insert(vec_rowid: vec_rowid, email_id: email_id,
+                             item_type: "body", model: ENV.fetch("EMBEDDING_MODEL","mxbai-embed-large"),
+                             dimension: (ENV["SQLITE_VEC_DIMENSION"]||"1024").to_i)
+end
+```
+
+Top‑K similarity query:
+```ruby
+qblob = SQLite3::Blob.new(query_vector.pack("f*"))
+rows = db.synchronize { |conn| conn.execute(<<~SQL, qblob)
+  SELECT m.email_id, v.rowid AS vec_rowid, v.distance
+  FROM email_vec v
+  JOIN email_vec_meta m ON m.vec_rowid = v.rowid
+  WHERE v.embedding MATCH ?
+  ORDER BY v.distance
+  LIMIT 10
+SQL
+}
+```
+
+Notes:
+- Always pack/unpack float32 (`"f*"`); do not store JSON arrays in vec tables.
+- Use transactions for batching. Ensure the vector length matches DIM exactly.
+
 ## Testing Guidelines
 - Current: manual verification via the generated SQLite DB.
 - Naming: test helpers under `core/` as needed; prefer isolated functions.

@@ -338,40 +338,130 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 
 ### Vector Search (sqlite-vec)
 
-This branch introduces schema support for vector embeddings via sqlite-vec (no fallback storage).
+We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content.
 
-- Requirement: the sqlite-vec extension must be available to SQLite inside the container.
-- Configuration:
-  - `SQLITE_VEC_DIMENSION`: embedding dimension used when creating the virtual table (default: `1024`).
+References (highly recommended):
+- Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
+- Minimal example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
 
-On startup, the DB layer uses the sqlite-vec Ruby gem to load the extension and creates:
+Requirements and defaults:
+- The sqlite-vec Ruby gem is bundled; the extension is loaded by the gem at runtime.
+- `SQLITE_VEC_DIMENSION`: embedding dimension for the virtual table (default: `1024`).
+- Default embedding model for Ollama: `mxbai-embed-large` (English, high quality, 1024‑dim). Multilingual alternative: `bge-m3` (also 1024‑dim).
+
+What the app creates on startup:
 - `email_vec` (virtual table): `CREATE VIRTUAL TABLE IF NOT EXISTS email_vec USING vec0(embedding float[DIM])`
-- `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`).
+- `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`, `created_at`).
 
-If the extension cannot be loaded, an error is raised and the process aborts (no non-vec fallback is created).
+If the sqlite-vec extension cannot be loaded via the gem helper, the process aborts (no fallback schema is created).
 
-Recommended defaults (Ollama):
-- Default model: `mxbai-embed-large` (English, high quality)
-- Default dimension: 1024 (matches `mxbai-embed-large`)
-- Alternative multilingual option: `bge-m3` (also 1024-dim)
+Choosing a dimension and model:
+- The vec table’s dimension is fixed at creation time. Set `SQLITE_VEC_DIMENSION` (default 1024) before the first run, and keep it consistent with your embedding model.
+- Recommended default: `mxbai-embed-large` (1024 dims). To try others, create separate vec tables per dimension or re‑create the table to match the new dimension.
 
-Quick start with Ollama:
+Quick start with Ollama (verify dimension):
 ```bash
 # Pull the default high-quality embedding model (English)
 ollama pull mxbai-embed-large
 
-# Verify dimension by generating a sample embedding
+# Verify the output embedding dimension
 curl -s http://localhost:11434/api/embeddings \
   -d '{"model":"mxbai-embed-large","prompt":"hello world"}' | jq '.embedding | length'
 
-# Ensure the DB table dimension matches your model dimension (1024)
+# Ensure vec table dimension matches your model (1024 recommended)
 export SQLITE_VEC_DIMENSION=1024
-# If the vec table already exists with a different DIM, drop/recreate it before proceeding.
 ```
 
-Notes:
-- sqlite-vec dimensions are fixed per table; standardizing on 1024 enables strong recall with manageable storage.
-- If you need to experiment with multiple dimensions/models, create separate vec tables per dimension and track them separately.
+Ruby usage overview (from the sqlite-vec docs):
+```ruby
+require "sqlite3"
+require "sqlite_vec"
+
+db = SQLite3::Database.new(":memory:")
+db.enable_load_extension(true)
+SqliteVec.load(db)
+db.enable_load_extension(false)
+
+db.execute("CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[4])")
+
+# Insert: pack float32s into a BLOB
+embedding = [0.1, 0.1, 0.1, 0.1]
+db.execute("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)", [1, embedding.pack("f*")])
+
+# Query: use MATCH with a packed query vector
+query = [0.1, 0.1, 0.1, 0.1]
+rows = db.execute(<<~SQL, [query.pack("f*")])
+  SELECT rowid, distance
+  FROM vec_items
+  WHERE embedding MATCH ?
+  ORDER BY distance
+  LIMIT 3
+SQL
+```
+
+NittyMail specifics (Sequel + sqlite-vec):
+- We load sqlite-vec using the gem helper against the underlying SQLite3 connection that Sequel manages. No manual extension path is needed.
+- Virtual table: `email_vec(embedding float[DIM])` with DIM from `SQLITE_VEC_DIMENSION`.
+- Metadata table: `email_vec_meta(vec_rowid, email_id, item_type, model, dimension, created_at)`.
+- Insert embeddings as packed float32 BLOBs. Use transactions for batching.
+
+Insert an embedding and link it to an email row:
+```ruby
+require "sequel"
+require "sqlite3"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+NittyMail::DB.ensure_schema!(db)
+
+email_id = 123                         # existing row in the email table
+vector   = some_floats                 # Array(Float), length must equal DIM (e.g., 1024)
+packed   = vector.pack("f*")           # pack as float32 (native endianness)
+model    = ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large")
+item     = "body"                      # e.g., body, subject, snippet
+dimension = (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+
+# Insert into vec table and get the rowid, then insert metadata
+vec_rowid = nil
+db.transaction do
+  db.synchronize do |conn|
+    conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
+    vec_rowid = conn.last_insert_row_id
+  end
+  db[:email_vec_meta].insert(vec_rowid:, email_id:, item_type: item, model:, dimension:)
+end
+```
+
+Top‑K search for similar messages (join with metadata):
+```ruby
+require "sequel"
+require "sqlite3"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+query = make_query_vector(...)          # Array(Float) with DIM elements
+blob  = SQLite3::Blob.new(query.pack("f*"))
+
+rows = nil
+db.synchronize do |conn|
+  rows = conn.execute(<<~SQL, blob)
+    SELECT m.email_id, v.rowid AS vec_rowid, v.distance
+    FROM email_vec v
+    JOIN email_vec_meta m ON m.vec_rowid = v.rowid
+    WHERE v.embedding MATCH ?
+    ORDER BY v.distance
+    LIMIT 10
+  SQL
+end
+pp rows
+```
+
+Notes and tips:
+- The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
+- The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
+- Smaller `distance` means a closer match. Use `LIMIT` to constrain results.
+- Wrap mass inserts in a transaction for better performance.
+- See the official docs and example for more patterns:
+  - Docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
+  - Example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
 
 ## Troubleshooting
 
