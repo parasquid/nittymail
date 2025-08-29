@@ -303,6 +303,14 @@ Optional pruning:
 
 ## Linting
 
+Quick way (recommended):
+
+```bash
+./bin/lint
+```
+
+This installs gems if needed, runs `standardrb --fix .`, then verifies StandardRB and RuboCop in Docker.
+
 Run linters inside Docker (do not use host Ruby):
 
 ```bash
