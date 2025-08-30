@@ -178,13 +178,15 @@ Notes:
 **Include only specific mailboxes (skip all others):**
 ```bash
 # Using environment variable (comma-separated; supports * and ? wildcards)
-ONLY_MAILBOXES="[Gmail]/All Mail" docker compose run --rm ruby ./cli.rb sync
+ONLY_MAILBOXES="[Gmail]/All Mail,INBOX" docker compose run --rm ruby ./cli.rb sync
 
 # Using CLI flag (overrides env var if provided)
-docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail"
+docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail" INBOX
+# or comma-separated in a single arg
+docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail,INBOX"
 
 # Combine with other options (threads, auto-confirm)
-docker compose run --rm ruby ./cli.rb sync -t8 -m8 -y --only "[Gmail]/All Mail"
+docker compose run --rm ruby ./cli.rb sync -t8 -m8 -y --only "[Gmail]/All Mail" INBOX
 ```
 Notes:
 - The include filter (`--only` / `ONLY_MAILBOXES`) is applied first; the ignore filter (`--ignore-mailboxes` / `MAILBOX_IGNORE`) is applied afterwards to the included set.

@@ -52,6 +52,22 @@ RSpec.describe NittyMail::Sync, "mailbox filters" do
     expect(@runner_calls.first[:mbox_name]).to eq("[Gmail]/All Mail")
   end
 
+  it "processes multiple included mailboxes when array provided" do
+    described_class.perform(
+      imap_address: "test@example.com",
+      imap_password: "pw",
+      database_path: db_path,
+      threads_count: 1,
+      mailbox_threads: 1,
+      auto_confirm: true,
+      only_mailboxes: ["INBOX", "[Gmail]/All Mail"],
+      ignore_mailboxes: []
+    )
+
+    names = @runner_calls.map { |c| c[:mbox_name] }
+    expect(names).to contain_exactly("INBOX", "[Gmail]/All Mail")
+  end
+
   it "processes nothing when --only matches zero" do
     described_class.perform(
       imap_address: "test@example.com",

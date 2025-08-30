@@ -40,7 +40,7 @@ class NittyMailCLI < Thor
   option :purge_old_validity, desc: "Purge rows from older UIDVALIDITY generations after successful sync", type: :boolean, default: false
   option :fetch_batch_size, aliases: "-b", desc: "UID FETCH batch size (default: 100)", type: :numeric
   option :ignore_mailboxes, aliases: "-I", desc: "Comma-separated mailbox names/patterns to ignore (supports * and ?)", type: :string
-  option :only, aliases: "-O", desc: "Comma-separated mailbox names/patterns to include (supports * and ?) — others are skipped", type: :string
+  option :only, aliases: "-O", desc: "Mailbox names/patterns to include (array; supports * and ?) — others are skipped. Accepts space- or comma-separated values.", type: :array
   option :strict_errors, aliases: "-S", desc: "Raise exceptions instead of swallowing/logging certain recoverable errors", type: :boolean, default: false
   option :retry_attempts, aliases: "-R", desc: "Max IMAP retry attempts per batch (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :prune_missing, aliases: "-P", desc: "Delete DB rows for UIDs missing on server (per mailbox/current UIDVALIDITY)", type: :boolean, default: false
@@ -57,9 +57,14 @@ class NittyMailCLI < Thor
     purge_old_validity = options[:purge_old_validity] || (ENV["PURGE_OLD_VALIDITY"] && %w[1 true yes y].include?(ENV["PURGE_OLD_VALIDITY"].to_s.downcase))
     fetch_batch_size = options[:fetch_batch_size] || (ENV["FETCH_BATCH_SIZE"] || "100").to_i
     ignore_mailboxes_raw = options[:ignore_mailboxes] || ENV["MAILBOX_IGNORE"]
-    only_mailboxes_raw = options[:only] || ENV["ONLY_MAILBOXES"]
+    only_opt = options[:only]
+    only_env = ENV["ONLY_MAILBOXES"]
+    # Support both array input (Thor) and comma-separated strings; split entries on commas and strip
+    only_parts = []
+    only_parts.concat(Array(only_opt)) if only_opt
+    only_parts.concat(Array(only_env)) if only_env
     ignore_mailboxes = (ignore_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
-    only_mailboxes = (only_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
+    only_mailboxes = only_parts.flat_map { |x| x.to_s.split(",") }.map { |s| s.strip }.reject(&:empty?)
     strict_errors = options[:strict_errors] || (ENV["STRICT_ERRORS"] && %w[1 true yes y].include?(ENV["STRICT_ERRORS"].to_s.downcase))
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     prune_missing = options[:prune_missing] || (ENV["PRUNE_MISSING"] && %w[1 true yes y].include?(ENV["PRUNE_MISSING"].to_s.downcase))
