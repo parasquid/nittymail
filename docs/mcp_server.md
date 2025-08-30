@@ -1,6 +1,6 @@
 # NittyMail MCP Server - Complete Documentation
 
-A standalone Model Context Protocol server exposing 12 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
+A standalone Model Context Protocol server exposing 13 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
 
 ## Overview
 
