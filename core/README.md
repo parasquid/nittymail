@@ -541,26 +541,17 @@ Notes:
 - The helpers validate vector length and pack to float32 BLOBs.
 - They ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
 
-Enable or disable embeddings during sync:
+Embeddings are generated via the `embed` subcommand (sync does not embed):
 ```bash
-# Environment variable
-OLLAMA_HOST=http://localhost:11434 docker compose run --rm ruby ./cli.rb sync
-
-# Or CLI flag
-docker compose run --rm ruby ./cli.rb sync --ollama-host http://localhost:11434
-
-# Disable embeddings (download only)
-docker compose run --rm ruby ./cli.rb sync --no-embed
+# Ensure OLLAMA_HOST points to your server
+DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
+  docker compose run --rm ruby ./cli.rb embed
 ```
 
 See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
 
-Backfill embeddings for existing emails:
+Backfill embeddings for existing emails (examples):
 ```bash
-# Use the same env vars as sync (DATABASE, ADDRESS) and OLLAMA_HOST
-DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
-  docker compose run --rm ruby ./cli.rb embed
-
 # Or pass flags explicitly
 docker compose run --rm ruby ./cli.rb embed \
   --database data/your.sqlite3 \

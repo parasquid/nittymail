@@ -22,7 +22,7 @@ Quick links:
 
 - `EMBEDDING_MODEL`: embedding model name for Ollama (default: `mxbai-embed-large`).
 - `SQLITE_VEC_DIMENSION`: integer dimension (default: `1024`).
-- `OLLAMA_HOST`: base URL of the Ollama server (e.g., `http://localhost:11434`). When set, embeddings are enabled for the sync.
+- `OLLAMA_HOST`: base URL of the Ollama server (e.g., `http://localhost:11434`). Used by the `embed` command (and query for semantic tools). Sync does not generate embeddings.
 
 CLI flag (optional):
 - `--ollama-host http://localhost:11434` (overrides `OLLAMA_HOST`).
