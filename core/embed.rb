@@ -37,6 +37,7 @@ module NittyMail
       # Stream jobs with bounded queue instead of pre-planning entire dataset
       stop_requested = false
       trap("INT") { stop_requested = true }
+      trap("TERM") { stop_requested = true }
       progress = ProgressBar.create(title: "embed (jobs)", total: 1, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
@@ -45,7 +46,13 @@ module NittyMail
       writer = Thread.new do
         last_log_at = Time.now
         loop do
-          job = write_queue.pop
+          break if stop_requested
+          begin
+            job = write_queue.pop(true) # non-blocking
+          rescue ThreadError # empty queue
+            sleep 0.1
+            next
+          end
           break if job == :__STOP__
           begin
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: model, dimension: dimension)
@@ -64,10 +71,16 @@ module NittyMail
       threads = Array.new([threads_count.to_i, 1].max) do
         Thread.new do
           loop do
-            job = job_queue.pop
+            break if stop_requested
+            begin
+              job = job_queue.pop(true) # non-blocking
+            rescue ThreadError # empty queue
+              sleep 0.1
+              next
+            end
             break if job == :__STOP__
             begin
-              vector = fetch_with_retry(ollama_host: ollama_host, model: model, text: job[:text], retry_attempts: retry_attempts)
+              vector = fetch_with_retry(ollama_host: ollama_host, model: model, text: job[:text], retry_attempts: retry_attempts, stop_requested: -> { stop_requested })
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == dimension
             rescue => e
               progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
@@ -80,6 +93,8 @@ module NittyMail
       total_jobs = 0
       begin
         ds.each do |row|
+          break if stop_requested
+          
           if item_types.include?("subject")
             subj = row[:subject].to_s
             if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
@@ -130,11 +145,13 @@ module NittyMail
       !db[:email_vec_meta].where(email_id: email_id, item_type: item_type.to_s, model: model).first
     end
 
-    def self.fetch_with_retry(ollama_host:, model:, text:, retry_attempts: 3)
+    def self.fetch_with_retry(ollama_host:, model:, text:, retry_attempts: 3, stop_requested: nil)
       attempts = 0
       loop do
+        return nil if stop_requested&.call
         return NittyMail::Embeddings.fetch_embedding(ollama_host: ollama_host, model: model, text: text)
       rescue OpenSSL::SSL::SSLError, IOError, Errno::ECONNRESET, Net::OpenTimeout, Net::ReadTimeout => e
+        return nil if stop_requested&.call
         attempts += 1
         raise e if retry_attempts == 0
         if retry_attempts > 0 && attempts > retry_attempts
