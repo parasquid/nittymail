@@ -94,7 +94,7 @@ Capabilities:
 - Date ranges: “between 2015 and 2016”, “since 2019”, “before 2021-02-01”.
 - Mailbox filters: “in inbox/sent/[Gmail]/All Mail”, “label Work”.
 - Sender filters: “from @example.com”, “from ayaka”.
-- Topic search: “about/regarding/on <topic>” uses vector search with subject fallback.
+- Topic search: “about/regarding/on <topic>” uses vector search (requires embeddings); no subject fallback.
 
 Notes:
 - Uses the same env vars as sync: `DATABASE` (required) and `ADDRESS` (optional, used as context filter when present).

@@ -1,6 +1,6 @@
 # Query: LLM + Tools over Your Mail
 
-The `query` subcommand lets you ask natural‑language questions against your SQLite mailbox using an Ollama chat model. When the model supports tools, it calls database functions to fetch facts; otherwise, NittyMail falls back to a robust heuristic that directly queries the DB.
+The `query` subcommand lets you ask natural‑language questions against your SQLite mailbox using an Ollama chat model with tool calling. A tool‑capable model and a running Ollama instance are required; there is no heuristic fallback.
 
 ## Quickstart
 
@@ -93,7 +93,7 @@ Environment defaults:
 - Size-based:
   - "largest emails" via MCP tool `db.get_largest_emails(limit, attachments, mailbox, from_domain)`; `attachments` is one of `any|with|without`.
 - Topic search:
-  - “about/ regarding/ on <topic>” → vector search (requires embeddings) with a subject‑contains fallback when embeddings aren’t available
+  - “about/ regarding/ on <topic>” → vector search (requires embeddings). If embeddings or the vec extension are unavailable, this tool returns no results.
 
 ### Full Email Retrieval
 
