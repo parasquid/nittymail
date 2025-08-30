@@ -382,7 +382,7 @@ module NittyMail
       when "without"
         ds = ds.where(has_attachments: false)
       end
-      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, Sequel.function(:length, :encoded).as(:size_bytes))
+      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, Sequel.function(:length, :encoded).as(:size_bytes))
         .order(Sequel.desc(:size_bytes))
         .limit(lim)
       rows = ds.all
@@ -395,7 +395,7 @@ module NittyMail
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       rows = ds.order(Sequel.asc(:date)).limit(limit)
-        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size)
         .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
@@ -441,7 +441,7 @@ module NittyMail
         ds = ds.order(Sequel.desc(:date))
       end
       ds = ds.limit(limit)
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
@@ -585,7 +585,9 @@ module NittyMail
           ds = ds.order(Sequel.desc(:date))
         end
       end
-      row = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, :encoded).first
+      row = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size,
+        :envelope_to, :envelope_cc, :envelope_bcc, :envelope_reply_to, :envelope_in_reply_to, :envelope_references,
+        :encoded).first
       return nil unless row
       result = symbolize_keys(row)
       safe_encode_result(result)
@@ -780,7 +782,7 @@ module NittyMail
         ds.order(Sequel.asc(:date))
       end
 
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
