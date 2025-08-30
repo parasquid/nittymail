@@ -10,7 +10,7 @@ module NittyMail
 
     # Open a Sequel SQLite connection with common settings.
     # When load_vec is true, ensure sqlite-vec is loaded for every underlying connection.
-    def connect(database_path, wal: True, load_vec: false)
+    def connect(database_path, wal: true, load_vec: false)
       db = if load_vec
         Sequel.sqlite(
           database_path,

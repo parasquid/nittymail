@@ -23,18 +23,60 @@ module NittyMail
       total = ds.count
       puts "Enriching #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} from stored raw messages" unless quiet
 
+      # Add interrupt handling
+      stop_requested = false
+      trap("INT") { stop_requested = true }
+      trap("TERM") { stop_requested = true }
+
       progress = ProgressBar.create(title: "enrich", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
-      ds.each do |row|
+      begin
+        ds.each do |row|
+          break if stop_requested
         raw = row[:encoded]
         mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
 
-        # Reconstruct envelope
-        env_to = NittyMail::Util.safe_json(mail&.to)
-        env_cc = NittyMail::Util.safe_json(mail&.cc)
-        env_bcc = NittyMail::Util.safe_json(mail&.bcc)
-        env_reply_to = NittyMail::Util.safe_json(mail&.reply_to)
-        in_reply_to = NittyMail::Util.safe_utf8(mail&.in_reply_to)
-        references = NittyMail::Util.safe_json(mail&.references)
+        # Reconstruct envelope with field-specific error handling
+        env_to = begin
+          NittyMail::Util.safe_json(mail&.to)
+        rescue => e
+          progress.log("enrich to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          "[]"
+        end
+        
+        env_cc = begin
+          NittyMail::Util.safe_json(mail&.cc)
+        rescue => e
+          progress.log("enrich cc field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          "[]"
+        end
+        
+        env_bcc = begin
+          NittyMail::Util.safe_json(mail&.bcc)
+        rescue => e
+          progress.log("enrich bcc field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          "[]"
+        end
+        
+        env_reply_to = begin
+          NittyMail::Util.safe_json(mail&.reply_to)
+        rescue => e
+          progress.log("enrich reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          "[]"
+        end
+        
+        in_reply_to = begin
+          NittyMail::Util.safe_utf8(mail&.in_reply_to)
+        rescue => e
+          progress.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          ""
+        end
+        
+        references = begin
+          NittyMail::Util.safe_json(mail&.references)
+        rescue => e
+          progress.log("enrich references field error id=#{row[:id]}: #{e.class}: #{e.message}")
+          "[]"
+        end
 
         # RFC822 size from raw bytes
         rfc822_size = raw&.bytesize
@@ -48,15 +90,39 @@ module NittyMail
           envelope_in_reply_to: in_reply_to,
           envelope_references: references
         }
-        db[:email].where(id: row[:id]).update(updates)
-      rescue Mail::Field::NilParseError, ArgumentError => e
-        progress.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
-      rescue => e
-        progress.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
+        
+        # Retry database updates on lock errors
+        retries = 3
+        begin
+          db[:email].where(id: row[:id]).update(updates)
+        rescue Sequel::SerializationFailure => e
+          retries -= 1
+          if retries > 0 && e.message.include?("database is locked")
+            sleep(rand(0.1..0.5)) # Random backoff
+            retry
+          else
+            raise e
+          end
+        end
+        
+        rescue Mail::Field::NilParseError, ArgumentError => e
+          progress.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
+        rescue => e
+          progress.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
+        ensure
+          progress.increment
+        end
+      rescue Interrupt
+        stop_requested = true
+        progress.log("Interrupt received, stopping...")
       ensure
-        progress.increment
+        progress.finish
+        if stop_requested
+          puts "Interrupted: processed #{progress.progress}/#{progress.total} emails."
+        end
       end
-      progress.finish
+    ensure
+      db&.disconnect
     end
   end
 end
