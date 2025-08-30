@@ -40,13 +40,12 @@ class NittyMailCLI < Thor
   option :purge_old_validity, desc: "Purge rows from older UIDVALIDITY generations after successful sync", type: :boolean, default: false
   option :fetch_batch_size, aliases: "-b", desc: "UID FETCH batch size (default: 100)", type: :numeric
   option :ignore_mailboxes, aliases: "-I", desc: "Comma-separated mailbox names/patterns to ignore (supports * and ?)", type: :string
+  option :only, aliases: "-O", desc: "Comma-separated mailbox names/patterns to include (supports * and ?) — others are skipped", type: :string
   option :strict_errors, aliases: "-S", desc: "Raise exceptions instead of swallowing/logging certain recoverable errors", type: :boolean, default: false
   option :retry_attempts, aliases: "-R", desc: "Max IMAP retry attempts per batch (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :prune_missing, aliases: "-P", desc: "Delete DB rows for UIDs missing on server (per mailbox/current UIDVALIDITY)", type: :boolean, default: false
   option :quiet, aliases: "-q", desc: "Quiet mode: only show progress bars and high-level operations", type: :boolean, default: false
   option :sqlite_wal, desc: "Enable SQLite WAL journaling for better write performance", type: :boolean, default: true
-  option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
-  option :embed, desc: "Reserved: sync downloads mail only; use `./cli.rb embed` to generate embeddings", type: :boolean, default: true
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
@@ -58,7 +57,9 @@ class NittyMailCLI < Thor
     purge_old_validity = options[:purge_old_validity] || (ENV["PURGE_OLD_VALIDITY"] && %w[1 true yes y].include?(ENV["PURGE_OLD_VALIDITY"].to_s.downcase))
     fetch_batch_size = options[:fetch_batch_size] || (ENV["FETCH_BATCH_SIZE"] || "100").to_i
     ignore_mailboxes_raw = options[:ignore_mailboxes] || ENV["MAILBOX_IGNORE"]
+    only_mailboxes_raw = options[:only] || ENV["ONLY_MAILBOXES"]
     ignore_mailboxes = (ignore_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
+    only_mailboxes = (only_mailboxes_raw || "").split(",").map { |s| s.strip }.reject(&:empty?)
     strict_errors = options[:strict_errors] || (ENV["STRICT_ERRORS"] && %w[1 true yes y].include?(ENV["STRICT_ERRORS"].to_s.downcase))
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     prune_missing = options[:prune_missing] || (ENV["PRUNE_MISSING"] && %w[1 true yes y].include?(ENV["PRUNE_MISSING"].to_s.downcase))
@@ -68,8 +69,6 @@ class NittyMailCLI < Thor
     else
       options[:sqlite_wal]
     end
-    ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
-    embed_enabled = options[:embed]
 
     # Validate required parameters
     unless imap_address && imap_password && database_path
@@ -112,13 +111,12 @@ class NittyMailCLI < Thor
       auto_confirm:,
       fetch_batch_size:,
       ignore_mailboxes:,
+      only_mailboxes: only_mailboxes,
       strict_errors:,
       retry_attempts:,
       prune_missing:,
       quiet:,
-      sqlite_wal:,
-      ollama_host:,
-      embed_enabled:
+      sqlite_wal:
     )
   end
 
