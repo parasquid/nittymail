@@ -43,13 +43,15 @@ class NittyMailMCPServer
         request = JSON.parse(line)
         response = handle_request(request)
 
-        $stdout.puts(JSON.generate(response))
-        $stdout.flush
+        if response
+          $stdout.puts(JSON.generate(response))
+          $stdout.flush
+        end
       rescue JSON::ParserError => e
         @logger.error("JSON parse error: #{e.message}")
         error_response = {
           jsonrpc: "2.0",
-          id: nil,
+          id: 0,
           error: {
             code: -32700,
             message: "Parse error",
@@ -63,7 +65,7 @@ class NittyMailMCPServer
         @logger.error(e.backtrace.join("\n"))
         error_response = {
           jsonrpc: "2.0",
-          id: request ? request["id"] : nil,
+          id: request&.dig("id") || 0,
           error: {
             code: -32603,
             message: "Internal error",
@@ -91,13 +93,16 @@ class NittyMailMCPServer
   def handle_request(request)
     method = request["method"]
     params = request["params"] || {}
-    id = request["id"]
+    id = request["id"] || 0
 
     @logger.debug("Handling request: #{method}")
 
     case method
     when "initialize"
       handle_initialize(id, params)
+    when "notifications/initialized"
+      # Client acknowledges initialization complete - no response needed for notifications
+      return nil
     when "tools/list"
       handle_tools_list(id)
     when "tools/call"
