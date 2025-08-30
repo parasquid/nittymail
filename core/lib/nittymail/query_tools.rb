@@ -344,6 +344,21 @@ module NittyMail
               "required" => ["keywords"]
             }
           }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.execute_sql_query",
+            "description" => "Execute arbitrary read-only SQL SELECT queries against the email database. Only SELECT and WITH (CTE) statements are allowed. Destructive operations are blocked.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "sql_query" => {"type" => "string", "description" => "SQL SELECT query to execute. Must start with SELECT or WITH. Auto-limited to prevent runaway queries."},
+                "limit" => {"type" => "integer", "description" => "Max rows to return if LIMIT not specified in query (default 1000)"}
+              },
+              "required" => ["sql_query"]
+            }
+          }
         }
       ]
     end
@@ -1009,6 +1024,83 @@ module NittyMail
       # Sort by match score
       result.sort_by! { |email| -email[:keyword_match_score] }
       safe_encode_result(result)
+    end
+
+    # SQL Query Tool (Read-only)
+
+    def execute_sql_query(db:, address: nil, sql_query: nil, limit: 1000)
+      return safe_encode_result({error: "SQL query is required"}) if sql_query.nil? || sql_query.strip.empty?
+      
+      # Security: Only allow SELECT statements and block destructive operations
+      normalized_query = sql_query.strip.downcase
+      
+      # Must start with SELECT or WITH (for CTEs)
+      unless normalized_query.start_with?('select') || normalized_query.start_with?('with')
+        return safe_encode_result({
+          error: "Only SELECT queries and WITH expressions (CTEs) are allowed. Query must start with SELECT or WITH.",
+          example: "SELECT * FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
+        })
+      end
+      
+      # More precise security check: look for forbidden SQL statements at word boundaries
+      # This prevents blocking legitimate searches for emails containing these words
+      forbidden_patterns = [
+        # Destructive operations that should appear as SQL commands (word boundaries)
+        '\binsert\s+into\b', '\bupdate\s+\w+\s+set\b', '\bdelete\s+from\b',
+        '\bdrop\s+(table|index|view|database)\b', '\bcreate\s+(table|index|view|database)\b', 
+        '\balter\s+table\b', '\btruncate\s+table\b', '\breplace\s+into\b',
+        
+        # Dangerous pragmas and commands
+        '\bpragma\b', '\battach\s+database\b', '\bdetach\s+database\b',
+        
+        # Transaction commands
+        '\bbegin\s+(transaction|immediate|exclusive)\b', '\bcommit\b', '\brollback\b',
+        '\bsavepoint\b', '\brelease\s+savepoint\b'
+      ]
+      
+      forbidden_patterns.each do |pattern|
+        if normalized_query.match(/#{pattern}/i)
+          matched_text = normalized_query.match(/#{pattern}/i)[0]
+          return safe_encode_result({
+            error: "Forbidden SQL operation detected: '#{matched_text}'. Only SELECT queries are allowed.",
+            allowed_operations: ["SELECT", "WITH (for CTEs)"],
+            note: "Searches for emails containing these words in content are allowed, but SQL commands are blocked."
+          })
+        end
+      end
+      
+      # Add LIMIT clause if not present to prevent runaway queries
+      unless normalized_query.include?('limit')
+        sql_query += " LIMIT #{limit}"
+      end
+      
+      begin
+        # Execute the query
+        result = db.fetch(sql_query).all
+        
+        # Convert to hash array and ensure encoding safety
+        rows = result.map { |row| symbolize_keys(row.to_h) }
+        
+        response = {
+          query: sql_query,
+          row_count: rows.length,
+          rows: rows
+        }
+        
+        safe_encode_result(response)
+        
+      rescue Sequel::DatabaseError => e
+        safe_encode_result({
+          error: "SQL execution error: #{e.message}",
+          query: sql_query,
+          hint: "Check your SQL syntax. Remember: only SELECT queries are allowed."
+        })
+      rescue => e
+        safe_encode_result({
+          error: "Unexpected error: #{e.message}",
+          query: sql_query
+        })
+      end
     end
 
     # Helpers

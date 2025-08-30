@@ -1,6 +1,6 @@
 # NittyMail MCP Server - Complete Documentation
 
-A standalone Model Context Protocol server exposing 21 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
+A standalone Model Context Protocol server exposing 22 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
 
 ## Overview
 
@@ -18,7 +18,7 @@ Environment variables (from `core/config/.env`):
 - **`OLLAMA_HOST`** (optional): Ollama endpoint for vector search
 - **`LOG_LEVEL`** (optional): DEBUG, INFO, WARN, ERROR (default: INFO)
 
-## Available Tools (21 Total)
+## Available Tools (22 Total)
 
 ### Core Email Operations
 - **`db.list_earliest_emails`** - Fetch earliest emails by date
@@ -48,6 +48,7 @@ Environment variables (from `core/config/.env`):
 - **`db.get_duplicate_emails`** - Find duplicate emails by subject or message_id
 - **`db.search_email_headers`** - Search email headers using pattern matching
 - **`db.get_emails_by_keywords`** - Keyword search with frequency scoring
+- **`db.execute_sql_query`** - Execute arbitrary read-only SQL SELECT queries (security-restricted)
 
 ## Tool Reference
 
@@ -149,6 +150,15 @@ db.search_email_headers
 db.get_emails_by_keywords
 - Params: `keywords` (array of strings, required), `match_mode` (any|all, default any), `limit` (integer, default 100)
 - Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, keyword_match_count, keyword_match_score}` ordered by match score
+
+**SQL Query Tool:**
+
+db.execute_sql_query
+- Params: `sql_query` (string, required), `limit` (integer, default 1000)
+- Returns: `{query, row_count, rows}` where rows is array of result objects
+- Security: Only SELECT and WITH (CTE) statements allowed. Blocks INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE, PRAGMA, and transaction commands
+- Auto-adds LIMIT clause if not specified to prevent runaway queries
+- Example: `"SELECT mailbox, COUNT(*) as count FROM email GROUP BY mailbox ORDER BY count DESC LIMIT 5"`
 
 ## Client Integration
 

@@ -386,6 +386,13 @@ class NittyMailMCPServer
           match_mode: arguments["match_mode"] || "any",
           limit: arguments["limit"] || 100
         )
+      when "db.execute_sql_query"
+        NittyMail::QueryTools.execute_sql_query(
+          db: db,
+          address: @address,
+          sql_query: arguments["sql_query"],
+          limit: arguments["limit"] || 1000
+        )
       else
         {error: "Unknown tool: #{tool_name}"}
       end

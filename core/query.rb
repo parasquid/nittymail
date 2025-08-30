@@ -296,6 +296,14 @@ module NittyMail
                 limit: args["limit"] || 100
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.execute_sql_query"
+              result = NittyMail::QueryTools.execute_sql_query(
+                db: db,
+                address: address,
+                sql_query: args["sql_query"],
+                limit: args["limit"] || 1000
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
             else
               messages << {role: "tool", name: name.to_s, content: JSON.generate({error: "unknown tool"})}
             end

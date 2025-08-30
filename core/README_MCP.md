@@ -2,7 +2,7 @@
 
 **Note:** This server is designed to be run via Docker. A local Ruby installation is not required.
 
-A standalone Model Context Protocol server that exposes all 21 NittyMail email database tools for use with Claude Desktop and other MCP clients.
+A standalone Model Context Protocol server that exposes all 22 NittyMail email database tools for use with Claude Desktop and other MCP clients.
 
 ## Quick Test
 
@@ -13,7 +13,7 @@ docker compose run --rm ruby ./mcp_server.rb
 # Test with a simple request  
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   docker compose run --rm ruby ./mcp_server.rb 2>/dev/null | jq '.result.tools | length'
-# Should output: 21
+# Should output: 22
 ```
 
 ## Client Setup (Summary)
@@ -75,6 +75,7 @@ Once connected to Claude, Gemini, or GPT:
 - "Show me the largest emails I have"
 - "What are my seasonal email trends?"
 - "Find emails containing keywords 'budget' and 'proposal'"
+- "Run this SQL query: SELECT DISTINCT from FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
 
 ## Common Tools (Cheat Sheet)
 
@@ -98,11 +99,12 @@ Once connected to Claude, Gemini, or GPT:
 **Advanced:**
 - `db.get_duplicate_emails(similarity_field, limit)` – find duplicates by subject/message_id
 - `db.search_email_headers(header_pattern, limit)` – search raw headers
+- `db.execute_sql_query(sql_query, limit)` – run custom SELECT queries (security-restricted)
 
 ## Complete Documentation
 
 For detailed setup, troubleshooting, and advanced integration options, see:
 - **Full Documentation**: [`docs/mcp_server.md`](../docs/mcp_server.md)
-- **Tool Reference**: All 21 database tools with parameters and examples
+- **Tool Reference**: All 22 database tools with parameters and examples
 - **Protocol Details**: Technical MCP implementation specifics
 - **Troubleshooting**: Platform-specific common issues and solutions
