@@ -37,6 +37,71 @@ Environment variables (from `core/config/.env`):
 - **`db.get_emails_with_attachments`** - Filter emails with attachments
 - **`db.get_email_thread`** - All emails in Gmail conversation thread
 
+## Tool Reference
+
+Each tool is exposed via MCP with this call shape:
+- Method: `tools/call`
+- Params: `{ "name": "<tool_name>", "arguments": { ... } }`
+- Result content: array with a single `{type: "text", text: <json>}` item
+
+Fields use these conventions unless noted:
+- `date`: ISO8601 string or null
+- `from`: sender display string (may include name and email)
+- `size_bytes`: integer; SQLite `length(encoded)` of the stored RFC822 message
+
+db.list_earliest_emails
+- Params: `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` ordered by ascending `date`
+
+db.get_email_full
+- Params: any of `id` (string), `mailbox` (string), `uid` (integer), `uidvalidity` (integer), `message_id` (string), `from_contains` (string), `subject_contains` (string), `date` (YYYY or YYYY-MM-DD), `order` (date_asc|date_desc)
+- Returns: single object including fields above plus `encoded` (raw RFC822)
+
+db.filter_emails
+- Params: `from_contains` (string), `from_domain` (string or `@domain`), `subject_contains` (string), `mailbox` (string), `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD), `order` (date_asc|date_desc), `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}`
+
+db.search_emails
+- Params: `query` (string, required), `item_types` (array of subject|body), `limit` (integer, default 100)
+- Requires: embeddings present and `OLLAMA_HOST` configured
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, score}` ordered by ascending `score`
+
+db.count_emails
+- Params: same filters as `db.filter_emails`
+- Returns: `{count}`
+
+db.get_email_stats
+- Params: `top_limit` (integer, default 10)
+- Returns: `{ total_emails, date_range: {earliest, latest}, top_senders: [{from, count}], top_domains: [{domain, count}], mailbox_distribution: [{mailbox, count}] }`
+
+db.get_top_senders
+- Params: `limit` (integer, default 20), `mailbox` (string)
+- Returns: `[{from, count}]`
+
+db.get_top_domains
+- Params: `limit` (integer, default 20)
+- Returns: `[{domain, count}]`
+
+db.get_largest_emails
+- Params: `limit` (integer, default 5), `attachments` (any|with|without, default any), `mailbox` (string), `from_domain` (string)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, size_bytes}` ordered by descending `size_bytes`
+
+db.get_mailbox_stats
+- Params: none
+- Returns: `[{mailbox, count}]`
+
+db.get_emails_by_date_range
+- Params: `period` (daily|monthly|yearly, default monthly), `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD), `limit` (integer, default 50)
+- Returns: `[{period, count}]` where period is formatted per aggregation
+
+db.get_emails_with_attachments
+- Params: `mailbox` (string), `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD), `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` filtered to `has_attachments = true`
+
+db.get_email_thread
+- Params: `thread_id` (string, required), `order` (date_asc|date_desc, default date_asc)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` within the given `x_gm_thrid`
+
 ## Client Integration
 
 ### Claude Desktop
