@@ -101,6 +101,15 @@ Notes:
 - Ollama must be reachable via `OLLAMA_HOST` or `--ollama-host`. Default chat model: `qwen2.5:7b-instruct` (excellent tool calling support). Override with `QUERY_MODEL` env var or `--model` flag. Alternative models: `llama3.1:8b-instruct` for more capability or `llama3.2:3b` for speed (limited tool support).
 - Populate embeddings first with `./cli.rb embed` for semantic queries.
 
+#### MCP Tools Cheat Sheet (Quick)
+
+- `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
+- `db.get_top_senders(limit, mailbox)` – most frequent senders
+- `db.get_top_domains(limit)` – most frequent sender domains
+- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` is one of `any|with|without`
+- `db.filter_emails(...)` – filter by sender/subject contains, mailbox, dates
+- `db.search_emails(query, item_types, limit)` – semantic search (needs embeddings)
+
 ### Advanced Options
 
 **Automated/Non-interactive runs:**
