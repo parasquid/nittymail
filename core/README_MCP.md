@@ -2,7 +2,7 @@
 
 **Note:** This server is designed to be run via Docker. A local Ruby installation is not required.
 
-A standalone Model Context Protocol server that exposes all 12 NittyMail email database tools for use with Claude Desktop and other MCP clients.
+A standalone Model Context Protocol server that exposes all 13 NittyMail email database tools for use with Claude Desktop and other MCP clients.
 
 ## Quick Test
 
@@ -13,7 +13,7 @@ docker compose run --rm ruby ./mcp_server.rb
 # Test with a simple request  
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   docker compose run --rm ruby ./mcp_server.rb 2>/dev/null | jq '.result.tools | length'
-# Should output: 12
+# Should output: 13
 ```
 
 ## Client Setup (Summary)
@@ -70,6 +70,15 @@ Once connected to Claude, Gemini, or GPT:
 - "Find emails about meetings from last year"
 - "How many emails have attachments?"
 - "Show monthly email volume trends"
+
+## Common Tools (Cheat Sheet)
+
+- `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
+- `db.get_top_senders(limit, mailbox)` – most frequent senders
+- `db.get_top_domains(limit)` – most frequent sender domains
+- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` = any|with|without
+- `db.filter_emails(...)` – simple filters: from/subject contains, mailbox, date range
+- `db.search_emails(query, item_types, limit)` – semantic search (requires embeddings)
 
 ## Complete Documentation
 

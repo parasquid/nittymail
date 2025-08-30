@@ -138,6 +138,15 @@ docker compose run --rm ruby ./cli.rb query 'all mail from @example.com'
 docker compose run --rm ruby ./cli.rb query 'show me 20 emails that talk about dancing'
 ```
 
+## MCP Tools Cheat Sheet (Quick)
+
+- `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
+- `db.get_top_senders(limit, mailbox)` – most frequent senders
+- `db.get_top_domains(limit)` – most frequent sender domains
+- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` is one of `any|with|without`
+- `db.filter_emails(...)` – filter by sender/subject contains, mailbox, dates
+- `db.search_emails(query, item_types, limit)` – semantic search (needs embeddings)
+
 ## How It Works
 
 The query system works exclusively through LLM-powered tool calling:
