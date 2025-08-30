@@ -55,6 +55,7 @@ module NittyMail
 
           String :message_id, index: true
           DateTime :date, index: true
+          DateTime :internaldate, index: true
           String :from, index: true
           String :subject
 
@@ -70,6 +71,9 @@ module NittyMail
           unique %i[mailbox uid uidvalidity]
           index %i[mailbox uidvalidity]
         end
+      else
+        # Ensure new enrichment columns exist on older databases
+        ensure_enrichment_columns!(db)
       end
 
       # Require sqlite-vec virtual tables for vector search. No fallback.
@@ -77,6 +81,32 @@ module NittyMail
       ensure_vec_tables!(db, dimension: vec_dimension)
 
       db[:email]
+    end
+
+    # Ensure helpful indexes exist for common query patterns used by QueryTools.
+    # These are created idempotently and on existing databases as needed.
+    def ensure_query_indexes!(db)
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_address_date ON email(address, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_mailbox_date ON email(mailbox, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_x_gm_thrid_date ON email(x_gm_thrid, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_has_attachments_date ON email(has_attachments, date)")
+      db
+    end
+
+    # Add enrichment columns reconstructed from the raw message (encoded)
+    # - internaldate (DateTime): approximated from Date header
+    # - rfc822_size (Integer): bytesize of raw encoded message
+    # - envelope_* fields as JSON strings for address lists and references
+    def ensure_enrichment_columns!(db)
+      cols = db.schema(:email).map { |c| c.first }
+      db.alter_table(:email) { add_column :internaldate, DateTime } unless cols.include?(:internaldate)
+      db.alter_table(:email) { add_column :rfc822_size, Integer } unless cols.include?(:rfc822_size)
+      %i[envelope_to envelope_cc envelope_bcc envelope_reply_to envelope_in_reply_to envelope_references].each do |col|
+        unless cols.include?(col)
+          db.alter_table(:email) { add_column col, String }
+        end
+      end
+      db
     end
 
     def prepared_insert(email_dataset)
@@ -88,6 +118,7 @@ module NittyMail
         uidvalidity: :$uidvalidity,
         message_id: :$message_id,
         date: :$date,
+        internaldate: :$internaldate,
         from: :$from,
         subject: :$subject,
         has_attachments: :$has_attachments,

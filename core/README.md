@@ -219,6 +219,17 @@ QUIET=yes docker compose run --rm ruby ./cli.rb sync
 Notes:
 - Quiet mode suppresses per-message logs (from, subject, flags) but keeps progress bars and high-level status.
 
+**Enrich stored messages (extract metadata from raw):**
+```bash
+# Extract ENVELOPE-like fields, RFC822 size, and approximate internaldate from stored raw messages
+docker compose run --rm ruby ./cli.rb enrich \
+  --database core/data/your-email.sqlite3 \
+  --address user@gmail.com
+```
+Notes:
+- Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
+- `internaldate` is captured during sync from IMAP and not modified by enrich.
+
 **SQLite performance (WAL journaling):**
 ```bash
 # Default: WAL is enabled (best write concurrency)

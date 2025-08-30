@@ -22,6 +22,7 @@ require "dotenv/load"
 require "thor"
 require_relative "sync"
 require_relative "embed"
+require_relative "enrich"
 require_relative "query"
 
 # NittyMail CLI application
@@ -172,6 +173,33 @@ class NittyMailCLI < Thor
       threads_count: threads_count,
       retry_attempts: retry_attempts,
       batch_size: batch_size
+    )
+  end
+
+  desc "enrich", "Extract envelope/body metadata from stored raw messages and persist to the email table"
+  option :database, aliases: "-d", desc: "SQLite database file path", type: :string
+  option :address, aliases: "-a", desc: "Optional filter: only process rows for this Gmail address", type: :string
+  option :limit, aliases: "-n", desc: "Limit number of emails to process", type: :numeric
+  option :offset, desc: "Offset for pagination", type: :numeric
+  option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
+  def enrich
+    database_path = options[:database] || ENV["DATABASE"]
+    address_filter = options[:address] || ENV["ADDRESS"]
+    limit = options[:limit]&.to_i
+    offset = options[:offset]&.to_i
+    quiet = options[:quiet]
+
+    unless database_path
+      puts "Error: DATABASE must be provided via --database or env"
+      exit 1
+    end
+
+    NittyMail::Enrich.perform(
+      database_path: database_path,
+      address_filter: address_filter,
+      limit: limit,
+      offset: offset,
+      quiet: quiet
     )
   end
 

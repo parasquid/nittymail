@@ -63,6 +63,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
 
     message_id: NittyMail::Util.safe_utf8(mail&.message_id),
     date:,
+    internaldate: attrs&.fetch("INTERNALDATE", nil),
     from: begin
       NittyMail::Util.safe_json(mail&.from, strict_errors: strict_errors)
     rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
@@ -132,6 +133,7 @@ module NittyMail
 
       @db = NittyMail::DB.connect(database_path, wal: sqlite_wal, load_vec: false)
       email = NittyMail::DB.ensure_schema!(@db)
+      NittyMail::DB.ensure_query_indexes!(@db)
 
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
