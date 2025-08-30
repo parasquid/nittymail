@@ -100,6 +100,14 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     EOF
     ```
 
+### Exception Handling (AI Agents)
+
+- Do not swallow exceptions unless the maintainer explicitly requests it or there is a compelling, documented reason.
+- Prefer rescuing specific error classes; avoid `rescue => e` without re‑raise.
+- Do not use rescue modifiers (e.g., `call rescue nil`). Use explicit `begin/rescue` blocks and either re‑raise or handle with clear remediation.
+- If a rescue is necessary (e.g., to continue a batch process), log the error with actionable context and surface failures (e.g., via return values or counters). Add a short justification in the PR/commit body.
+- Never hide initialization failures that would leave the process in an unusable state. Fail fast with a clear, user‑facing error message.
+
 ## 4. CLI Commands Reference
 
 All commands are invoked via `docker compose run --rm ruby ./cli.rb <command>`.
