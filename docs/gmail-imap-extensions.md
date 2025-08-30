@@ -21,7 +21,7 @@ Gmail exposes additional IMAP attributes that enrich message metadata beyond sta
 - Example IMAP: `UID FETCH 12345 (X-GM-THRID)` → `1737456873291045600`
 
 ## In This Repository
-- Retrieval: See `core/sync.rb` (calls `imap.uid_fetch(uid, ["X-GM-LABELS"])`, etc.).
+- Retrieval: See [`core/sync.rb`](../core/sync.rb) (calls `imap.uid_fetch(uid, ["X-GM-LABELS"])`, etc.).
 - Storage: Persisted in SQLite as text columns; useful for fast thread or label queries.
 - Example query: `SELECT COUNT(*) FROM email WHERE x_gm_thrid = '<thread_id>';`
 

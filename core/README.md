@@ -4,6 +4,8 @@ This folder contains some common functionality, among which is a simple syncing 
 
 ## Usage
 
+**Note:** NittyMail is designed to be run via Docker, and a local Ruby installation is not required. All commands in this guide assume you have Docker and Docker Compose installed.
+
 ### Prerequisites
 
 Before running NittyMail, you need to prepare your Gmail account:
@@ -66,6 +68,47 @@ docker compose run --rm ruby ./cli.rb sync \
 alias dcr='docker compose run --rm'
 dcr ruby ./cli.rb sync
 ```
+
+### Query (LLM + Tools)
+
+Ask natural-language questions against your mail using an Ollama chat model with database tools. See a full guide in [docs/query.md](../docs/query.md).
+
+```bash
+# Basic: uses DATABASE and ADDRESS from .env
+docker compose run --rm ruby ./cli.rb query 'give me the 5 earliest emails I have'
+
+# Semantic: vector search (requires embeddings populated via `embed`)
+docker compose run --rm ruby ./cli.rb query 'show me 20 emails that talk about dancing'
+
+# Override defaults
+docker compose run --rm ruby ./cli.rb query \
+  --database core/data/your-email.sqlite3 \
+  --ollama-host http://localhost:11434 \
+  --model qwen2.5:7b-instruct \
+  --limit 100 'show me all mail from ayaka'
+```
+
+Capabilities:
+- Default limit 100 when not specified.
+- “earliest/oldest” and “latest/newest” sort by date.
+- Date ranges: “between 2015 and 2016”, “since 2019”, “before 2021-02-01”.
+- Mailbox filters: “in inbox/sent/[Gmail]/All Mail”, “label Work”.
+- Sender filters: “from @example.com”, “from ayaka”.
+- Topic search: “about/regarding/on <topic>” uses vector search (requires embeddings); no subject fallback.
+
+Notes:
+- Uses the same env vars as sync: `DATABASE` (required) and `ADDRESS` (optional, used as context filter when present).
+- Ollama must be reachable via `OLLAMA_HOST` or `--ollama-host`. Default chat model: `qwen2.5:7b-instruct` (excellent tool calling support). Override with `QUERY_MODEL` env var or `--model` flag. Alternative models: `llama3.1:8b-instruct` for more capability or `llama3.2:3b` for speed (limited tool support).
+- Populate embeddings first with `./cli.rb embed` for semantic queries.
+
+#### MCP Tools Cheat Sheet (Quick)
+
+- `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
+- `db.get_top_senders(limit, mailbox)` – most frequent senders
+- `db.get_top_domains(limit)` – most frequent sender domains
+- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` is one of `any|with|without`
+- `db.filter_emails(...)` – filter by sender/subject contains, mailbox, dates
+- `db.search_emails(query, item_types, limit)` – semantic search (needs embeddings)
 
 ### Advanced Options
 
@@ -131,6 +174,24 @@ Notes:
 - `*` matches any sequence; `?` matches a single character. Brackets in names (e.g., `[Gmail]`) are handled literally.
 - Default recommendation: ignore Spam and Trash to reduce unnecessary data and speed up syncs. Example:
   - `MAILBOX_IGNORE="Spam,Trash"`
+
+**Include only specific mailboxes (skip all others):**
+```bash
+# Using environment variable (comma-separated; supports * and ? wildcards)
+ONLY_MAILBOXES="[Gmail]/All Mail,INBOX" docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail" INBOX
+# or comma-separated in a single arg
+docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail,INBOX"
+
+# Combine with other options (threads, auto-confirm)
+docker compose run --rm ruby ./cli.rb sync -t8 -m8 -y --only "[Gmail]/All Mail" INBOX
+```
+Notes:
+- The include filter (`--only` / `ONLY_MAILBOXES`) is applied first; the ignore filter (`--ignore-mailboxes` / `MAILBOX_IGNORE`) is applied afterwards to the included set.
+- Patterns are matched case-insensitively; `*` and `?` wildcards are supported.
+- If `--only` matches zero mailboxes, the run logs that nothing will be processed.
 
 **Strict error handling (debugging):**
 ```bash
@@ -205,7 +266,7 @@ Behavior:
 - If you encounter "Too many simultaneous connections" errors, reduce thread count
 - For details, see: https://support.google.com/mail/answer/7126229
 
-**Complete CLI example with all options:**
+**Complete CLI example with all options (mail download only; embeddings via `embed` subcommand):**
 ```bash
 docker compose run --rm ruby ./cli.rb sync \
   --address user@gmail.com \
@@ -303,6 +364,14 @@ Optional pruning:
 
 ## Linting
 
+Quick way (recommended):
+
+```bash
+./bin/lint
+```
+
+This installs gems if needed, runs `standardrb --fix .`, then verifies StandardRB and RuboCop in Docker.
+
 Run linters inside Docker (do not use host Ruby):
 
 ```bash
@@ -335,6 +404,189 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 - `preflight.rb`: computes per‑mailbox diffs (to_fetch, db_only) and sizes.
 
 `sync.rb` ties these together: preflights mailboxes, processes UIDs in batches with retry/backoff, writes via a single writer thread, and optionally prunes rows missing on the server.
+
+### Vector Search (sqlite-vec)
+
+We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content. The full guide moved to [docs/vector-embeddings.md](../docs/vector-embeddings.md).
+
+References:
+- Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
+- Minimal example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
+
+Requirements and defaults:
+- The sqlite-vec Ruby gem is bundled; the extension is loaded by the gem at runtime.
+- `SQLITE_VEC_DIMENSION`: embedding dimension for the virtual table (default: `1024`).
+- Default embedding model for Ollama: `mxbai-embed-large` (English, high quality, 1024‑dim). Multilingual alternative: `bge-m3` (also 1024‑dim).
+
+What the app creates on startup:
+- `email_vec` (virtual table): `CREATE VIRTUAL TABLE IF NOT EXISTS email_vec USING vec0(embedding float[DIM])`
+- `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`, `created_at`).
+
+If the sqlite-vec extension cannot be loaded via the gem helper, the process aborts (no fallback schema is created).
+
+Choosing a dimension and model:
+- The vec table’s dimension is fixed at creation time. Set `SQLITE_VEC_DIMENSION` (default 1024) before the first run, and keep it consistent with your embedding model.
+- Recommended default: `mxbai-embed-large` (1024 dims). To try others, create separate vec tables per dimension or re‑create the table to match the new dimension.
+
+Quick start with Ollama (verify dimension):
+```bash
+# Pull the default high-quality embedding model (English)
+ollama pull mxbai-embed-large
+
+# Verify the output embedding dimension
+curl -s http://localhost:11434/api/embeddings \
+  -d '{"model":"mxbai-embed-large","prompt":"hello world"}' | jq '.embedding | length'
+
+# Ensure vec table dimension matches your model (1024 recommended)
+export SQLITE_VEC_DIMENSION=1024
+```
+
+Ruby usage overview (from the sqlite-vec docs):
+```ruby
+require "sqlite3"
+require "sqlite_vec"
+
+db = SQLite3::Database.new(":memory:")
+db.enable_load_extension(true)
+SqliteVec.load(db)
+db.enable_load_extension(false)
+
+db.execute("CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[4])")
+
+# Insert: pack float32s into a BLOB
+embedding = [0.1, 0.1, 0.1, 0.1]
+db.execute("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)", [1, embedding.pack("f*")])
+
+# Query: use MATCH with a packed query vector
+query = [0.1, 0.1, 0.1, 0.1]
+rows = db.execute(<<~SQL, [query.pack("f*")])
+  SELECT rowid, distance
+  FROM vec_items
+  WHERE embedding MATCH ?
+  ORDER BY distance
+  LIMIT 3
+SQL
+```
+
+NittyMail specifics (Sequel + sqlite-vec):
+- We load sqlite-vec using the gem helper against the underlying SQLite3 connection that Sequel manages. No manual extension path is needed.
+- Virtual table: `email_vec(embedding float[DIM])` with DIM from `SQLITE_VEC_DIMENSION`.
+- Metadata table: `email_vec_meta(vec_rowid, email_id, item_type, model, dimension, created_at)`.
+- Insert embeddings as packed float32 BLOBs. Use transactions for batching.
+
+Insert an embedding and link it to an email row:
+```ruby
+require "sequel"
+require "sqlite3"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+NittyMail::DB.ensure_schema!(db)
+
+email_id = 123                         # existing row in the email table
+vector   = some_floats                 # Array(Float), length must equal DIM (e.g., 1024)
+packed   = vector.pack("f*")           # pack as float32 (native endianness)
+model    = ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large")
+item     = "body"                      # e.g., body, subject, snippet
+dimension = (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+
+# Insert into vec table and get the rowid, then insert metadata
+vec_rowid = nil
+db.transaction do
+  db.synchronize do |conn|
+    conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
+    vec_rowid = conn.last_insert_row_id
+  end
+  db[:email_vec_meta].insert(vec_rowid:, email_id:, item_type: item, model:, dimension:)
+end
+```
+
+Top‑K search for similar messages (join with metadata):
+```ruby
+require "sequel"
+require "sqlite3"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+query = make_query_vector(...)          # Array(Float) with DIM elements
+blob  = SQLite3::Blob.new(query.pack("f*"))
+
+rows = nil
+db.synchronize do |conn|
+  rows = conn.execute(<<~SQL, blob)
+    SELECT m.email_id, v.rowid AS vec_rowid, v.distance
+    FROM email_vec v
+    JOIN email_vec_meta m ON m.vec_rowid = v.rowid
+    WHERE v.embedding MATCH ?
+    ORDER BY v.distance
+    LIMIT 10
+  SQL
+end
+pp rows
+```
+
+Helper methods (recommended):
+```ruby
+require "sequel"
+require "sqlite3"
+require_relative "lib/nittymail/db"
+
+db = Sequel.sqlite("data/your-email.sqlite3")
+
+# Prepare your vector (length must equal SQLITE_VEC_DIMENSION, default 1024)
+vector = embed_text_with_ollama("some text to embed") # => Array(Float)
+
+# Insert a new embedding and link to email_id
+vec_rowid = NittyMail::DB.insert_email_embedding!(
+  db,
+  email_id: 123,
+  vector: vector,
+  item_type: "body",                      # or "subject", "snippet"
+  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
+  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+)
+
+# Or upsert by (email_id, item_type, model)
+vec_rowid = NittyMail::DB.upsert_email_embedding!(
+  db,
+  email_id: 123,
+  vector: vector,
+  item_type: "body",
+  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
+  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
+)
+```
+
+Notes:
+- The helpers validate vector length and pack to float32 BLOBs.
+- They ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
+
+Embeddings are generated via the `embed` subcommand (sync does not embed):
+```bash
+# Ensure OLLAMA_HOST points to your server
+DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
+  docker compose run --rm ruby ./cli.rb embed
+```
+
+See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
+
+Backfill embeddings for existing emails (examples):
+```bash
+# Or pass flags explicitly
+docker compose run --rm ruby ./cli.rb embed \
+  --database data/your.sqlite3 \
+  --ollama-host http://localhost:11434 \
+  --item-types subject,body
+```
+
+Tip: Use `--batch-size 1000` (default) to control how many embedding jobs are kept in-flight. Increase for higher throughput or reduce to limit memory usage.
+
+Notes and tips:
+- The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
+- The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
+- Smaller `distance` means a closer match. Use `LIMIT` to constrain results.
+- Wrap mass inserts in a transaction for better performance.
+- See the official docs and example for more patterns:
+  - Docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
+  - Example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
 
 ## Troubleshooting
 
@@ -381,7 +633,7 @@ Bug reports and pull requests are welcome on GitHub at <https://github.com/paras
 
 ## Gmail IMAP Extensions
 
-This project uses Gmail-specific IMAP attributes for richer metadata. See docs/gmail-imap-extensions.md for details on X-GM-LABELS, X-GM-MSGID, and X-GM-THRID.
+This project uses Gmail-specific IMAP attributes for richer metadata. See [docs/gmail-imap-extensions.md](../docs/gmail-imap-extensions.md) for details on X-GM-LABELS, X-GM-MSGID, and X-GM-THRID.
 
 ## License
 

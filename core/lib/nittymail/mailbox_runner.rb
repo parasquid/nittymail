@@ -3,10 +3,11 @@
 require_relative "util"
 require_relative "db"
 require_relative "imap_client"
+require "ruby-progressbar"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false)
+    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false, embedding: {enabled: false})
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -16,17 +17,24 @@ module NittyMail
 
       insert_stmt = NittyMail::DB.prepared_insert(email_ds)
 
+      # Embeddings are disabled in sync; no embed progress or counts here
+
       writer = Thread.new do
         loop do
           rec = write_queue.pop
           break if rec == :__DONE__
           begin
-            insert_stmt.call(rec)
+            to_bind = rec
+            if to_bind.key?(:__embed_fields__)
+              to_bind = to_bind.dup
+              to_bind.delete(:__embed_fields__)
+            end
+            insert_stmt.call(to_bind)
           rescue Sequel::UniqueConstraintViolation => e
             raise e if strict_errors
             progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
           end
-          progress&.increment
+          # Embeddings disabled in sync: no-op after insert
         end
       end
 
@@ -72,7 +80,10 @@ module NittyMail
                 raw:,
                 strict_errors:
               )
+              # Embeddings disabled in sync: do not prepare embed fields
               write_queue << rec
+              # Increment progress per message processed (not per batch)
+              progress&.increment
             end
           end
           client.close
@@ -82,6 +93,7 @@ module NittyMail
       workers.each(&:join)
       write_queue << :__DONE__
       writer.join
+      # No embedding summary in sync mode
 
       mailbox_abort ? :aborted : :ok
     end

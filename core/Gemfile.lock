@@ -6,7 +6,10 @@ GEM
     debug (1.6.2)
       irb (>= 1.3.6)
       reline (>= 0.3.1)
+    diff-lcs (1.6.2)
     dotenv (2.8.1)
+    given_core (3.8.2)
+      sorcerer (>= 0.3.7)
     io-console (0.5.11)
     irb (1.4.1)
       reline (>= 0.3.0)
@@ -16,7 +19,6 @@ GEM
     mail (2.7.1)
       mini_mime (>= 0.1.1)
     mini_mime (1.1.2)
-    mini_portile2 (2.8.9)
     net-imap (0.3.1)
       net-protocol
     net-pop (0.1.2)
@@ -35,6 +37,22 @@ GEM
     regexp_parser (2.11.2)
     reline (0.3.1)
       io-console (~> 0.5)
+    rspec (3.13.1)
+      rspec-core (~> 3.13.0)
+      rspec-expectations (~> 3.13.0)
+      rspec-mocks (~> 3.13.0)
+    rspec-core (3.13.5)
+      rspec-support (~> 3.13.0)
+    rspec-expectations (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-given (3.8.2)
+      given_core (= 3.8.2)
+      rspec (>= 2.14.0)
+    rspec-mocks (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-support (3.13.5)
     rubocop (1.75.8)
       json (~> 2.3)
       language_server-protocol (~> 3.17.0.2)
@@ -58,8 +76,9 @@ GEM
       rubocop (>= 1.72.1, < 2)
     ruby-progressbar (1.13.0)
     sequel (5.60.1)
-    sqlite3 (2.7.3)
-      mini_portile2 (~> 2.8.0)
+    sorcerer (2.0.1)
+    sqlite-vec (0.1.6-x86_64-linux)
+    sqlite3 (2.7.3-x86_64-linux-gnu)
     standard (1.50.0)
       language_server-protocol (~> 3.17.0.2)
       lint_roller (~> 1.0)
@@ -89,10 +108,13 @@ DEPENDENCIES
   net-imap
   net-pop
   net-smtp
+  rspec
+  rspec-given
   rubocop
   rubocop-sequel
   ruby-progressbar
   sequel
+  sqlite-vec
   sqlite3
   standard
   thor

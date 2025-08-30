@@ -109,11 +109,11 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false, sqlite_wal: true)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
+    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], only_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false, sqlite_wal: true)
+      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, only_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
+    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, only_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
       @strict_errors = !!strict_errors
       @retry_attempts = retry_attempts.to_i
       @prune_missing = !!prune_missing
@@ -130,17 +130,39 @@ module NittyMail
           enable_ssl: true
       end
 
-      @db = Sequel.sqlite(database_path)
-      NittyMail::DB.configure_performance!(@db, wal: sqlite_wal)
+      @db = NittyMail::DB.connect(database_path, wal: sqlite_wal, load_vec: false)
       email = NittyMail::DB.ensure_schema!(@db)
 
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
 
-      # Filter out ignored mailboxes if configured
+      # Include-only filter (if provided), then filter out ignored mailboxes if configured
+      only_mailboxes ||= []
       ignore_mailboxes ||= []
+      only_mailboxes = only_mailboxes.compact.map(&:to_s).map(&:strip).reject(&:empty?)
       ignore_mailboxes = ignore_mailboxes.compact.map(&:to_s).map(&:strip).reject(&:empty?)
+
+      if only_mailboxes.any?
+        include_regexes = only_mailboxes.map do |pat|
+          escaped = Regexp.escape(pat)
+          escaped = escaped.gsub(/\\\*/m, ".*")
+          escaped = escaped.gsub(/\\\?/m, ".")
+          Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
+        end
+        before = selectable_mailboxes.size
+        kept = selectable_mailboxes.select { |mb| include_regexes.any? { |rx| rx.match?(mb.name) } }
+        dropped = selectable_mailboxes - kept
+        selectable_mailboxes = kept
+        if kept.any?
+          puts "including #{kept.size} mailbox(es) via --only: #{kept.map(&:name).join(", ")} (was #{before})"
+        else
+          puts "--only matched 0 mailboxes; nothing to process"
+        end
+        puts "skipping #{dropped.size} mailbox(es) due to --only" if dropped.any?
+      end
+
+      # Filter out ignored mailboxes if configured
       if ignore_mailboxes.any?
         # Convert simple glob patterns (* and ?) to regex safely
         regexes = ignore_mailboxes.map do |pat|
