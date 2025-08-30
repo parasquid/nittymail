@@ -15,64 +15,61 @@ require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/query_tools"
 
 class NittyMailMCPServer
-  VERSION = "1.0.0".freeze
-  
+  VERSION = "1.0.0"
+
   def initialize
-    @logger = Logger.new(STDERR, level: ENV.fetch("LOG_LEVEL", "INFO"))
+    @logger = Logger.new($stderr, level: ENV.fetch("LOG_LEVEL", "INFO"))
     @database_path = ENV["DATABASE"]
     @address = ENV["ADDRESS"]
-    
+
     validate_configuration!
     @logger.info("NittyMail MCP Server v#{VERSION} starting...")
     @logger.info("Database: #{@database_path}")
-    @logger.info("Address context: #{@address || 'none'}")
+    @logger.info("Address context: #{@address || "none"}")
   end
 
   def run
     @logger.info("MCP Server listening on STDIN/STDOUT...")
-    
+
     loop do
-      begin
-        line = $stdin.gets
-        break if line.nil? # EOF
-        
-        line = line.strip
-        next if line.empty?
-        
-        request = JSON.parse(line)
-        response = handle_request(request)
-        
-        $stdout.puts(JSON.generate(response))
-        $stdout.flush
-        
-      rescue JSON::ParserError => e
-        @logger.error("JSON parse error: #{e.message}")
-        error_response = {
-          jsonrpc: "2.0",
-          id: nil,
-          error: {
-            code: -32700,
-            message: "Parse error",
-            data: e.message
-          }
+      line = $stdin.gets
+      break if line.nil? # EOF
+
+      line = line.strip
+      next if line.empty?
+
+      request = JSON.parse(line)
+      response = handle_request(request)
+
+      $stdout.puts(JSON.generate(response))
+      $stdout.flush
+    rescue JSON::ParserError => e
+      @logger.error("JSON parse error: #{e.message}")
+      error_response = {
+        jsonrpc: "2.0",
+        id: nil,
+        error: {
+          code: -32700,
+          message: "Parse error",
+          data: e.message
         }
-        $stdout.puts(JSON.generate(error_response))
-        $stdout.flush
-      rescue => e
-        @logger.error("Unexpected error: #{e.message}")
-        @logger.error(e.backtrace.join("\n"))
-        error_response = {
-          jsonrpc: "2.0", 
-          id: nil,
-          error: {
-            code: -32603,
-            message: "Internal error",
-            data: e.message
-          }
+      }
+      $stdout.puts(JSON.generate(error_response))
+      $stdout.flush
+    rescue => e
+      @logger.error("Unexpected error: #{e.message}")
+      @logger.error(e.backtrace.join("\n"))
+      error_response = {
+        jsonrpc: "2.0",
+        id: nil,
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: e.message
         }
-        $stdout.puts(JSON.generate(error_response))
-        $stdout.flush
-      end
+      }
+      $stdout.puts(JSON.generate(error_response))
+      $stdout.flush
     end
   end
 
@@ -82,7 +79,7 @@ class NittyMailMCPServer
     unless @database_path
       raise "DATABASE environment variable is required"
     end
-    
+
     unless File.exist?(@database_path)
       raise "Database file not found: #{@database_path}"
     end
@@ -98,7 +95,7 @@ class NittyMailMCPServer
     case method
     when "initialize"
       handle_initialize(id, params)
-    when "tools/list" 
+    when "tools/list"
       handle_tools_list(id)
     when "tools/call"
       handle_tools_call(id, params)
@@ -160,7 +157,7 @@ class NittyMailMCPServer
 
     begin
       result = execute_tool(tool_name, arguments)
-      
+
       {
         jsonrpc: "2.0",
         id: id,
@@ -257,7 +254,7 @@ class NittyMailMCPServer
           date_from: arguments["date_from"],
           date_to: arguments["date_to"]
         )
-        { count: count }
+        {count: count}
       when "db.get_email_stats"
         NittyMail::QueryTools.get_email_stats(
           db: db,
@@ -308,7 +305,7 @@ class NittyMailMCPServer
           order: arguments["order"] || "date_asc"
         )
       else
-        { error: "Unknown tool: #{tool_name}" }
+        {error: "Unknown tool: #{tool_name}"}
       end
     ensure
       db&.disconnect
@@ -322,7 +319,7 @@ if __FILE__ == $0
     server = NittyMailMCPServer.new
     server.run
   rescue => e
-    $stderr.puts "Failed to start MCP server: #{e.message}"
+    warn "Failed to start MCP server: #{e.message}"
     exit 1
   end
 end

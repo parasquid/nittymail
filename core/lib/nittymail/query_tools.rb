@@ -213,19 +213,19 @@ module NittyMail
 
     # Execute earliest emails
     def list_earliest_emails(db:, address:, limit: 100)
-      limit = (limit.to_i <= 0 ? 100 : limit.to_i)
+      limit = ((limit.to_i <= 0) ? 100 : limit.to_i)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
-      rows = ds.order(Sequel.asc(:date)).limit(limit).
-        select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).
-        all
+      rows = ds.order(Sequel.asc(:date)).limit(limit)
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
+        .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
 
     # Filter by simple contains on from/subject (case-insensitive)
     def filter_emails(db:, address: nil, from_contains: nil, subject_contains: nil, from_domain: nil, mailbox: nil, date_from: nil, date_to: nil, order: nil, limit: 100)
-      limit = (limit.to_i <= 0 ? 100 : limit.to_i)
+      limit = ((limit.to_i <= 0) ? 100 : limit.to_i)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       if from_contains && !from_contains.to_s.strip.empty?
@@ -270,8 +270,8 @@ module NittyMail
 
     # Semantic search via sqlite-vec nearest neighbors
     def search_emails(db:, query:, item_types: ["subject", "body"], limit: 100, ollama_host: nil)
-      limit = (limit.to_i <= 0 ? 100 : limit.to_i)
-      
+      limit = ((limit.to_i <= 0) ? 100 : limit.to_i)
+
       begin
         # Get query embedding using configured model/dimension
         model = ENV["EMBEDDING_MODEL"] || "mxbai-embed-large"
@@ -305,23 +305,20 @@ module NittyMail
         binds = [SQLite3::Blob.new(packed), limit * 5, limit] # overfetch then group
 
         rows = db[sql, *binds].all
-        
+
         # Apply encoding safety to each row individually to catch problematic records
         safe_rows = []
         rows.each_with_index do |row, i|
-          begin
-            safe_row = symbolize_keys(row)
-            safe_row = safe_encode_result(safe_row)
-            safe_rows << safe_row
-          rescue => e
-            # Skip problematic rows and log the issue
-            puts "Warning: Skipping row #{i} due to encoding issue: #{e.message}" if $DEBUG
-            next
-          end
+          safe_row = symbolize_keys(row)
+          safe_row = safe_encode_result(safe_row)
+          safe_rows << safe_row
+        rescue => e
+          # Skip problematic rows and log the issue
+          puts "Warning: Skipping row #{i} due to encoding issue: #{e.message}" if $DEBUG
+          next
         end
-        
+
         safe_rows
-        
       rescue => e
         # If vector search fails entirely, return empty results
         puts "Vector search failed: #{e.message}" if $DEBUG
@@ -378,12 +375,24 @@ module NittyMail
         ds = ds.where(Sequel.ilike(:subject, "%#{subject_contains.strip}%")) if subject_contains && !subject_contains.to_s.strip.empty?
         if date && !date.to_s.strip.empty?
           s = date.to_s
-          if s =~ /^\d{4}$/
-            from_d = Date.parse("#{s}-01-01") rescue nil
-            to_d = Date.parse("#{s}-12-31") rescue nil
+          if /^\d{4}$/.match?(s)
+            from_d = begin
+              Date.parse("#{s}-01-01")
+            rescue
+              nil
+            end
+            to_d = begin
+              Date.parse("#{s}-12-31")
+            rescue
+              nil
+            end
             ds = ds.where { (Sequel[:date] >= from_d) & (Sequel[:date] <= to_d) } if from_d && to_d
           else
-            d = Date.parse(s) rescue nil
+            d = begin
+              Date.parse(s)
+            rescue
+              nil
+            end
             if d
               start_of_day = d.to_time
               end_of_day = (d + 1).to_time
@@ -406,8 +415,8 @@ module NittyMail
 
     # Get overview statistics: total emails, date range, top senders/domains, mailbox distribution
     def get_email_stats(db:, address: nil, top_limit: 10)
-      top_limit = (top_limit.to_i <= 0 ? 10 : top_limit.to_i)
-      
+      top_limit = ((top_limit.to_i <= 0) ? 10 : top_limit.to_i)
+
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
 
@@ -415,19 +424,19 @@ module NittyMail
       total_emails = ds.count
       return {total_emails: 0} if total_emails == 0
 
-      date_range = ds.select{[min(:date).as(:earliest), max(:date).as(:latest)]}.first
-      
+      date_range = ds.select { [min(:date).as(:earliest), max(:date).as(:latest)] }.limit(1).first
+
       # Top senders
-      top_senders = ds.group(:from).select(:from, Sequel.function(:count, Sequel.lit('*')).as(:count))
-                     .order(Sequel.desc(:count)).limit(top_limit).all
-      
+      top_senders = ds.group(:from).select(:from, Sequel.function(:count, Sequel.lit("*")).as(:count))
+        .order(Sequel.desc(:count)).limit(top_limit).all
+
       # Top domains (extract from 'from' field)
       domain_sql = <<~SQL
         SELECT 
           CASE 
-            WHEN instr(\"from\", '@') > 0 
-            THEN substr(\"from\", instr(\"from\", '@') + 1, length(\"from\") - instr(\"from\", '@') - 1)
-            ELSE \"from\"
+            WHEN instr("from", '@') > 0 
+            THEN substr("from", instr("from", '@') + 1, length("from") - instr("from", '@') - 1)
+            ELSE "from"
           END as domain,
           COUNT(*) as count
         FROM email
@@ -436,13 +445,13 @@ module NittyMail
         ORDER BY count DESC
         LIMIT ?
       SQL
-      
+
       binds = address ? [address, top_limit] : [top_limit]
       top_domains = db[domain_sql, *binds].all
-      
+
       # Mailbox distribution
-      mailbox_stats = ds.group(:mailbox).select(:mailbox, Sequel.function(:count, Sequel.lit('*')).as(:count))
-                       .order(Sequel.desc(:count)).all
+      mailbox_stats = ds.group(:mailbox).select(:mailbox, Sequel.function(:count, Sequel.lit("*")).as(:count))
+        .order(Sequel.desc(:count)).all
 
       result = {
         total_emails: total_emails,
@@ -452,34 +461,34 @@ module NittyMail
         top_domains: top_domains.map { |r| symbolize_keys(r) },
         mailbox_distribution: mailbox_stats.map { |r| symbolize_keys(r) }
       }
-      
+
       safe_encode_result(result)
     end
 
     # Get most frequent email senders with their email counts
     def get_top_senders(db:, address: nil, limit: 20, mailbox: nil)
-      limit = (limit.to_i <= 0 ? 20 : limit.to_i)
+      limit = ((limit.to_i <= 0) ? 20 : limit.to_i)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       ds = ds.where(Sequel.ilike(:mailbox, mailbox.strip)) if mailbox && !mailbox.to_s.strip.empty?
-      
-      rows = ds.group(:from).select(:from, Sequel.function(:count, Sequel.lit('*')).as(:count))
-              .order(Sequel.desc(:count)).limit(limit).all
+
+      rows = ds.group(:from).select(:from, Sequel.function(:count, Sequel.lit("*")).as(:count))
+        .order(Sequel.desc(:count)).limit(limit).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
 
     # Get most frequent sender domains with their email counts
     def get_top_domains(db:, address: nil, limit: 20)
-      limit = (limit.to_i <= 0 ? 20 : limit.to_i)
-      
+      limit = ((limit.to_i <= 0) ? 20 : limit.to_i)
+
       # Extract domain from 'from' field using SQL
       domain_sql = <<~SQL
         SELECT 
           CASE 
-            WHEN instr(\"from\", '@') > 0 
-            THEN substr(\"from\", instr(\"from\", '@') + 1, length(\"from\") - instr(\"from\", '@') - 1)
-            ELSE \"from\"
+            WHEN instr("from", '@') > 0 
+            THEN substr("from", instr("from", '@') + 1, length("from") - instr("from", '@') - 1)
+            ELSE "from"
           END as domain,
           COUNT(*) as count
         FROM email
@@ -488,7 +497,7 @@ module NittyMail
         ORDER BY count DESC
         LIMIT ?
       SQL
-      
+
       binds = address ? [address, limit] : [limit]
       rows = db[domain_sql, *binds].all
       result = rows.map { |r| symbolize_keys(r) }
@@ -499,22 +508,22 @@ module NittyMail
     def get_mailbox_stats(db:, address: nil)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
-      
-      rows = ds.group(:mailbox).select(:mailbox, Sequel.function(:count, Sequel.lit('*')).as(:count))
-              .order(Sequel.desc(:count)).all
+
+      rows = ds.group(:mailbox).select(:mailbox, Sequel.function(:count, Sequel.lit("*")).as(:count))
+        .order(Sequel.desc(:count)).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
 
     # Get email volume statistics over time periods (daily, monthly, yearly)
     def get_emails_by_date_range(db:, address: nil, period: "monthly", date_from: nil, date_to: nil, limit: 50)
-      limit = (limit.to_i <= 0 ? 50 : limit.to_i)
+      limit = ((limit.to_i <= 0) ? 50 : limit.to_i)
       period = period.to_s.downcase
       period = "monthly" unless %w[daily monthly yearly].include?(period)
-      
+
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
-      
+
       if date_from && !date_from.to_s.strip.empty?
         begin
           from_d = Date.parse(date_from.to_s)
@@ -532,27 +541,27 @@ module NittyMail
 
       # SQLite date formatting based on period
       date_format = case period
-                   when "daily" then "%Y-%m-%d"
-                   when "monthly" then "%Y-%m"
-                   when "yearly" then "%Y"
-                   end
+      when "daily" then "%Y-%m-%d"
+      when "monthly" then "%Y-%m"
+      when "yearly" then "%Y"
+      end
 
       rows = ds.select(
         Sequel.function(:strftime, date_format, :date).as(:period),
-        Sequel.function(:count, Sequel.lit('*')).as(:count)
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
       ).group(:period).order(:period).limit(limit).all
-      
+
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
 
     # Filter emails that have attachments
     def get_emails_with_attachments(db:, address: nil, mailbox: nil, date_from: nil, date_to: nil, limit: 100)
-      limit = (limit.to_i <= 0 ? 100 : limit.to_i)
+      limit = ((limit.to_i <= 0) ? 100 : limit.to_i)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       ds = ds.where(has_attachments: true)
-      
+
       if mailbox && !mailbox.to_s.strip.empty?
         ds = ds.where(Sequel.ilike(:mailbox, mailbox.strip))
       end
@@ -570,29 +579,29 @@ module NittyMail
         rescue
         end
       end
-      
+
       rows = ds.order(Sequel.desc(:date)).limit(limit)
-              .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
-              .all
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
+        .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
 
     # Get emails in the same Gmail thread by thread ID
-    def get_email_thread(db:, address: nil, thread_id:, order: "date_asc")
+    def get_email_thread(db:, thread_id:, address: nil, order: "date_asc")
       return [] if thread_id.nil? || thread_id.to_s.strip.empty?
-      
+
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       ds = ds.where(x_gm_thrid: thread_id.to_s.strip)
-      
-      case order.to_s
+
+      ds = case order.to_s
       when "date_desc"
-        ds = ds.order(Sequel.desc(:date))
+        ds.order(Sequel.desc(:date))
       else
-        ds = ds.order(Sequel.asc(:date))
+        ds.order(Sequel.asc(:date))
       end
-      
+
       rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
@@ -602,15 +611,15 @@ module NittyMail
     def symbolize_keys(h)
       h.each_with_object({}) do |(k, v), m|
         key = (k.is_a?(Symbol) ? k : k.to_s.downcase.to_sym)
-        
+
         # Fix encoding issues with string values
         value = if v.is_a?(String)
           # Force encoding to UTF-8, replacing invalid characters
-          v.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+          v.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
         else
           v
         end
-        
+
         m[key] = value
       end
     end
@@ -625,7 +634,7 @@ module NittyMail
           result[k] = safe_encode_result(v)
         end
       when String
-        data.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+        data.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
       else
         data
       end

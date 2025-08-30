@@ -20,7 +20,6 @@ module NittyMail
       db = NittyMail::DB.connect(database_path, wal: true, load_vec: true)
       NittyMail::DB.ensure_schema!(db)
 
-
       tools = NittyMail::QueryTools.tool_schemas
 
       messages = []
@@ -72,48 +71,48 @@ module NittyMail
               puts "Args: #{args.inspect}"
             end
 
-          if name == "db.list_earliest_emails"
-            result = NittyMail::QueryTools.list_earliest_emails(db: db, address: address, limit: args["limit"].to_i)
-            if debug
-              puts "Result count: #{result.length}"
-              begin
-                json_content = JSON.generate(result)
-                puts "JSON serialization: OK (#{json_content.length} bytes)"
-              rescue => e
-                puts "JSON serialization ERROR: #{e.message}"
-                puts "Problematic result: #{result.inspect[0..500]}..."
+            if name == "db.list_earliest_emails"
+              result = NittyMail::QueryTools.list_earliest_emails(db: db, address: address, limit: args["limit"].to_i)
+              if debug
+                puts "Result count: #{result.length}"
+                begin
+                  json_content = JSON.generate(result)
+                  puts "JSON serialization: OK (#{json_content.length} bytes)"
+                rescue => e
+                  puts "JSON serialization ERROR: #{e.message}"
+                  puts "Problematic result: #{result.inspect[0..500]}..."
+                end
               end
-            end
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_email_full"
-            result = NittyMail::QueryTools.get_email_full(
-              db: db,
-              address: address,
-              id: args["id"],
-              mailbox: args["mailbox"],
-              uid: args["uid"],
-              uidvalidity: args["uidvalidity"],
-              message_id: args["message_id"],
-              from_contains: args["from_contains"],
-              subject_contains: args["subject_contains"],
-              date: args["date"],
-              order: args["order"]
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result || {})}
-          elsif name == "db.filter_emails"
-            result = NittyMail::QueryTools.filter_emails(
-              db: db,
-              address: address,
-              from_contains: args["from_contains"],
-              from_domain: args["from_domain"],
-              subject_contains: args["subject_contains"],
-              mailbox: args["mailbox"],
-              date_from: args["date_from"],
-              date_to: args["date_to"],
-              order: args["order"],
-              limit: args["limit"].to_i
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_full"
+              result = NittyMail::QueryTools.get_email_full(
+                db: db,
+                address: address,
+                id: args["id"],
+                mailbox: args["mailbox"],
+                uid: args["uid"],
+                uidvalidity: args["uidvalidity"],
+                message_id: args["message_id"],
+                from_contains: args["from_contains"],
+                subject_contains: args["subject_contains"],
+                date: args["date"],
+                order: args["order"]
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result || {})}
+            elsif name == "db.filter_emails"
+              result = NittyMail::QueryTools.filter_emails(
+                db: db,
+                address: address,
+                from_contains: args["from_contains"],
+                from_domain: args["from_domain"],
+                subject_contains: args["subject_contains"],
+                mailbox: args["mailbox"],
+                date_from: args["date_from"],
+                date_to: args["date_to"],
+                order: args["order"],
+                limit: args["limit"].to_i
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
             elsif name == "db.search_emails"
               query = (args["query"] || args["text"] || "").to_s
               item_types = args["item_types"] || ["subject", "body"]
@@ -133,115 +132,117 @@ module NittyMail
                   puts "JSON serialization ERROR: #{e.message}"
                   puts "Checking each result..."
                   result.each_with_index do |row, i|
-                    begin
-                      JSON.generate(row)
-                    rescue => row_error
-                      puts "  Row #{i} (ID: #{row[:id] rescue 'unknown'}) ERROR: #{row_error.message}"
-                      row.each do |field, value|
-                        next unless value.is_a?(String)
-                        begin
-                          JSON.generate({field => value})
-                        rescue
-                          puts "    Problematic field: #{field}"
-                          puts "      Encoding: #{value.encoding}"
-                          puts "      Valid?: #{value.valid_encoding?}"
-                          puts "      Value: #{value.inspect[0..100]}..."
-                        end
+                    JSON.generate(row)
+                  rescue => row_error
+                    puts "  Row #{i} (ID: #{begin
+                      row[:id]
+                    rescue
+                      "unknown"
+                    end}) ERROR: #{row_error.message}"
+                    row.each do |field, value|
+                      next unless value.is_a?(String)
+                      begin
+                        JSON.generate({field => value})
+                      rescue
+                        puts "    Problematic field: #{field}"
+                        puts "      Encoding: #{value.encoding}"
+                        puts "      Valid?: #{value.valid_encoding?}"
+                        puts "      Value: #{value.inspect[0..100]}..."
                       end
                     end
                   end
                 end
               end
               messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.count_emails"
-            count = NittyMail::QueryTools.count_emails(
-              db: db,
-              address: address,
-              from_contains: args["from_contains"],
-              from_domain: args["from_domain"],
-              subject_contains: args["subject_contains"],
-              mailbox: args["mailbox"],
-              date_from: args["date_from"],
-              date_to: args["date_to"]
-            )
-            if debug
-              puts "Count result: #{count}"
-              begin
-                json_content = JSON.generate({count: count})
-                puts "JSON serialization: OK (#{json_content.length} bytes)"
-              rescue => e
-                puts "JSON serialization ERROR: #{e.message}"
-                puts "Count value: #{count.inspect}"
+            elsif name == "db.count_emails"
+              count = NittyMail::QueryTools.count_emails(
+                db: db,
+                address: address,
+                from_contains: args["from_contains"],
+                from_domain: args["from_domain"],
+                subject_contains: args["subject_contains"],
+                mailbox: args["mailbox"],
+                date_from: args["date_from"],
+                date_to: args["date_to"]
+              )
+              if debug
+                puts "Count result: #{count}"
+                begin
+                  json_content = JSON.generate({count: count})
+                  puts "JSON serialization: OK (#{json_content.length} bytes)"
+                rescue => e
+                  puts "JSON serialization ERROR: #{e.message}"
+                  puts "Count value: #{count.inspect}"
+                end
               end
+              messages << {role: "tool", name: name, content: JSON.generate({count: count})}
+            elsif name == "db.get_email_stats"
+              result = NittyMail::QueryTools.get_email_stats(
+                db: db,
+                address: address,
+                top_limit: args["top_limit"] || 10
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_top_senders"
+              result = NittyMail::QueryTools.get_top_senders(
+                db: db,
+                address: address,
+                limit: args["limit"] || 20,
+                mailbox: args["mailbox"]
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_top_domains"
+              result = NittyMail::QueryTools.get_top_domains(
+                db: db,
+                address: address,
+                limit: args["limit"] || 20
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_mailbox_stats"
+              result = NittyMail::QueryTools.get_mailbox_stats(
+                db: db,
+                address: address
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_by_date_range"
+              result = NittyMail::QueryTools.get_emails_by_date_range(
+                db: db,
+                address: address,
+                period: args["period"] || "monthly",
+                date_from: args["date_from"],
+                date_to: args["date_to"],
+                limit: args["limit"] || 50
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_with_attachments"
+              result = NittyMail::QueryTools.get_emails_with_attachments(
+                db: db,
+                address: address,
+                mailbox: args["mailbox"],
+                date_from: args["date_from"],
+                date_to: args["date_to"],
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_thread"
+              result = NittyMail::QueryTools.get_email_thread(
+                db: db,
+                address: address,
+                thread_id: args["thread_id"],
+                order: args["order"] || "date_asc"
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            else
+              messages << {role: "tool", name: name.to_s, content: JSON.generate({error: "unknown tool"})}
             end
-            messages << {role: "tool", name: name, content: JSON.generate({count: count})}
-          elsif name == "db.get_email_stats"
-            result = NittyMail::QueryTools.get_email_stats(
-              db: db,
-              address: address,
-              top_limit: args["top_limit"] || 10
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_top_senders"
-            result = NittyMail::QueryTools.get_top_senders(
-              db: db,
-              address: address,
-              limit: args["limit"] || 20,
-              mailbox: args["mailbox"]
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_top_domains"
-            result = NittyMail::QueryTools.get_top_domains(
-              db: db,
-              address: address,
-              limit: args["limit"] || 20
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_mailbox_stats"
-            result = NittyMail::QueryTools.get_mailbox_stats(
-              db: db,
-              address: address
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_emails_by_date_range"
-            result = NittyMail::QueryTools.get_emails_by_date_range(
-              db: db,
-              address: address,
-              period: args["period"] || "monthly",
-              date_from: args["date_from"],
-              date_to: args["date_to"],
-              limit: args["limit"] || 50
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_emails_with_attachments"
-            result = NittyMail::QueryTools.get_emails_with_attachments(
-              db: db,
-              address: address,
-              mailbox: args["mailbox"],
-              date_from: args["date_from"],
-              date_to: args["date_to"],
-              limit: args["limit"] || 100
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          elsif name == "db.get_email_thread"
-            result = NittyMail::QueryTools.get_email_thread(
-              db: db,
-              address: address,
-              thread_id: args["thread_id"],
-              order: args["order"] || "date_asc"
-            )
-            messages << {role: "tool", name: name, content: JSON.generate(result)}
-          else
-            messages << {role: "tool", name: name.to_s, content: JSON.generate({error: "unknown tool"})}
           end
-        end
 
           # Ask model to synthesize final answer from tool outputs
           messages << {role: "system", content: "Use the tool results above to answer clearly with a concise list or summary."}
         end
       rescue => e
         # Return a clear error message for any failures
-        return "Query failed: #{e.message}. Please ensure Ollama is running and the model supports tools."
+        "Query failed: #{e.message}. Please ensure Ollama is running and the model supports tools."
       end
     ensure
       db&.disconnect
@@ -254,7 +255,7 @@ module NittyMail
       req["Content-Type"] = "application/json"
       body = {model: model, messages: messages, stream: false}
       body[:tools] = tools if tools && !tools.empty?
-      
+
       # Debug logging for request
       if debug
         puts "=== DEBUG: Ollama Request ==="
@@ -262,7 +263,7 @@ module NittyMail
         puts "Model: #{model}"
         puts "Messages: #{messages.length} messages"
         puts "Tools: #{tools ? tools.length : 0} tools"
-        
+
         # Log the request payload, but truncate if too long
         request_json = JSON.generate(body)
         if request_json.length > 2000
@@ -271,38 +272,38 @@ module NittyMail
           puts "Request JSON: #{request_json}"
         end
         puts "Request size: #{request_json.length} bytes"
-        
+
         # Check for encoding issues in the request
         begin
-          request_json.encode('UTF-8')
+          request_json.encode("UTF-8")
           puts "Request encoding: OK"
         rescue => e
           puts "Request encoding ERROR: #{e.message}"
         end
         puts "=============================="
       end
-      
+
       req.body = JSON.generate(body)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
-      
+
       # Make request and log response
       res = http.request(req)
-      
+
       if debug
         puts "=== DEBUG: Ollama Response ==="
         puts "HTTP Status: #{res.code} #{res.message}"
         puts "Response size: #{res.body.length} bytes"
-        
+
         if res.body.length > 2000
           puts "Response body (first 2000 chars): #{res.body[0..2000]}..."
         else
           puts "Response body: #{res.body}"
         end
-        
+
         # Check for encoding issues in the response
         begin
-          res.body.encode('UTF-8')
+          res.body.encode("UTF-8")
           puts "Response encoding: OK"
         rescue => e
           puts "Response encoding ERROR: #{e.message}"
@@ -310,11 +311,11 @@ module NittyMail
         end
         puts "=============================="
       end
-      
+
       unless res.is_a?(Net::HTTPSuccess)
         raise "ollama chat HTTP #{res.code}: #{res.body}"
       end
-      
+
       JSON.parse(res.body)
     end
 
@@ -326,4 +327,3 @@ module NittyMail
     end
   end
 end
-
