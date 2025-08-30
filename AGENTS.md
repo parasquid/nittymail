@@ -70,14 +70,19 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     ./bin/lint
     ```
 
-2.  **Run RSpec** (when applicable): Prefer verbose output with backtraces for debugging.
+2.  **Run RSpec** (when applicable): Canonical command — do not improvise other invocations.
     ```bash
-    # Full suite with detailed examples and backtraces
+    # Always run from the repo root; Docker working_dir is /app/core
     docker compose run --rm ruby bundle exec rspec -fd -b
 
-    # Focus MCP server specs (helpful if hanging):
-    LOG_LEVEL=ERROR docker compose run --rm ruby bundle exec rspec -fd -b spec/mcp_server_spec.rb
+    # Run a single file (example):
+    docker compose run --rm ruby bundle exec rspec -fd -b spec/mcp_server_spec.rb
     ```
+
+    Notes:
+    - Do not use host Ruby. Always go through Docker Compose as above.
+    - Keep `bundle exec` and the `-fd -b` flags (formatter + backtraces) for consistent, debuggable output.
+    - MCP specs manage their own environment; you should not need to export `DATABASE` to run them.
 
 ### Committing
 
