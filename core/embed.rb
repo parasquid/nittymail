@@ -12,6 +12,15 @@ module NittyMail
     def self.perform(database_path:, ollama_host:, model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large", dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i, item_types: %w[subject body], address_filter: nil, limit: nil, offset: nil, quiet: false, threads_count: 2, retry_attempts: 3, batch_size: 1000)
       raise ArgumentError, "database_path is required" if database_path.to_s.strip.empty?
       raise ArgumentError, "ollama_host is required (set OLLAMA_HOST or pass --ollama-host)" if ollama_host.to_s.strip.empty?
+      # Validate Ollama host is a proper HTTP(S) URL early for clearer errors
+      begin
+        u = URI.parse(ollama_host.to_s.strip)
+        unless u.is_a?(URI::HTTP) && u.host
+          raise ArgumentError, "ollama_host must start with http:// or https:// and include a host (e.g., http://localhost:11434)"
+        end
+      rescue URI::InvalidURIError
+        raise ArgumentError, "ollama_host is not a valid URL (e.g., http://localhost:11434)"
+      end
 
       db = NittyMail::DB.connect(database_path, wal: true, load_vec: true)
       email_ds = NittyMail::DB.ensure_schema!(db)

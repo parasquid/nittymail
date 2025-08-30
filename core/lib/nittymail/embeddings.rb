@@ -13,7 +13,11 @@ module NittyMail
     # Fetch a single embedding vector from an Ollama server
     def fetch_embedding(ollama_host:, model:, text:)
       raise ArgumentError, "ollama_host is required" if ollama_host.nil? || ollama_host.strip.empty?
-      uri = URI.parse(File.join(ollama_host, "/api/embeddings"))
+      base = URI.parse(ollama_host.strip)
+      unless base.is_a?(URI::HTTP) && base.host
+        raise ArgumentError, "ollama_host must start with http:// or https:// and include a host (e.g., http://localhost:11434)"
+      end
+      uri = URI.join(base.to_s, "/api/embeddings")
       req = Net::HTTP::Post.new(uri)
       req["Content-Type"] = "application/json"
       req.body = {model: model, prompt: text.to_s}.to_json
