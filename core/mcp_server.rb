@@ -18,6 +18,8 @@ class NittyMailMCPServer
   VERSION = "1.0.0"
 
   def initialize
+    $stdout.sync = true
+    $stderr.sync = true
     @logger = Logger.new($stderr, level: ENV.fetch("LOG_LEVEL", "INFO"))
     @database_path = ENV["DATABASE"]
     @address = ENV["ADDRESS"]
@@ -82,11 +84,12 @@ class NittyMailMCPServer
 
   def validate_configuration!
     unless @database_path
-      raise "DATABASE environment variable is required"
+      @logger.warn("DATABASE environment variable is not set; most tools require a database and will return errors until configured")
+      return
     end
 
     unless File.exist?(@database_path)
-      raise "Database file not found: #{@database_path}"
+      @logger.warn("Database file not found: #{@database_path}; most tools will return errors until the path is corrected")
     end
   end
 
@@ -204,7 +207,13 @@ class NittyMailMCPServer
   end
 
   def execute_tool(tool_name, arguments)
-    # Establish database connection for this request
+    # Establish database connection for this request (validate presence)
+    if @database_path.nil? || @database_path.to_s.strip.empty?
+      raise "DATABASE is not configured; set DATABASE env to a valid SQLite path"
+    end
+    unless File.exist?(@database_path)
+      raise "Database not found: #{@database_path}"
+    end
     db = NittyMail::DB.connect(@database_path, wal: true, load_vec: true)
     NittyMail::DB.ensure_schema!(db)
 
