@@ -91,7 +91,7 @@ Environment defaults:
   - By domain: “from @example.com” / “from example.com”
   - By name/email substring: “from ayaka” (case‑insensitive)
 - Size-based:
-  - "largest emails" via MCP tool `db.get_largest_emails(limit, attachments)` where `attachments` is one of `any|with|without`.
+  - "largest emails" via MCP tool `db.get_largest_emails(limit, attachments, mailbox, from_domain)`; `attachments` is one of `any|with|without`.
 - Topic search:
   - “about/ regarding/ on <topic>” → vector search (requires embeddings) with a subject‑contains fallback when embeddings aren’t available
 

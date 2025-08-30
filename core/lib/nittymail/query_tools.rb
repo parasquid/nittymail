@@ -163,12 +163,14 @@ module NittyMail
           "type" => "function",
           "function" => {
             "name" => "db.get_largest_emails",
-            "description" => "Get the largest emails by stored raw size (length(encoded)), optionally filtering by attachments.",
+            "description" => "Get the largest emails by stored raw size (length(encoded)), optionally filtering by attachments, mailbox, or sender domain.",
             "parameters" => {
               "type" => "object",
               "properties" => {
                 "limit" => {"type" => "integer", "description" => "Max results (default 5)"},
-                "attachments" => {"type" => "string", "enum" => ["any", "with", "without"], "description" => "Filter: any, only with attachments, or only without"}
+                "attachments" => {"type" => "string", "enum" => ["any", "with", "without"], "description" => "Filter: any, only with attachments, or only without"},
+                "mailbox" => {"type" => "string", "description" => "Optional mailbox filter (e.g., INBOX or [Gmail]/All Mail)"},
+                "from_domain" => {"type" => "string", "description" => "Optional sender domain filter (e.g., example.com)"}
               },
               "required" => []
             }
@@ -228,10 +230,17 @@ module NittyMail
 
     # Get the largest emails by raw stored size (length(encoded)).
     # attachments: "any" (nil), "with" (true), "without" (false)
-    def get_largest_emails(db:, address: nil, limit: 5, attachments: "any")
+    def get_largest_emails(db:, address: nil, limit: 5, attachments: "any", mailbox: nil, from_domain: nil)
       lim = ((limit.to_i <= 0) ? 5 : limit.to_i)
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
+      if mailbox && !mailbox.to_s.strip.empty?
+        ds = ds.where(Sequel.ilike(:mailbox, mailbox.strip))
+      end
+      if from_domain && !from_domain.to_s.strip.empty?
+        domain = from_domain.strip.sub(/^@/, "")
+        ds = ds.where(Sequel.ilike(:from, "%@#{domain}%"))
+      end
       case attachments.to_s
       when "with"
         ds = ds.where(has_attachments: true)

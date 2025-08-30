@@ -102,7 +102,7 @@ class NittyMailMCPServer
       handle_initialize(id, params)
     when "notifications/initialized"
       # Client acknowledges initialization complete - no response needed for notifications
-      return nil
+      nil
     when "tools/list"
       handle_tools_list(id)
     when "tools/call"
@@ -274,7 +274,9 @@ class NittyMailMCPServer
           db: db,
           address: @address,
           limit: (arguments["limit"] || 5).to_i,
-          attachments: arguments["attachments"] || "any"
+          attachments: arguments["attachments"] || "any",
+          mailbox: arguments["mailbox"],
+          from_domain: arguments["from_domain"]
         )
       when "db.get_top_senders"
         NittyMail::QueryTools.get_top_senders(
