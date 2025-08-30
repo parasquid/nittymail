@@ -25,32 +25,8 @@ module NittyMail
       total_emails = ds.count
       puts "Embedding #{total_emails} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
 
-      # Phase 1: plan to get an accurate job count without holding all jobs
-      plan_progress = ProgressBar.create(title: "plan (emails)", total: total_emails, format: "%t: |%B| %p%% (%c/%C) [%e]")
-      total_jobs = 0
-      ds.each do |row|
-        if item_types.include?("subject")
-          subj = row[:subject].to_s
-          total_jobs += 1 if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
-        end
-        if item_types.include?("body")
-          raw = row[:encoded]
-          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
-          body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
-          if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
-            body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
-          end
-          total_jobs += 1 if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
-        end
-      rescue => e
-        plan_progress.log "plan error id=#{row[:id]}: #{e.class}: #{e.message}"
-      ensure
-        plan_progress.increment
-      end
-      plan_progress.finish
-
-      # Phase 2: stream jobs with bounded queue instead of accumulating all in memory
-      progress = ProgressBar.create(title: "embed (jobs)", total: total_jobs, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      # Stream jobs with bounded queue instead of pre-planning entire dataset
+      progress = ProgressBar.create(title: "embed (jobs)", total: 1, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
 
@@ -89,14 +65,15 @@ module NittyMail
         end
       end
 
-      # Enqueue jobs in a second pass, applying simple backpressure using batch_size
-      enqueued = 0
+      # Enqueue jobs while workers run; apply simple backpressure using batch_size
+      total_jobs = 0
       ds.each do |row|
         if item_types.include?("subject")
           subj = row[:subject].to_s
           if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
             job_queue << {email_id: row[:id], item_type: :subject, text: subj}
-            enqueued += 1
+            total_jobs += 1
+            progress.total = [total_jobs, 1].max
           end
         end
         if item_types.include?("body")
@@ -108,7 +85,8 @@ module NittyMail
           end
           if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
             job_queue << {email_id: row[:id], item_type: :body, text: body_text}
-            enqueued += 1
+            total_jobs += 1
+            progress.total = [total_jobs, 1].max
           end
         end
         # apply backpressure if queue grows beyond window
