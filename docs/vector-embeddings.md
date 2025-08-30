@@ -101,6 +101,7 @@ Flags and environment:
 - `--model` or `EMBEDDING_MODEL`: embedding model name; defaults to `mxbai-embed-large`.
 - `--dimension` or `SQLITE_VEC_DIMENSION`: vector dimension; defaults to `1024`.
 - `--item-types`: comma-separated list from `subject,body` (default both).
+- `--batch-size` or `EMBED_BATCH_SIZE`: max in-flight jobs enqueued at a time (default `1000`).
 - `--limit`, `--offset`, `--quiet`: processing controls.
 
 Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed` without flags and it will target the same database and address.

@@ -9,7 +9,7 @@ require_relative "lib/nittymail/embeddings"
 
 module NittyMail
   class Embed
-    def self.perform(database_path:, ollama_host:, model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large", dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i, item_types: %w[subject body], address_filter: nil, limit: nil, offset: nil, quiet: false, threads_count: 2, retry_attempts: 3)
+    def self.perform(database_path:, ollama_host:, model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large", dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i, item_types: %w[subject body], address_filter: nil, limit: nil, offset: nil, quiet: false, threads_count: 2, retry_attempts: 3, batch_size: 1000)
       raise ArgumentError, "database_path is required" if database_path.to_s.strip.empty?
       raise ArgumentError, "ollama_host is required (set OLLAMA_HOST or pass --ollama-host)" if ollama_host.to_s.strip.empty?
 
@@ -22,17 +22,16 @@ module NittyMail
       ds = ds.offset(offset.to_i) if offset && offset.to_i > 0
       ds = ds.limit(limit.to_i) if limit && limit.to_i > 0
 
-      total = ds.count
-      puts "Embedding #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
-      # Phase 1: plan all jobs to set a fixed progress total
-      plan_progress = ProgressBar.create(title: "plan (emails)", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
-      jobs = []
+      total_emails = ds.count
+      puts "Embedding #{total_emails} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
+
+      # Phase 1: plan to get an accurate job count without holding all jobs
+      plan_progress = ProgressBar.create(title: "plan (emails)", total: total_emails, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      total_jobs = 0
       ds.each do |row|
         if item_types.include?("subject")
           subj = row[:subject].to_s
-          if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
-            jobs << {email_id: row[:id], item_type: :subject, text: subj}
-          end
+          total_jobs += 1 if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
         end
         if item_types.include?("body")
           raw = row[:encoded]
@@ -41,20 +40,17 @@ module NittyMail
           if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
             body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
           end
-          if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
-            jobs << {email_id: row[:id], item_type: :body, text: body_text}
-          end
+          total_jobs += 1 if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
         end
-        # if nothing enqueued, remain silent to keep bar anchored
       rescue => e
-        plan_progress.log "enqueue error id=#{row[:id]}: #{e.class}: #{e.message}"
+        plan_progress.log "plan error id=#{row[:id]}: #{e.class}: #{e.message}"
       ensure
         plan_progress.increment
       end
       plan_progress.finish
 
-      # Phase 2: execute jobs with a fixed total
-      progress = ProgressBar.create(title: "embed (jobs)", total: jobs.length, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      # Phase 2: stream jobs with bounded queue instead of accumulating all in memory
+      progress = ProgressBar.create(title: "embed (jobs)", total: total_jobs, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
 
@@ -93,7 +89,38 @@ module NittyMail
         end
       end
 
-      jobs.each { |j| job_queue << j }
+      # Enqueue jobs in a second pass, applying simple backpressure using batch_size
+      enqueued = 0
+      ds.each do |row|
+        if item_types.include?("subject")
+          subj = row[:subject].to_s
+          if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
+            job_queue << {email_id: row[:id], item_type: :subject, text: subj}
+            enqueued += 1
+          end
+        end
+        if item_types.include?("body")
+          raw = row[:encoded]
+          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
+          body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
+          if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
+            body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+          end
+          if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
+            job_queue << {email_id: row[:id], item_type: :body, text: body_text}
+            enqueued += 1
+          end
+        end
+        # apply backpressure if queue grows beyond window
+        if batch_size.to_i > 0
+          while job_queue.size >= batch_size.to_i
+            sleep 0.05
+          end
+        end
+      rescue => e
+        progress.log "enqueue error id=#{row[:id]}: #{e.class}: #{e.message}"
+      end
+
       threads_count.to_i.times { job_queue << :__STOP__ }
       threads.each(&:join)
       write_queue << :__STOP__

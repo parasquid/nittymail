@@ -140,6 +140,7 @@ class NittyMailCLI < Thor
   option :threads, aliases: "-t", desc: "Number of embedding worker threads (default from THREADS or 2)", type: :numeric
   option :retry_attempts, aliases: "-R", desc: "Max embedding retry attempts (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
+  option :batch_size, aliases: "-b", desc: "Emails-to-queue window during embed (default: 1000)", type: :numeric
   def embed
     database_path = options[:database] || ENV["DATABASE"]
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
@@ -153,6 +154,7 @@ class NittyMailCLI < Thor
     quiet = options[:quiet]
     threads_count = (options[:threads] || (ENV["THREADS"] || "2").to_i).to_i
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
+    batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
 
     NittyMail::Embed.perform(
       database_path: database_path,
@@ -165,7 +167,8 @@ class NittyMailCLI < Thor
       offset: offset,
       quiet: quiet,
       threads_count: threads_count,
-      retry_attempts: retry_attempts
+      retry_attempts: retry_attempts,
+      batch_size: batch_size
     )
   end
 

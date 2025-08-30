@@ -559,6 +559,8 @@ docker compose run --rm ruby ./cli.rb embed \
   --item-types subject,body
 ```
 
+Tip: Use `--batch-size 1000` (default) to control how many embedding jobs are kept in-flight. Increase for higher throughput or reduce to limit memory usage.
+
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
 - The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
