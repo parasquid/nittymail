@@ -25,7 +25,7 @@ The sync process is the core feature. It connects to Gmail via IMAP and saves me
 1.  **Preflight**: For each mailbox, it first determines the `UIDVALIDITY` and calculates the difference between UIDs on the server and UIDs in the local database to identify exactly which messages to fetch.
 2.  **Fetch**: It uses a multi-threaded approach to fetch the missing messages in batches.
 3.  **Store**: Messages are parsed and stored in the `email` table.
-4.  **Embed (Optional)**: If an `OLLAMA_HOST` is configured, it will generate vector embeddings for the subject and body of new messages during the sync.
+4.  **Embeddings**: Sync downloads mail only. Use `./cli.rb embed` to generate vector embeddings after sync (requires `OLLAMA_HOST`).
 
 ### Query Process (`query`)
 
@@ -58,14 +58,19 @@ Vector embeddings allow for semantic search (i.e., finding emails "about" a cert
     docker compose run --rm ruby bundle install
     ```
 
-### Linting & Testing (Run Before Every Commit)
+### Linting & Testing (Ruby changes only)
 
-1.  **Lint Code**: This script applies safe auto-fixes and verifies against both StandardRB and RuboCop.
+Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
+
+- Skip for non-Ruby-only changes (e.g., Markdown docs, .env samples, JSON, YAML, text files).
+- Run for any `.rb` edits or behavior-affecting changes.
+
+1.  **Lint Ruby** (when applicable): applies safe auto-fixes and verifies StandardRB and RuboCop.
     ```bash
     ./bin/lint
     ```
 
-2.  **Run Tests**: Ensure all RSpec tests pass. Prefer verbose output with backtraces for debugging.
+2.  **Run RSpec** (when applicable): Prefer verbose output with backtraces for debugging.
     ```bash
     # Full suite with detailed examples and backtraces
     docker compose run --rm ruby bundle exec rspec -fd -b
