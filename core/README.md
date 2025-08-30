@@ -175,6 +175,22 @@ Notes:
 - Default recommendation: ignore Spam and Trash to reduce unnecessary data and speed up syncs. Example:
   - `MAILBOX_IGNORE="Spam,Trash"`
 
+**Include only specific mailboxes (skip all others):**
+```bash
+# Using environment variable (comma-separated; supports * and ? wildcards)
+ONLY_MAILBOXES="[Gmail]/All Mail" docker compose run --rm ruby ./cli.rb sync
+
+# Using CLI flag (overrides env var if provided)
+docker compose run --rm ruby ./cli.rb sync --only "[Gmail]/All Mail"
+
+# Combine with other options (threads, auto-confirm)
+docker compose run --rm ruby ./cli.rb sync -t8 -m8 -y --only "[Gmail]/All Mail"
+```
+Notes:
+- The include filter (`--only` / `ONLY_MAILBOXES`) is applied first; the ignore filter (`--ignore-mailboxes` / `MAILBOX_IGNORE`) is applied afterwards to the included set.
+- Patterns are matched case-insensitively; `*` and `?` wildcards are supported.
+- If `--only` matches zero mailboxes, the run logs that nothing will be processed.
+
 **Strict error handling (debugging):**
 ```bash
 # Using environment variable
