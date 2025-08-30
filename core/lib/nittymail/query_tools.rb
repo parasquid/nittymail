@@ -224,6 +224,126 @@ module NittyMail
               "required" => ["thread_id"]
             }
           }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_email_activity_heatmap",
+            "description" => "Get email volume by hour of day and day of week for activity heatmap visualization.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "date_from" => {"type" => "string", "description" => "ISO date (YYYY-MM-DD) inclusive lower bound"},
+                "date_to" => {"type" => "string", "description" => "ISO date (YYYY-MM-DD) inclusive upper bound"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_response_time_stats",
+            "description" => "Analyze response times between consecutive emails in Gmail threads.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "limit" => {"type" => "integer", "description" => "Max results (default 50)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_email_frequency_by_sender",
+            "description" => "Get email frequency patterns per sender over time periods.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "sender" => {"type" => "string", "description" => "Filter by sender (contains match)"},
+                "period" => {"type" => "string", "enum" => ["daily", "monthly", "yearly"], "description" => "Aggregation period (default monthly)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 50)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_seasonal_trends",
+            "description" => "Get email volume trends by month/season over multiple years.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "years_back" => {"type" => "integer", "description" => "Years to look back (default 3)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_emails_by_size_range",
+            "description" => "Filter emails by size categories: small (<10KB), medium (10KB-100KB), large (>100KB), huge (>1MB).",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "size_category" => {"type" => "string", "enum" => ["small", "medium", "large", "huge"], "description" => "Size category (default large)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_duplicate_emails",
+            "description" => "Find potential duplicate emails by subject or message_id similarity.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "similarity_field" => {"type" => "string", "enum" => ["subject", "message_id"], "description" => "Field to check for duplicates (default subject)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.search_email_headers",
+            "description" => "Search through email headers using pattern matching in raw RFC822 content.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "header_pattern" => {"type" => "string", "description" => "Pattern to search for in email headers"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_emails_by_keywords",
+            "description" => "Find emails containing specific keywords with frequency scoring.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "keywords" => {"type" => "array", "items" => {"type" => "string"}, "description" => "Keywords to search for"},
+                "match_mode" => {"type" => "string", "enum" => ["any", "all"], "description" => "Match any or all keywords (default any)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => ["keywords"]
+            }
+          }
         }
       ]
     end
@@ -647,6 +767,247 @@ module NittyMail
 
       rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
       result = rows.map { |r| symbolize_keys(r) }
+      safe_encode_result(result)
+    end
+
+    # Time-based Analytics Tools
+
+    def get_email_activity_heatmap(db:, address: nil, date_from: nil, date_to: nil)
+      # Get email volume by hour of day and day of week
+      query = db[:email]
+      query = query.where(address: address) if address
+      query = query.where { date >= date_from } if date_from
+      query = query.where { date <= date_to } if date_to
+
+      # SQLite datetime functions to extract hour and day of week
+      heatmap_data = query.select(
+        Sequel.function(:strftime, '%H', :date).as(:hour_of_day),
+        Sequel.function(:strftime, '%w', :date).as(:day_of_week),
+        Sequel.function(:count, Sequel.lit('*')).as(:count)
+      ).group(:hour_of_day, :day_of_week).all
+
+      # Convert day_of_week numbers to names (0=Sunday, 1=Monday, etc.)
+      days = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday]
+      
+      result = heatmap_data.map do |row|
+        {
+          hour: row[:hour_of_day].to_i,
+          day_of_week: days[row[:day_of_week].to_i],
+          day_number: row[:day_of_week].to_i,
+          count: row[:count]
+        }
+      end
+
+      safe_encode_result(result)
+    end
+
+    def get_response_time_stats(db:, address: nil, limit: 50)
+      # Analyze response times between emails in threads
+      # This is a simplified version - pairs consecutive emails by thread
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+      query = query.where(Sequel.~(x_gm_thrid: nil))
+      query = query.order(:x_gm_thrid, :date)
+      query = query.limit(limit * 2) # Get more data to find pairs
+
+      emails = query.all
+      response_times = []
+
+      # Group by thread and calculate time differences
+      emails.group_by { |e| e[:x_gm_thrid] }.each do |thread_id, thread_emails|
+        thread_emails.each_cons(2) do |prev_email, curr_email|
+          if prev_email[:date] && curr_email[:date]
+            time_diff = (Time.parse(curr_email[:date]) - Time.parse(prev_email[:date])) / 3600.0 # hours
+            response_times << {
+              thread_id: thread_id,
+              from_sender: prev_email[:from],
+              to_sender: curr_email[:from],
+              response_time_hours: time_diff.round(2),
+              prev_date: prev_email[:date],
+              curr_date: curr_email[:date]
+            }
+          end
+        end
+      end
+
+      # Sort by response time and limit
+      result = response_times.sort_by { |rt| rt[:response_time_hours] }.first(limit)
+      safe_encode_result(result)
+    end
+
+    def get_email_frequency_by_sender(db:, address: nil, sender: nil, period: "monthly", limit: 50)
+      # Email frequency patterns per sender over time
+      query = db[:email]
+      query = query.where(address: address) if address
+      query = query.where(Sequel.ilike(:from, "%#{sender}%")) if sender
+
+      date_format = case period.to_s.downcase
+      when "daily" then '%Y-%m-%d'
+      when "yearly" then '%Y'
+      else '%Y-%m' # monthly default
+      end
+
+      result = query.select(
+        :from,
+        Sequel.function(:strftime, date_format, :date).as(:period),
+        Sequel.function(:count, Sequel.lit('*')).as(:count)
+      ).group(:from, :period).order(:from, :period).limit(limit).all
+
+      safe_encode_result(result)
+    end
+
+    def get_seasonal_trends(db:, address: nil, years_back: 3)
+      # Email volume trends by month/season over multiple years
+      query = db[:email]
+      query = query.where(address: address) if address
+      
+      # Filter to recent years if specified
+      if years_back
+        cutoff_date = Date.today << (years_back * 12) # Go back N years
+        query = query.where { date >= cutoff_date.to_s }
+      end
+
+      monthly_data = query.select(
+        Sequel.function(:strftime, '%Y', :date).as(:year),
+        Sequel.function(:strftime, '%m', :date).as(:month),
+        Sequel.function(:count, Sequel.lit('*')).as(:count)
+      ).group(:year, :month).order(:year, :month).all
+
+      # Add season classification
+      seasons = {
+        '12' => 'Winter', '01' => 'Winter', '02' => 'Winter',
+        '03' => 'Spring', '04' => 'Spring', '05' => 'Spring',
+        '06' => 'Summer', '07' => 'Summer', '08' => 'Summer',
+        '09' => 'Fall', '10' => 'Fall', '11' => 'Fall'
+      }
+
+      result = monthly_data.map do |row|
+        row.merge(
+          season: seasons[row[:month]],
+          month_name: Date::MONTHNAMES[row[:month].to_i]
+        )
+      end
+
+      safe_encode_result(result)
+    end
+
+    # Advanced Filtering Tools
+
+    def get_emails_by_size_range(db:, address: nil, size_category: "large", limit: 100)
+      # Filter emails by size ranges: small (<10KB), medium (10KB-100KB), large (>100KB)
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+
+      case size_category.to_s.downcase
+      when "small"
+        query = query.where { Sequel.function(:length, :encoded) < 10240 } # <10KB
+      when "medium"
+        query = query.where { (Sequel.function(:length, :encoded) >= 10240) & (Sequel.function(:length, :encoded) < 102400) } # 10KB-100KB  
+      when "large"
+        query = query.where { Sequel.function(:length, :encoded) >= 102400 } # >100KB
+      when "huge"
+        query = query.where { Sequel.function(:length, :encoded) >= 1048576 } # >1MB
+      else
+        # Default to large
+        query = query.where { Sequel.function(:length, :encoded) >= 102400 }
+      end
+
+      query = query.select_append(Sequel.function(:length, :encoded).as(:size_bytes))
+      query = query.order(Sequel.desc(Sequel.function(:length, :encoded)))
+      query = query.limit(limit)
+
+      result = query.all.map { |row| symbolize_keys(row.to_h) }
+      safe_encode_result(result)
+    end
+
+    def get_duplicate_emails(db:, address: nil, similarity_field: "subject", limit: 100)
+      # Find potential duplicate emails by subject or message_id similarity
+      query = db[:email]
+      query = query.where(address: address) if address
+
+      field = similarity_field.to_s == "message_id" ? :message_id : :subject
+      
+      # Find emails with identical subjects/message_ids
+      duplicates = query.select(
+        field,
+        Sequel.function(:count, Sequel.lit('*')).as(:count),
+        Sequel.function(:group_concat, :id).as(:email_ids)
+      ).where(Sequel.~(field => nil))
+      .group(field)
+      .having { count(Sequel.lit('*')) > 1 }
+      .order(Sequel.desc(:count))
+      .limit(limit)
+      .all
+
+      result = duplicates.map do |dup|
+        {
+          similarity_field => dup[field],
+          duplicate_count: dup[:count],
+          email_ids: dup[:email_ids]&.split(',')&.map(&:to_i) || []
+        }
+      end
+
+      safe_encode_result(result)
+    end
+
+    def search_email_headers(db:, address: nil, header_pattern: nil, limit: 100)
+      # Search through email headers (requires parsing encoded field)
+      # This is a simplified version that searches in the raw encoded content
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+      
+      if header_pattern
+        # Search in the encoded field (which contains full RFC822 message including headers)
+        query = query.where(Sequel.ilike(:encoded, "%#{header_pattern}%"))
+      end
+
+      query = query.limit(limit)
+      result = query.all.map { |row| symbolize_keys(row.to_h) }
+      safe_encode_result(result)
+    end
+
+    def get_emails_by_keywords(db:, address: nil, keywords: [], match_mode: "any", limit: 100)
+      # Find emails containing specific keywords with frequency scoring
+      return safe_encode_result([]) if keywords.empty?
+
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+
+      # Build search conditions
+      keyword_conditions = keywords.map do |keyword|
+        Sequel.|(Sequel.ilike(:subject, "%#{keyword}%"), Sequel.ilike(:encoded, "%#{keyword}%"))
+      end
+
+      if match_mode.to_s.downcase == "all"
+        # All keywords must match
+        combined_condition = keyword_conditions.reduce { |acc, cond| acc & cond }
+      else
+        # Any keyword matches (default)
+        combined_condition = keyword_conditions.reduce { |acc, cond| acc | cond }
+      end
+
+      query = query.where(combined_condition) if combined_condition
+      query = query.limit(limit)
+      
+      emails = query.all.map { |row| symbolize_keys(row.to_h) }
+
+      # Add keyword match scoring
+      result = emails.map do |email|
+        subject_text = (email[:subject] || "").downcase
+        body_text = (email[:encoded] || "").downcase
+        
+        keyword_matches = keywords.count do |keyword|
+          subject_text.include?(keyword.downcase) || body_text.include?(keyword.downcase)
+        end
+
+        email.merge(
+          keyword_match_count: keyword_matches,
+          keyword_match_score: (keyword_matches.to_f / keywords.length * 100).round(1)
+        )
+      end
+
+      # Sort by match score
+      result.sort_by! { |email| -email[:keyword_match_score] }
       safe_encode_result(result)
     end
 

@@ -1,6 +1,6 @@
 # NittyMail MCP Server - Complete Documentation
 
-A standalone Model Context Protocol server exposing 13 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
+A standalone Model Context Protocol server exposing 21 NittyMail email database tools for Claude Desktop, Gemini, GPT, and other MCP clients.
 
 ## Overview
 
@@ -18,7 +18,7 @@ Environment variables (from `core/config/.env`):
 - **`OLLAMA_HOST`** (optional): Ollama endpoint for vector search
 - **`LOG_LEVEL`** (optional): DEBUG, INFO, WARN, ERROR (default: INFO)
 
-## Available Tools (13 Total)
+## Available Tools (21 Total)
 
 ### Core Email Operations
 - **`db.list_earliest_emails`** - Fetch earliest emails by date
@@ -36,6 +36,18 @@ Environment variables (from `core/config/.env`):
 - **`db.get_emails_by_date_range`** - Volume analytics (daily/monthly/yearly)
 - **`db.get_emails_with_attachments`** - Filter emails with attachments
 - **`db.get_email_thread`** - All emails in Gmail conversation thread
+
+### Time-based Analytics
+- **`db.get_email_activity_heatmap`** - Email volume by hour/day for heatmap visualization
+- **`db.get_response_time_stats`** - Response times between consecutive emails in threads
+- **`db.get_email_frequency_by_sender`** - Email frequency patterns per sender over time
+- **`db.get_seasonal_trends`** - Email volume trends by month/season over multiple years
+
+### Advanced Filtering & Search
+- **`db.get_emails_by_size_range`** - Filter by size categories (small/medium/large/huge)
+- **`db.get_duplicate_emails`** - Find duplicate emails by subject or message_id
+- **`db.search_email_headers`** - Search email headers using pattern matching
+- **`db.get_emails_by_keywords`** - Keyword search with frequency scoring
 
 ## Tool Reference
 
@@ -101,6 +113,42 @@ db.get_emails_with_attachments
 db.get_email_thread
 - Params: `thread_id` (string, required), `order` (date_asc|date_desc, default date_asc)
 - Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` within the given `x_gm_thrid`
+
+**Time-based Analytics Tools:**
+
+db.get_email_activity_heatmap
+- Params: `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD)
+- Returns: `[{hour, day_of_week, day_number, count}]` where hour is 0-23, day_of_week is Sunday-Saturday, day_number is 0-6
+
+db.get_response_time_stats  
+- Params: `limit` (integer, default 50)
+- Returns: `[{thread_id, from_sender, to_sender, response_time_hours, prev_date, curr_date}]` ordered by response time
+
+db.get_email_frequency_by_sender
+- Params: `sender` (string, contains match), `period` (daily|monthly|yearly, default monthly), `limit` (integer, default 50)  
+- Returns: `[{from, period, count}]` showing email frequency per sender over time
+
+db.get_seasonal_trends
+- Params: `years_back` (integer, default 3)
+- Returns: `[{year, month, count, season, month_name}]` with seasonal classification
+
+**Advanced Filtering Tools:**
+
+db.get_emails_by_size_range
+- Params: `size_category` (small|medium|large|huge, default large), `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, size_bytes}` filtered by size ranges: small <10KB, medium 10KB-100KB, large >100KB, huge >1MB
+
+db.get_duplicate_emails
+- Params: `similarity_field` (subject|message_id, default subject), `limit` (integer, default 100)
+- Returns: `[{similarity_field, duplicate_count, email_ids}]` where email_ids is array of duplicate record IDs
+
+db.search_email_headers
+- Params: `header_pattern` (string), `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` matching header pattern in raw RFC822 content
+
+db.get_emails_by_keywords
+- Params: `keywords` (array of strings, required), `match_mode` (any|all, default any), `limit` (integer, default 100)
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, keyword_match_count, keyword_match_score}` ordered by match score
 
 ## Client Integration
 

@@ -232,6 +232,70 @@ module NittyMail
                 order: args["order"] || "date_asc"
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_activity_heatmap"
+              result = NittyMail::QueryTools.get_email_activity_heatmap(
+                db: db,
+                address: address,
+                date_from: args["date_from"],
+                date_to: args["date_to"]
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_response_time_stats"
+              result = NittyMail::QueryTools.get_response_time_stats(
+                db: db,
+                address: address,
+                limit: args["limit"] || 50
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_frequency_by_sender"
+              result = NittyMail::QueryTools.get_email_frequency_by_sender(
+                db: db,
+                address: address,
+                sender: args["sender"],
+                period: args["period"] || "monthly",
+                limit: args["limit"] || 50
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_seasonal_trends"
+              result = NittyMail::QueryTools.get_seasonal_trends(
+                db: db,
+                address: address,
+                years_back: args["years_back"] || 3
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_by_size_range"
+              result = NittyMail::QueryTools.get_emails_by_size_range(
+                db: db,
+                address: address,
+                size_category: args["size_category"] || "large",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_duplicate_emails"
+              result = NittyMail::QueryTools.get_duplicate_emails(
+                db: db,
+                address: address,
+                similarity_field: args["similarity_field"] || "subject",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.search_email_headers"
+              result = NittyMail::QueryTools.search_email_headers(
+                db: db,
+                address: address,
+                header_pattern: args["header_pattern"],
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_by_keywords"
+              result = NittyMail::QueryTools.get_emails_by_keywords(
+                db: db,
+                address: address,
+                keywords: args["keywords"] || [],
+                match_mode: args["match_mode"] || "any",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
             else
               messages << {role: "tool", name: name.to_s, content: JSON.generate({error: "unknown tool"})}
             end
