@@ -34,7 +34,7 @@ module NittyMail
             "parameters" => {
               "type" => "object",
               "properties" => {
-                "id" => {"type" => "integer"},
+                "id" => {"type" => "string"},
                 "mailbox" => {"type" => "string"},
                 "uid" => {"type" => "integer"},
                 "uidvalidity" => {"type" => "integer"},
@@ -162,6 +162,21 @@ module NittyMail
         {
           "type" => "function",
           "function" => {
+            "name" => "db.get_largest_emails",
+            "description" => "Get the largest emails by stored raw size (length(encoded)), optionally filtering by attachments.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "limit" => {"type" => "integer", "description" => "Max results (default 5)"},
+                "attachments" => {"type" => "string", "enum" => ["any", "with", "without"], "description" => "Filter: any, only with attachments, or only without"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
             "name" => "db.get_emails_by_date_range",
             "description" => "Get email volume statistics over time periods (daily, monthly, yearly).",
             "parameters" => {
@@ -209,6 +224,25 @@ module NittyMail
           }
         }
       ]
+    end
+
+    # Get the largest emails by raw stored size (length(encoded)).
+    # attachments: "any" (nil), "with" (true), "without" (false)
+    def get_largest_emails(db:, address: nil, limit: 5, attachments: "any")
+      lim = ((limit.to_i <= 0) ? 5 : limit.to_i)
+      ds = db[:email]
+      ds = ds.where(address: address) if address && !address.to_s.strip.empty?
+      case attachments.to_s
+      when "with"
+        ds = ds.where(has_attachments: true)
+      when "without"
+        ds = ds.where(has_attachments: false)
+      end
+      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, Sequel.function(:length, :encoded).as(:size_bytes))
+        .order(Sequel.desc(:size_bytes))
+        .limit(lim)
+      rows = ds.all
+      safe_encode_result(rows.map { |r| symbolize_keys(r) })
     end
 
     # Execute earliest emails

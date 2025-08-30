@@ -18,7 +18,7 @@ Environment variables (from `core/config/.env`):
 - **`OLLAMA_HOST`** (optional): Ollama endpoint for vector search
 - **`LOG_LEVEL`** (optional): DEBUG, INFO, WARN, ERROR (default: INFO)
 
-## Available Tools (12 Total)
+## Available Tools (13 Total)
 
 ### Core Email Operations
 - **`db.list_earliest_emails`** - Fetch earliest emails by date
@@ -31,6 +31,7 @@ Environment variables (from `core/config/.env`):
 - **`db.get_email_stats`** - Overview: totals, date range, top senders/domains
 - **`db.get_top_senders`** - Most frequent senders ranked by count
 - **`db.get_top_domains`** - Most frequent sender domains  
+- **`db.get_largest_emails`** - Largest emails by stored size (attachments filter)
 - **`db.get_mailbox_stats`** - Email distribution per mailbox/folder
 - **`db.get_emails_by_date_range`** - Volume analytics (daily/monthly/yearly)
 - **`db.get_emails_with_attachments`** - Filter emails with attachments
@@ -397,3 +398,16 @@ brew services list | grep docker  # macOS
 - Ensure `.env` file is in the correct directory (same as `mcp_server.rb`)
 - Check file permissions are readable by the Docker process
 - Use absolute paths in environment variables, not relative paths
+### db.get_largest_emails
+
+Returns the largest emails ranked by stored message size (`length(encoded)`), optionally filtered by attachments.
+
+- Parameters:
+  - `limit`: integer, default 5
+  - `attachments`: string enum: `any`, `with`, `without` (default `any`)
+- Returns fields: `id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, size_bytes`
+
+Example request:
+```json
+{ "jsonrpc":"2.0", "id": 1, "method": "tools/call", "params": { "name": "db.get_largest_emails", "arguments": { "limit": 5, "attachments": "any" } } }
+```

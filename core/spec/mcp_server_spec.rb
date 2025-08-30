@@ -46,7 +46,7 @@ describe "NittyMail MCP Server" do
 
     response = JSON.parse(@stdout.gets.strip)
     tools_count = response.dig("result", "tools")&.length || 0
-    expect(tools_count).to eq(12)
+    expect(tools_count).to eq(13)
   end
 
   it "calls the db.get_email_stats tool" do

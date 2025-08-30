@@ -32,44 +32,47 @@ class NittyMailMCPServer
     @logger.info("MCP Server listening on STDIN/STDOUT...")
 
     loop do
-      line = $stdin.gets
-      break if line.nil? # EOF
+      request = nil
+      begin
+        line = $stdin.gets
+        break if line.nil? # EOF
 
-      line = line.strip
-      next if line.empty?
+        line = line.strip
+        next if line.empty?
 
-      request = JSON.parse(line)
-      response = handle_request(request)
+        request = JSON.parse(line)
+        response = handle_request(request)
 
-      $stdout.puts(JSON.generate(response))
-      $stdout.flush
-    rescue JSON::ParserError => e
-      @logger.error("JSON parse error: #{e.message}")
-      error_response = {
-        jsonrpc: "2.0",
-        id: nil,
-        error: {
-          code: -32700,
-          message: "Parse error",
-          data: e.message
+        $stdout.puts(JSON.generate(response))
+        $stdout.flush
+      rescue JSON::ParserError => e
+        @logger.error("JSON parse error: #{e.message}")
+        error_response = {
+          jsonrpc: "2.0",
+          id: nil,
+          error: {
+            code: -32700,
+            message: "Parse error",
+            data: e.message
+          }
         }
-      }
-      $stdout.puts(JSON.generate(error_response))
-      $stdout.flush
-    rescue => e
-      @logger.error("Unexpected error: #{e.message}")
-      @logger.error(e.backtrace.join("\n"))
-      error_response = {
-        jsonrpc: "2.0",
-        id: nil,
-        error: {
-          code: -32603,
-          message: "Internal error",
-          data: e.message
+        $stdout.puts(JSON.generate(error_response))
+        $stdout.flush
+      rescue => e
+        @logger.error("Unexpected error: #{e.message}")
+        @logger.error(e.backtrace.join("\n"))
+        error_response = {
+          jsonrpc: "2.0",
+          id: request ? request["id"] : nil,
+          error: {
+            code: -32603,
+            message: "Internal error",
+            data: e.message
+          }
         }
-      }
-      $stdout.puts(JSON.generate(error_response))
-      $stdout.flush
+        $stdout.puts(JSON.generate(error_response))
+        $stdout.flush
+      end
     end
   end
 
@@ -260,6 +263,13 @@ class NittyMailMCPServer
           db: db,
           address: @address,
           top_limit: arguments["top_limit"] || 10
+        )
+      when "db.get_largest_emails"
+        NittyMail::QueryTools.get_largest_emails(
+          db: db,
+          address: @address,
+          limit: (arguments["limit"] || 5).to_i,
+          attachments: arguments["attachments"] || "any"
         )
       when "db.get_top_senders"
         NittyMail::QueryTools.get_top_senders(
