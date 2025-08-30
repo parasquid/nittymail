@@ -35,12 +35,14 @@ module NittyMail
       puts "Embedding #{total_emails} email(s)#{address_filter ? " for #{address_filter}" : ""} using model=#{model} dim=#{dimension} at #{ollama_host}"
 
       # Stream jobs with bounded queue instead of pre-planning entire dataset
+      stop_requested = false
+      trap("INT") { stop_requested = true }
       progress = ProgressBar.create(title: "embed (jobs)", total: 1, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
+      embedded_done = 0
 
       writer = Thread.new do
-        done = 0
         last_log_at = Time.now
         loop do
           job = write_queue.pop
@@ -48,9 +50,9 @@ module NittyMail
           begin
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: model, dimension: dimension)
             progress.increment
-            done += 1
-            if !quiet && ((done % 100).zero? || (Time.now - last_log_at) >= 2)
-              progress.log("embedded #{done}/#{progress.total} | queues: job=#{job_queue.size} write=#{write_queue.size}")
+            embedded_done += 1
+            if !quiet && ((embedded_done % 100).zero? || (Time.now - last_log_at) >= 2)
+              progress.log("embedded #{embedded_done}/#{progress.total} | queues: job=#{job_queue.size} write=#{write_queue.size}")
               last_log_at = Time.now
             end
           rescue => e
@@ -76,42 +78,52 @@ module NittyMail
 
       # Enqueue jobs while workers run; apply simple backpressure using batch_size
       total_jobs = 0
-      ds.each do |row|
-        if item_types.include?("subject")
-          subj = row[:subject].to_s
-          if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
-            job_queue << {email_id: row[:id], item_type: :subject, text: subj}
-            total_jobs += 1
-            progress.total = [total_jobs, 1].max
+      begin
+        ds.each do |row|
+          if item_types.include?("subject")
+            subj = row[:subject].to_s
+            if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, model)
+              job_queue << {email_id: row[:id], item_type: :subject, text: subj}
+              total_jobs += 1
+              progress.total = [total_jobs, 1].max
+            end
           end
+          if item_types.include?("body")
+            raw = row[:encoded]
+            mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
+            body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
+            if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
+              body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+            end
+            if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
+              job_queue << {email_id: row[:id], item_type: :body, text: body_text}
+              total_jobs += 1
+              progress.total = [total_jobs, 1].max
+            end
+          end
+          # apply backpressure if queue grows beyond window
+          if batch_size.to_i > 0
+            while job_queue.size >= batch_size.to_i
+              break if stop_requested
+              sleep 0.05
+            end
+          end
+        rescue => e
+          progress.log "enqueue error id=#{row[:id]}: #{e.class}: #{e.message}"
         end
-        if item_types.include?("body")
-          raw = row[:encoded]
-          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
-          body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
-          if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
-            body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
-          end
-          if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, model)
-            job_queue << {email_id: row[:id], item_type: :body, text: body_text}
-            total_jobs += 1
-            progress.total = [total_jobs, 1].max
-          end
+      rescue Interrupt
+        stop_requested = true
+        progress.log("Interrupt received, stopping...")
+      ensure
+        threads_count.to_i.times { job_queue << :__STOP__ }
+        threads.each(&:join)
+        write_queue << :__STOP__
+        writer.join
+        progress.finish
+        if stop_requested
+          puts "Interrupted: embedded #{embedded_done}/#{progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
         end
-        # apply backpressure if queue grows beyond window
-        if batch_size.to_i > 0
-          while job_queue.size >= batch_size.to_i
-            sleep 0.05
-          end
-        end
-      rescue => e
-        progress.log "enqueue error id=#{row[:id]}: #{e.class}: #{e.message}"
       end
-
-      threads_count.to_i.times { job_queue << :__STOP__ }
-      threads.each(&:join)
-      write_queue << :__STOP__
-      writer.join
     end
 
     def self.missing_embedding?(db, email_id, item_type, model)
