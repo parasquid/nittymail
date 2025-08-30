@@ -46,7 +46,7 @@ class NittyMailCLI < Thor
   option :quiet, aliases: "-q", desc: "Quiet mode: only show progress bars and high-level operations", type: :boolean, default: false
   option :sqlite_wal, desc: "Enable SQLite WAL journaling for better write performance", type: :boolean, default: true
   option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
-  option :embed, desc: "Enable embeddings during sync (use --no-embed to disable)", type: :boolean, default: true
+  option :embed, desc: "Reserved: sync downloads mail only; use `./cli.rb embed` to generate embeddings", type: :boolean, default: true
   def sync
     # Get configuration from CLI options or environment variables
     imap_address = options[:address] || ENV["ADDRESS"]
