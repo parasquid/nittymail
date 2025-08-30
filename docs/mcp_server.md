@@ -58,21 +58,27 @@ Each tool is exposed via MCP with this call shape:
 - Result content: array with a single `{type: "text", text: <json>}` item
 
 Fields use these conventions unless noted:
-- `date`: ISO8601 string or null
+- `date`: ISO8601 string or null (parsed from headers)
+- `internaldate`: IMAP INTERNALDATE captured during sync
 - `from`: sender display string (may include name and email)
-- `size_bytes`: integer; SQLite `length(encoded)` of the stored RFC822 message
+- `rfc822_size`: integer; bytesize of stored raw message (`encoded`)
+- `size_bytes`: integer; SQLite `length(encoded)` of the stored RFC822 message (used in size-focused tools)
 
 db.list_earliest_emails
 - Params: `limit` (integer, default 100)
-- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` ordered by ascending `date`
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, internaldate, from, subject, rfc822_size}` ordered by ascending `date`
 
 db.get_email_full
 - Params: any of `id` (string), `mailbox` (string), `uid` (integer), `uidvalidity` (integer), `message_id` (string), `from_contains` (string), `subject_contains` (string), `date` (YYYY or YYYY-MM-DD), `order` (date_asc|date_desc)
-- Returns: single object including fields above plus `encoded` (raw RFC822)
+- Returns: single object including common fields plus:
+  - `encoded` (raw RFC822)
+  - `envelope_to, envelope_cc, envelope_bcc, envelope_reply_to` (JSON arrays)
+  - `envelope_in_reply_to` (string or null)
+  - `envelope_references` (JSON array)
 
 db.filter_emails
 - Params: `from_contains` (string), `from_domain` (string or `@domain`), `subject_contains` (string), `mailbox` (string), `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD), `order` (date_asc|date_desc), `limit` (integer, default 100)
-- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}`
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, internaldate, from, subject, rfc822_size}`
 
 db.search_emails
 - Params: `query` (string, required), `item_types` (array of subject|body), `limit` (integer, default 100)
@@ -97,7 +103,7 @@ db.get_top_domains
 
 db.get_largest_emails
 - Params: `limit` (integer, default 5), `attachments` (any|with|without, default any), `mailbox` (string), `from_domain` (string)
-- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, size_bytes}` ordered by descending `size_bytes`
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, internaldate, from, subject, rfc822_size, size_bytes}` ordered by descending `size_bytes`
 
 db.get_mailbox_stats
 - Params: none
@@ -109,11 +115,11 @@ db.get_emails_by_date_range
 
 db.get_emails_with_attachments
 - Params: `mailbox` (string), `date_from` (YYYY-MM-DD), `date_to` (YYYY-MM-DD), `limit` (integer, default 100)
-- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` filtered to `has_attachments = true`
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, internaldate, from, subject, rfc822_size}` filtered to `has_attachments = true`
 
 db.get_email_thread
 - Params: `thread_id` (string, required), `order` (date_asc|date_desc, default date_asc)
-- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, from, subject}` within the given `x_gm_thrid`
+- Returns: list of `{id, address, mailbox, uid, uidvalidity, message_id, date, internaldate, from, subject, rfc822_size}` within the given `x_gm_thrid`
 
 **Time-based Analytics Tools:**
 
