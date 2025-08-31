@@ -192,40 +192,7 @@ module NittyMail
 
       preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
         Thread.new do
-          # Each preflight thread uses its own IMAP connection
-          imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
-          imap.login(imap_address, imap_password)
-          loop do
-            mailbox = begin
-              mbox_queue.pop(true)
-            rescue ThreadError
-              nil
-            end
-            break unless mailbox
-
-            mbox_name = mailbox.name
-            pfcalc = NittyMail::Preflight.compute(imap, email, mbox_name, db_mutex)
-            uidvalidity = pfcalc[:uidvalidity]
-            uids = pfcalc[:to_fetch]
-            db_only = pfcalc[:db_only]
-            server_size = pfcalc[:server_size]
-            db_size = pfcalc[:db_size]
-
-            preflight_mutex.synchronize do
-              preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids, db_only: db_only}
-              # Log counts
-              preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
-              # Log preview of UIDs to be synced (first 5, then summary)
-              preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
-              # If pruning is disabled but we detected candidates, inform the user upfront
-              if !@prune_missing && db_only.any?
-                preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
-              end
-              preflight_progress.increment
-            end
-          end
-          imap.logout
-          imap.disconnect
+          run_preflight_worker(imap_address, imap_password, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
         end
       end
       preflight_workers.each(&:join)
@@ -309,6 +276,45 @@ module NittyMail
         end
         puts
       end
+    end
+
+    private
+
+    def run_preflight_worker(imap_address, imap_password, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
+      # Each preflight thread uses its own IMAP connection
+      imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
+      imap.login(imap_address, imap_password)
+      loop do
+        mailbox = begin
+          mbox_queue.pop(true)
+        rescue ThreadError
+          nil
+        end
+        break unless mailbox
+
+        mbox_name = mailbox.name
+        pfcalc = NittyMail::Preflight.compute(imap, email, mbox_name, db_mutex)
+        uidvalidity = pfcalc[:uidvalidity]
+        uids = pfcalc[:to_fetch]
+        db_only = pfcalc[:db_only]
+        server_size = pfcalc[:server_size]
+        db_size = pfcalc[:db_size]
+
+        preflight_mutex.synchronize do
+          preflight_results << {name: mbox_name, uidvalidity:, uids:, db_only:}
+          # Log counts
+          preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
+          # Log preview of UIDs to be synced (first 5, then summary)
+          preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
+          # If pruning is disabled but we detected candidates, inform the user upfront
+          if !@prune_missing && db_only.any?
+            preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
+          end
+          preflight_progress.increment
+        end
+      end
+      imap.logout
+      imap.disconnect
     end
   end
 end
