@@ -99,6 +99,23 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     - Description of what was changed.
     EOF
     ```
+3.  **Co-Author Lines**: Do **NOT** include co-author lines (e.g., `Co-Authored-By: Claude <noreply@anthropic.com>`) or generated lines (e.g., `🤖 Generated with [Claude Code]`) in commit messages.
+
+### Ruby Style Guidelines (AI Agents)
+
+- **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
+
+### Development Workflow (AI Agents)
+
+- **Working Directory**: Always execute file operations from the project root directory, not from the `core/` subdirectory. Commands like `./bin/lint`, `git add`, `git commit` should be run from the parent directory where these tools are located.
+
+### Exception Handling (AI Agents)
+
+- Do not swallow exceptions unless the maintainer explicitly requests it or there is a compelling, documented reason.
+- Prefer rescuing specific error classes; avoid `rescue => e` without re‑raise.
+- Do not use rescue modifiers (e.g., `call rescue nil`). Use explicit `begin/rescue` blocks and either re‑raise or handle with clear remediation.
+- If a rescue is necessary (e.g., to continue a batch process), log the error with actionable context and surface failures (e.g., via return values or counters). Add a short justification in the PR/commit body.
+- Never hide initialization failures that would leave the process in an unusable state. Fail fast with a clear, user‑facing error message.
 
 ## 4. CLI Commands Reference
 

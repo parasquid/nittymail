@@ -22,7 +22,9 @@ require "dotenv/load"
 require "thor"
 require_relative "sync"
 require_relative "embed"
+require_relative "enrich"
 require_relative "query"
+require_relative "lib/nittymail/settings"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
@@ -106,7 +108,7 @@ class NittyMailCLI < Thor
     end
 
     # Perform the sync using the library
-    NittyMail::Sync.perform(
+    settings = SyncSettings::Settings.new(
       imap_address:,
       imap_password:,
       database_path:,
@@ -123,6 +125,7 @@ class NittyMailCLI < Thor
       quiet:,
       sqlite_wal:
     )
+    NittyMail::Sync.perform(settings)
   end
 
   desc "version", "Show version information"
@@ -159,19 +162,38 @@ class NittyMailCLI < Thor
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
 
-    NittyMail::Embed.perform(
+    settings = EmbedSettings::Settings.new(
+      database_path:, ollama_host:, model:, dimension:, item_types:,
+      address_filter:, limit:, offset:, quiet:, threads_count:,
+      retry_attempts:, batch_size:
+    )
+    NittyMail::Embed.perform(settings)
+  end
+
+  desc "enrich", "Extract envelope/body metadata from stored raw messages and persist to the email table"
+  option :database, aliases: "-d", desc: "SQLite database file path", type: :string
+  option :address, aliases: "-a", desc: "Optional filter: only process rows for this Gmail address", type: :string
+  option :limit, aliases: "-n", desc: "Limit number of emails to process", type: :numeric
+  option :offset, desc: "Offset for pagination", type: :numeric
+  option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
+  def enrich
+    database_path = options[:database] || ENV["DATABASE"]
+    address_filter = options[:address] || ENV["ADDRESS"]
+    limit = options[:limit]&.to_i
+    offset = options[:offset]&.to_i
+    quiet = options[:quiet]
+
+    unless database_path
+      puts "Error: DATABASE must be provided via --database or env"
+      exit 1
+    end
+
+    NittyMail::Enrich.perform(
       database_path: database_path,
-      ollama_host: ollama_host,
-      model: model,
-      dimension: dimension,
-      item_types: item_types,
       address_filter: address_filter,
       limit: limit,
       offset: offset,
-      quiet: quiet,
-      threads_count: threads_count,
-      retry_attempts: retry_attempts,
-      batch_size: batch_size
+      quiet: quiet
     )
   end
 
@@ -204,16 +226,11 @@ class NittyMailCLI < Thor
       exit 1
     end
 
-    response = NittyMail::Query.perform(
-      database_path: database_path,
-      address: address,
-      ollama_host: ollama_host,
-      model: model,
-      prompt: prompt,
-      default_limit: default_limit,
-      quiet: quiet,
-      debug: debug
+    settings = QuerySettings::Settings.new(
+      database_path:, address:, ollama_host:, model:, prompt:,
+      default_limit:, quiet:, debug:
     )
+    response = NittyMail::Query.perform(settings)
     puts response
   end
 end

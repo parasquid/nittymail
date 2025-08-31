@@ -224,6 +224,141 @@ module NittyMail
               "required" => ["thread_id"]
             }
           }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_email_activity_heatmap",
+            "description" => "Get email volume by hour of day and day of week for activity heatmap visualization.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "date_from" => {"type" => "string", "description" => "ISO date (YYYY-MM-DD) inclusive lower bound"},
+                "date_to" => {"type" => "string", "description" => "ISO date (YYYY-MM-DD) inclusive upper bound"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_response_time_stats",
+            "description" => "Analyze response times between consecutive emails in Gmail threads.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "limit" => {"type" => "integer", "description" => "Max results (default 50)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_email_frequency_by_sender",
+            "description" => "Get email frequency patterns per sender over time periods.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "sender" => {"type" => "string", "description" => "Filter by sender (contains match)"},
+                "period" => {"type" => "string", "enum" => ["daily", "monthly", "yearly"], "description" => "Aggregation period (default monthly)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 50)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_seasonal_trends",
+            "description" => "Get email volume trends by month/season over multiple years.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "years_back" => {"type" => "integer", "description" => "Years to look back (default 3)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_emails_by_size_range",
+            "description" => "Filter emails by size categories: small (<10KB), medium (10KB-100KB), large (>100KB), huge (>1MB).",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "size_category" => {"type" => "string", "enum" => ["small", "medium", "large", "huge"], "description" => "Size category (default large)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_duplicate_emails",
+            "description" => "Find potential duplicate emails by subject or message_id similarity.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "similarity_field" => {"type" => "string", "enum" => ["subject", "message_id"], "description" => "Field to check for duplicates (default subject)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.search_email_headers",
+            "description" => "Search through email headers using pattern matching in raw RFC822 content.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "header_pattern" => {"type" => "string", "description" => "Pattern to search for in email headers"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => []
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_emails_by_keywords",
+            "description" => "Find emails containing specific keywords with frequency scoring.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "keywords" => {"type" => "array", "items" => {"type" => "string"}, "description" => "Keywords to search for"},
+                "match_mode" => {"type" => "string", "enum" => ["any", "all"], "description" => "Match any or all keywords (default any)"},
+                "limit" => {"type" => "integer", "description" => "Max results (default 100)"}
+              },
+              "required" => ["keywords"]
+            }
+          }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.execute_sql_query",
+            "description" => "Execute arbitrary read-only SQL SELECT queries against the email database. Only SELECT and WITH (CTE) statements are allowed. Destructive operations are blocked.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "sql_query" => {"type" => "string", "description" => "SQL SELECT query to execute. Must start with SELECT or WITH. Auto-limited to prevent runaway queries."},
+                "limit" => {"type" => "integer", "description" => "Max rows to return if LIMIT not specified in query (default 1000)"}
+              },
+              "required" => ["sql_query"]
+            }
+          }
         }
       ]
     end
@@ -247,7 +382,7 @@ module NittyMail
       when "without"
         ds = ds.where(has_attachments: false)
       end
-      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, Sequel.function(:length, :encoded).as(:size_bytes))
+      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, Sequel.function(:length, :encoded).as(:size_bytes))
         .order(Sequel.desc(:size_bytes))
         .limit(lim)
       rows = ds.all
@@ -260,7 +395,7 @@ module NittyMail
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       rows = ds.order(Sequel.asc(:date)).limit(limit)
-        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size)
         .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
@@ -306,7 +441,7 @@ module NittyMail
         ds = ds.order(Sequel.desc(:date))
       end
       ds = ds.limit(limit)
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
@@ -450,7 +585,9 @@ module NittyMail
           ds = ds.order(Sequel.desc(:date))
         end
       end
-      row = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, :encoded).first
+      row = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size,
+        :envelope_to, :envelope_cc, :envelope_bcc, :envelope_reply_to, :envelope_in_reply_to, :envelope_references,
+        :encoded).first
       return nil unless row
       result = symbolize_keys(row)
       safe_encode_result(result)
@@ -645,9 +782,326 @@ module NittyMail
         ds.order(Sequel.asc(:date))
       end
 
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
+    end
+
+    # Time-based Analytics Tools
+
+    def get_email_activity_heatmap(db:, address: nil, date_from: nil, date_to: nil)
+      # Get email volume by hour of day and day of week
+      query = db[:email]
+      query = query.where(address: address) if address
+      query = query.where { date >= date_from } if date_from
+      query = query.where { date <= date_to } if date_to
+
+      # SQLite datetime functions to extract hour and day of week
+      heatmap_data = query.select(
+        Sequel.function(:strftime, "%H", :date).as(:hour_of_day),
+        Sequel.function(:strftime, "%w", :date).as(:day_of_week),
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
+      ).group(:hour_of_day, :day_of_week).all
+
+      # Convert day_of_week numbers to names (0=Sunday, 1=Monday, etc.)
+      days = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday]
+
+      result = heatmap_data.map do |row|
+        {
+          hour: row[:hour_of_day].to_i,
+          day_of_week: days[row[:day_of_week].to_i],
+          day_number: row[:day_of_week].to_i,
+          count: row[:count]
+        }
+      end
+
+      safe_encode_result(result)
+    end
+
+    def get_response_time_stats(db:, address: nil, limit: 50)
+      # Analyze response times between emails in threads
+      # This is a simplified version - pairs consecutive emails by thread
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+      query = query.where(Sequel.~(x_gm_thrid: nil))
+      query = query.order(:x_gm_thrid, :date)
+      query = query.limit(limit * 2) # Get more data to find pairs
+
+      emails = query.all
+      response_times = []
+
+      # Group by thread and calculate time differences
+      emails.group_by { |e| e[:x_gm_thrid] }.each do |thread_id, thread_emails|
+        thread_emails.each_cons(2) do |prev_email, curr_email|
+          if prev_email[:date] && curr_email[:date]
+            time_diff = (Time.parse(curr_email[:date]) - Time.parse(prev_email[:date])) / 3600.0 # hours
+            response_times << {
+              thread_id: thread_id,
+              from_sender: prev_email[:from],
+              to_sender: curr_email[:from],
+              response_time_hours: time_diff.round(2),
+              prev_date: prev_email[:date],
+              curr_date: curr_email[:date]
+            }
+          end
+        end
+      end
+
+      # Sort by response time and limit
+      result = response_times.sort_by { |rt| rt[:response_time_hours] }.first(limit)
+      safe_encode_result(result)
+    end
+
+    def get_email_frequency_by_sender(db:, address: nil, sender: nil, period: "monthly", limit: 50)
+      # Email frequency patterns per sender over time
+      query = db[:email]
+      query = query.where(address: address) if address
+      query = query.where(Sequel.ilike(:from, "%#{sender}%")) if sender
+
+      date_format = case period.to_s.downcase
+      when "daily" then "%Y-%m-%d"
+      when "yearly" then "%Y"
+      else "%Y-%m" # monthly default
+      end
+
+      result = query.select(
+        :from,
+        Sequel.function(:strftime, date_format, :date).as(:period),
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
+      ).group(:from, :period).order(:from, :period).limit(limit).all
+
+      safe_encode_result(result)
+    end
+
+    def get_seasonal_trends(db:, address: nil, years_back: 3)
+      # Email volume trends by month/season over multiple years
+      query = db[:email]
+      query = query.where(address: address) if address
+
+      # Filter to recent years if specified
+      if years_back
+        cutoff_date = Date.today << (years_back * 12) # Go back N years
+        query = query.where { date >= cutoff_date.to_s }
+      end
+
+      monthly_data = query.select(
+        Sequel.function(:strftime, "%Y", :date).as(:year),
+        Sequel.function(:strftime, "%m", :date).as(:month),
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
+      ).group(:year, :month).order(:year, :month).all
+
+      # Add season classification
+      seasons = {
+        "12" => "Winter", "01" => "Winter", "02" => "Winter",
+        "03" => "Spring", "04" => "Spring", "05" => "Spring",
+        "06" => "Summer", "07" => "Summer", "08" => "Summer",
+        "09" => "Fall", "10" => "Fall", "11" => "Fall"
+      }
+
+      result = monthly_data.map do |row|
+        row.merge(
+          season: seasons[row[:month]],
+          month_name: Date::MONTHNAMES[row[:month].to_i]
+        )
+      end
+
+      safe_encode_result(result)
+    end
+
+    # Advanced Filtering Tools
+
+    def get_emails_by_size_range(db:, address: nil, size_category: "large", limit: 100)
+      # Filter emails by size ranges: small (<10KB), medium (10KB-100KB), large (>100KB)
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+
+      query = case size_category.to_s.downcase
+      when "small"
+        query.where { Sequel.function(:length, :encoded) < 10240 } # <10KB
+      when "medium"
+        query.where { (Sequel.function(:length, :encoded) >= 10240) & (Sequel.function(:length, :encoded) < 102400) } # 10KB-100KB
+      when "large"
+        query.where { Sequel.function(:length, :encoded) >= 102400 } # >100KB
+      when "huge"
+        query.where { Sequel.function(:length, :encoded) >= 1048576 } # >1MB
+      else
+        # Default to large
+        query.where { Sequel.function(:length, :encoded) >= 102400 }
+      end
+
+      query = query.select_append(Sequel.function(:length, :encoded).as(:size_bytes))
+      query = query.order(Sequel.desc(Sequel.function(:length, :encoded)))
+      query = query.limit(limit)
+
+      result = query.all.map { |row| symbolize_keys(row.to_h) }
+      safe_encode_result(result)
+    end
+
+    def get_duplicate_emails(db:, address: nil, similarity_field: "subject", limit: 100)
+      # Find potential duplicate emails by subject or message_id similarity
+      query = db[:email]
+      query = query.where(address: address) if address
+
+      field = (similarity_field.to_s == "message_id") ? :message_id : :subject
+
+      # Find emails with identical subjects/message_ids
+      duplicates = query.select(
+        field,
+        Sequel.function(:count, Sequel.lit("*")).as(:count),
+        Sequel.function(:group_concat, :id).as(:email_ids)
+      ).where(Sequel.~(field => nil))
+        .group(field)
+        .having { count(Sequel.lit("*")) > 1 }
+        .order(Sequel.desc(:count))
+        .limit(limit)
+        .all
+
+      result = duplicates.map do |dup|
+        {
+          similarity_field => dup[field],
+          :duplicate_count => dup[:count],
+          :email_ids => dup[:email_ids]&.split(",")&.map(&:to_i) || []
+        }
+      end
+
+      safe_encode_result(result)
+    end
+
+    def search_email_headers(db:, address: nil, header_pattern: nil, limit: 100)
+      # Search through email headers (requires parsing encoded field)
+      # This is a simplified version that searches in the raw encoded content
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+
+      if header_pattern
+        # Search in the encoded field (which contains full RFC822 message including headers)
+        query = query.where(Sequel.ilike(:encoded, "%#{header_pattern}%"))
+      end
+
+      query = query.limit(limit)
+      result = query.all.map { |row| symbolize_keys(row.to_h) }
+      safe_encode_result(result)
+    end
+
+    def get_emails_by_keywords(db:, address: nil, keywords: [], match_mode: "any", limit: 100)
+      # Find emails containing specific keywords with frequency scoring
+      return safe_encode_result([]) if keywords.empty?
+
+      query = db[:email].select_all(:email)
+      query = query.where(address: address) if address
+
+      # Build search conditions
+      keyword_conditions = keywords.map do |keyword|
+        Sequel.|(Sequel.ilike(:subject, "%#{keyword}%"), Sequel.ilike(:encoded, "%#{keyword}%"))
+      end
+
+      combined_condition = if match_mode.to_s.downcase == "all"
+        # All keywords must match
+        keyword_conditions.reduce { |acc, cond| acc & cond }
+      else
+        # Any keyword matches (default)
+        keyword_conditions.reduce { |acc, cond| acc | cond }
+      end
+
+      query = query.where(combined_condition) if combined_condition
+      query = query.limit(limit)
+
+      emails = query.all.map { |row| symbolize_keys(row.to_h) }
+
+      # Add keyword match scoring
+      result = emails.map do |email|
+        subject_text = (email[:subject] || "").downcase
+        body_text = (email[:encoded] || "").downcase
+
+        keyword_matches = keywords.count do |keyword|
+          subject_text.include?(keyword.downcase) || body_text.include?(keyword.downcase)
+        end
+
+        email.merge(
+          keyword_match_count: keyword_matches,
+          keyword_match_score: (keyword_matches.to_f / keywords.length * 100).round(1)
+        )
+      end
+
+      # Sort by match score
+      result.sort_by! { |email| -email[:keyword_match_score] }
+      safe_encode_result(result)
+    end
+
+    # SQL Query Tool (Read-only)
+
+    def execute_sql_query(db:, address: nil, sql_query: nil, limit: 1000)
+      return safe_encode_result({error: "SQL query is required"}) if sql_query.nil? || sql_query.strip.empty?
+
+      # Security: Only allow SELECT statements and block destructive operations
+      normalized_query = sql_query.strip.downcase
+
+      # Must start with SELECT or WITH (for CTEs)
+      unless normalized_query.start_with?("select", "with")
+        return safe_encode_result({
+          error: "Only SELECT queries and WITH expressions (CTEs) are allowed. Query must start with SELECT or WITH.",
+          example: "SELECT * FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
+        })
+      end
+
+      # More precise security check: look for forbidden SQL statements at word boundaries
+      # This prevents blocking legitimate searches for emails containing these words
+      forbidden_patterns = [
+        # Destructive operations that should appear as SQL commands (word boundaries)
+        '\binsert\s+into\b', '\bupdate\s+\w+\s+set\b', '\bdelete\s+from\b',
+        '\bdrop\s+(table|index|view|database)\b', '\bcreate\s+(table|index|view|database)\b',
+        '\balter\s+table\b', '\btruncate\s+table\b', '\breplace\s+into\b',
+
+        # Dangerous pragmas and commands
+        '\bpragma\b', '\battach\s+database\b', '\bdetach\s+database\b',
+
+        # Transaction commands
+        '\bbegin\s+(transaction|immediate|exclusive)\b', '\bcommit\b', '\brollback\b',
+        '\bsavepoint\b', '\brelease\s+savepoint\b'
+      ]
+
+      forbidden_patterns.each do |pattern|
+        if /#{pattern}/i.match?(normalized_query)
+          matched_text = normalized_query.match(/#{pattern}/i)[0]
+          return safe_encode_result({
+            error: "Forbidden SQL operation detected: '#{matched_text}'. Only SELECT queries are allowed.",
+            allowed_operations: ["SELECT", "WITH (for CTEs)"],
+            note: "Searches for emails containing these words in content are allowed, but SQL commands are blocked."
+          })
+        end
+      end
+
+      # Add LIMIT clause if not present to prevent runaway queries
+      unless normalized_query.include?("limit")
+        sql_query += " LIMIT #{limit}"
+      end
+
+      begin
+        # Execute the query
+        result = db.fetch(sql_query).all
+
+        # Convert to hash array and ensure encoding safety
+        rows = result.map { |row| symbolize_keys(row.to_h) }
+
+        response = {
+          query: sql_query,
+          row_count: rows.length,
+          rows: rows
+        }
+
+        safe_encode_result(response)
+      rescue Sequel::DatabaseError => e
+        safe_encode_result({
+          error: "SQL execution error: #{e.message}",
+          query: sql_query,
+          hint: "Check your SQL syntax. Remember: only SELECT queries are allowed."
+        })
+      rescue => e
+        safe_encode_result({
+          error: "Unexpected error: #{e.message}",
+          query: sql_query
+        })
+      end
     end
 
     # Helpers

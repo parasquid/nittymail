@@ -18,7 +18,7 @@ module NittyMail
       else
         safe_utf8(value).to_json
       end
-    rescue JSON::GeneratorError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+    rescue JSON::GeneratorError, ArgumentError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
       raise if strict_errors
       warn(on_error) if on_error
       value.is_a?(Array) ? "[]" : "\"\""
@@ -50,8 +50,17 @@ module NittyMail
         scrubbed = str.dup.force_encoding("UTF-8").scrub
         return Mail.read_from_string(scrubbed)
       rescue => e3
-        warn "mail parse error (scrubbed) mailbox=#{mbox_name} uid=#{uid}: #{e3.class}: #{e3.message}; rethrowing"
+        warn "mail parse error (scrubbed) mailbox=#{mbox_name} uid=#{uid}: #{e3.class}: #{e3.message}; retrying with header sanitization"
         last_error = e3
+      end
+
+      # 4) Try with header sanitization for HTML fragments in headers
+      begin
+        header_sanitized = sanitize_email_headers(str)
+        return Mail.read_from_string(header_sanitized)
+      rescue => e4
+        warn "mail parse error (header sanitized) mailbox=#{mbox_name} uid=#{uid}: #{e4.class}: #{e4.message}; rethrowing"
+        last_error = e4
       end
 
       raise(last_error || ArgumentError.new("unparseable message for mailbox=#{mbox_name} uid=#{uid}"))
@@ -69,6 +78,46 @@ module NittyMail
       m = headers.match(/^Subject:\s*(.*?)(?:\r?\n(?![ \t])|\z)/m)
       subj = m ? m[1].gsub(/\r?\n[ \t]+/, " ").strip : ""
       safe_utf8(subj)
+    end
+
+    # Sanitize email headers by removing/escaping HTML fragments that confuse Mail gem
+    def sanitize_email_headers(email_string)
+      # Split email into headers and body
+      parts = email_string.split(/\r?\n\r?\n/, 2)
+      headers = parts[0] || ""
+      body = parts[1] || ""
+
+      # Process header lines individually to preserve valid headers
+      header_lines = headers.split(/\r?\n/)
+      sanitized_lines = []
+
+      header_lines.each do |line|
+        # Skip lines that start with HTML tags (these aren't valid headers)
+        if line.strip.match?(/^<[^>]+>/)
+          # This is likely HTML masquerading as a header line, skip it
+          next
+        end
+
+        # For lines that contain HTML but might be valid headers, clean them up
+        if line.include?("<") && line.include?(">")
+          # Remove HTML tags but preserve the rest of the line structure
+          cleaned_line = line.gsub(/<[^>]*>/, " ").gsub(/\s+/, " ").strip
+          # Only keep it if it still looks like a valid header (contains :)
+          sanitized_lines << cleaned_line if cleaned_line.include?(":")
+        else
+          # Line doesn't contain HTML, keep as-is
+          sanitized_lines << line
+        end
+      end
+
+      sanitized_headers = sanitized_lines.join("\r\n")
+
+      # Reconstruct email with sanitized headers
+      if body.empty?
+        sanitized_headers
+      else
+        "#{sanitized_headers}\r\n\r\n#{body}"
+      end
     end
   end
 end

@@ -219,6 +219,17 @@ QUIET=yes docker compose run --rm ruby ./cli.rb sync
 Notes:
 - Quiet mode suppresses per-message logs (from, subject, flags) but keeps progress bars and high-level status.
 
+**Enrich stored messages (extract metadata from raw):**
+```bash
+# Extract ENVELOPE-like fields and RFC822 size from stored raw messages
+docker compose run --rm ruby ./cli.rb enrich \
+  --database core/data/your-email.sqlite3 \
+  --address user@gmail.com
+```
+Notes:
+- Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
+- `internaldate` is captured during sync from IMAP and not modified by enrich.
+
 **SQLite performance (WAL journaling):**
 ```bash
 # Default: WAL is enabled (best write concurrency)
@@ -579,6 +590,20 @@ docker compose run --rm ruby ./cli.rb embed \
 
 Tip: Use `--batch-size 1000` (default) to control how many embedding jobs are kept in-flight. Increase for higher throughput or reduce to limit memory usage.
 
+**Understanding the embed progress bar:**
+```
+embed: |████████████████████| 45% (15420/34200) job=998 write=5 [2m15s]
+```
+- **`45% (15420/34200)`**: 15,420 embeddings completed out of 34,200 total estimated jobs
+- **`job=998`**: 998 embedding jobs queued and waiting to be processed by worker threads
+- **`write=5`**: 5 completed embeddings waiting to be written to the database
+- **`[2m15s]`**: Estimated time remaining
+
+Queue indicators:
+- **High job queue** (near batch-size): Worker threads are busy, Ollama is keeping up
+- **High write queue**: Database writes may be slower than embedding generation
+- **Both queues low**: System is keeping up well, no bottlenecks
+
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
 - The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
@@ -625,7 +650,7 @@ Some messages in the wild have a missing or invalid `Date:` header. When the Mai
   ```bash
   sqlite3 core/data/your-email.sqlite3 "SELECT COUNT(*) FROM email WHERE date IS NULL;"
   ```
-  You can later derive a date from other headers (e.g., `Received`) or IMAP `INTERNALDATE` downstream if needed.
+  You can later derive a date from other headers (e.g., `Received`) or use the `internaldate` field downstream if needed.
 
 ## Contributing
 

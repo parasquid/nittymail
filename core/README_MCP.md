@@ -2,7 +2,7 @@
 
 **Note:** This server is designed to be run via Docker. A local Ruby installation is not required.
 
-A standalone Model Context Protocol server that exposes all 13 NittyMail email database tools for use with Claude Desktop and other MCP clients.
+A standalone Model Context Protocol server that exposes all 22 NittyMail email database tools for use with Claude Desktop and other MCP clients.
 
 ## Quick Test
 
@@ -13,7 +13,7 @@ docker compose run --rm ruby ./mcp_server.rb
 # Test with a simple request  
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   docker compose run --rm ruby ./mcp_server.rb 2>/dev/null | jq '.result.tools | length'
-# Should output: 13
+# Should output: 22
 ```
 
 ## Client Setup (Summary)
@@ -70,20 +70,41 @@ Once connected to Claude, Gemini, or GPT:
 - "Find emails about meetings from last year"
 - "How many emails have attachments?"
 - "Show monthly email volume trends"
+- "What are my email activity patterns by hour and day?"
+- "Find duplicate emails in my inbox"
+- "Show me the largest emails I have"
+- "What are my seasonal email trends?"
+- "Find emails containing keywords 'budget' and 'proposal'"
+- "Run this SQL query: SELECT DISTINCT from FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
 
 ## Common Tools (Cheat Sheet)
 
+**Core Analytics:**
 - `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
 - `db.get_top_senders(limit, mailbox)` – most frequent senders
 - `db.get_top_domains(limit)` – most frequent sender domains
 - `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` = any|with|without
+
+**Filtering & Search:**
 - `db.filter_emails(...)` – simple filters: from/subject contains, mailbox, date range
 - `db.search_emails(query, item_types, limit)` – semantic search (requires embeddings)
+- `db.get_emails_by_keywords(keywords, match_mode, limit)` – keyword search with scoring; `match_mode` = any|all
+- `db.get_emails_by_size_range(size_category, limit)` – filter by size: small|medium|large|huge
+
+**Time Analytics:**
+- `db.get_email_activity_heatmap(date_from, date_to)` – hourly/daily activity patterns
+- `db.get_seasonal_trends(years_back)` – monthly trends with seasonal classification
+- `db.get_response_time_stats(limit)` – response times between thread emails
+
+**Advanced:**
+- `db.get_duplicate_emails(similarity_field, limit)` – find duplicates by subject/message_id
+- `db.search_email_headers(header_pattern, limit)` – search raw headers
+- `db.execute_sql_query(sql_query, limit)` – run custom SELECT queries (security-restricted)
 
 ## Complete Documentation
 
 For detailed setup, troubleshooting, and advanced integration options, see:
 - **Full Documentation**: [`docs/mcp_server.md`](../docs/mcp_server.md)
-- **Tool Reference**: All 12 database tools with parameters and examples
+- **Tool Reference**: All 22 database tools with parameters and examples
 - **Protocol Details**: Technical MCP implementation specifics
 - **Troubleshooting**: Platform-specific common issues and solutions

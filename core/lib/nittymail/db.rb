@@ -10,22 +10,25 @@ module NittyMail
 
     # Open a Sequel SQLite connection with common settings.
     # When load_vec is true, ensure sqlite-vec is loaded for every underlying connection.
-    def connect(database_path, wal: True, load_vec: false)
+    def connect(database_path, wal: true, load_vec: false)
       db = if load_vec
         Sequel.sqlite(
           database_path,
           after_connect: proc do |conn|
             begin
               conn.enable_load_extension(true) if conn.respond_to?(:enable_load_extension)
-            rescue
+            rescue => e
+              warn "Warning: Failed to enable SQLite load_extension: #{e.class}: #{e.message}"
             end
             begin
               SqliteVec.load(conn)
-            rescue
+            rescue => e
+              warn "Warning: Failed to load sqlite-vec extension: #{e.class}: #{e.message}"
             ensure
               begin
                 conn.enable_load_extension(false) if conn.respond_to?(:enable_load_extension)
-              rescue
+              rescue => e
+                warn "Warning: Failed to disable SQLite load_extension: #{e.class}: #{e.message}"
               end
             end
           end
@@ -41,11 +44,15 @@ module NittyMail
       # Enable foreign keys for referential integrity
       begin
         db.run("PRAGMA foreign_keys = ON")
-      rescue
+      rescue => e
         # Best-effort; ignore if not supported in current context
+        warn "Warning: Failed to enable foreign keys: #{e.class}: #{e.message}"
       end
 
-      unless db.table_exists?(:email)
+      if db.table_exists?(:email)
+        # Ensure new enrichment columns exist on older databases
+        ensure_enrichment_columns!(db)
+      else
         db.create_table :email do
           primary_key :id
           String :address, index: true
@@ -55,6 +62,7 @@ module NittyMail
 
           String :message_id, index: true
           DateTime :date, index: true
+          DateTime :internaldate, index: true
           String :from, index: true
           String :subject
 
@@ -79,6 +87,32 @@ module NittyMail
       db[:email]
     end
 
+    # Ensure helpful indexes exist for common query patterns used by QueryTools.
+    # These are created idempotently and on existing databases as needed.
+    def ensure_query_indexes!(db)
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_address_date ON email(address, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_mailbox_date ON email(mailbox, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_x_gm_thrid_date ON email(x_gm_thrid, date)")
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_has_attachments_date ON email(has_attachments, date)")
+      db
+    end
+
+    # Add enrichment columns reconstructed from the raw message (encoded)
+    # - internaldate (DateTime): captured from IMAP INTERNALDATE during sync
+    # - rfc822_size (Integer): bytesize of raw encoded message
+    # - envelope_* fields as JSON strings for address lists and references
+    def ensure_enrichment_columns!(db)
+      cols = db.schema(:email).map { |c| c.first }
+      db.alter_table(:email) { add_column :internaldate, DateTime } unless cols.include?(:internaldate)
+      db.alter_table(:email) { add_column :rfc822_size, Integer } unless cols.include?(:rfc822_size)
+      %i[envelope_to envelope_cc envelope_bcc envelope_reply_to envelope_in_reply_to envelope_references].each do |col|
+        unless cols.include?(col)
+          db.alter_table(:email) { add_column col, String }
+        end
+      end
+      db
+    end
+
     def prepared_insert(email_dataset)
       email_dataset.prepare(
         :insert, :insert_email,
@@ -88,6 +122,7 @@ module NittyMail
         uidvalidity: :$uidvalidity,
         message_id: :$message_id,
         date: :$date,
+        internaldate: :$internaldate,
         from: :$from,
         subject: :$subject,
         has_attachments: :$has_attachments,

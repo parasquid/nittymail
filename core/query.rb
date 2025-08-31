@@ -7,6 +7,20 @@ require "uri"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/embeddings"
 require_relative "lib/nittymail/query_tools"
+require_relative "lib/nittymail/settings"
+
+module QuerySettings
+  class Settings < NittyMail::BaseSettings
+    attr_accessor :address, :ollama_host, :model, :prompt, :default_limit, :debug
+
+    REQUIRED = [:database_path, :address, :ollama_host, :model, :prompt].freeze
+
+    DEFAULTS = BASE_DEFAULTS.merge({
+      default_limit: 100,
+      debug: false
+    }).freeze
+  end
+end
 
 module NittyMail
   module Query
@@ -16,8 +30,8 @@ module NittyMail
     # - Uses Ollama chat API with tools for DB access and vector search.
     # - If the model does not call tools, returns its text.
     # - Caps at a few tool/response iterations to avoid loops.
-    def perform(database_path:, address:, ollama_host:, model:, prompt:, default_limit: 100, quiet: false, debug: false)
-      db = NittyMail::DB.connect(database_path, wal: true, load_vec: true)
+    def perform(settings)
+      db = NittyMail::DB.connect(settings.database_path, wal: true, load_vec: true)
       NittyMail::DB.ensure_schema!(db)
 
       tools = NittyMail::QueryTools.tool_schemas
@@ -27,13 +41,13 @@ module NittyMail
         role: "system",
         content: [
           "You are an assistant that answers questions about a Gmail mailbox stored in a SQLite database.",
-          "Always use provided tools to fetch facts. If a limit is not specified in the user's request, default to #{default_limit}.",
+          "Always use provided tools to fetch facts. If a limit is not specified in the user's request, default to #{settings.default_limit}.",
           "Schema: table email(id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, has_attachments, x_gm_labels, x_gm_msgid, x_gm_thrid, flags, encoded).",
           "Vector search: email_vec + email_vec_meta join to email via (email_vec_meta.email_id). You can find emails about a topic by using the vector search tool with the user's query text.",
-          (address ? "Current address context: #{address}. Prefer filtering to this address when reasonable." : nil)
+          (settings.address ? "Current address context: #{settings.address}. Prefer filtering to this address when reasonable." : nil)
         ].compact.join(" ")
       }
-      messages << {role: "user", content: prompt.to_s}
+      messages << {role: "user", content: settings.prompt.to_s}
 
       itr = 0
       begin
@@ -41,7 +55,7 @@ module NittyMail
           itr += 1
           raise "tool loop exceeded (#{itr}/6 iterations)" if itr > 6
 
-          resp = chat_request(ollama_host: ollama_host, model: model, messages: messages, tools: tools, debug: debug)
+          resp = chat_request(ollama_host: settings.ollama_host, model: settings.model, messages: messages, tools: tools, debug: settings.debug)
           msg = resp.dig("message") || {}
           tool_calls = msg["tool_calls"] || []
 
@@ -63,17 +77,17 @@ module NittyMail
             args = tc.dig("function", "arguments") || tc["arguments"] || {}
             args = ensure_hash(args)
             # Enforce default limit when not provided
-            args["limit"] = default_limit if args["limit"].to_i <= 0
+            args["limit"] = settings.default_limit if args["limit"].to_i <= 0
 
-            if debug
+            if settings.debug
               puts "=== DEBUG: Executing Tool Call ==="
               puts "Tool: #{name}"
               puts "Args: #{args.inspect}"
             end
 
             if name == "db.list_earliest_emails"
-              result = NittyMail::QueryTools.list_earliest_emails(db: db, address: address, limit: args["limit"].to_i)
-              if debug
+              result = NittyMail::QueryTools.list_earliest_emails(db: db, address: settings.address, limit: args["limit"].to_i)
+              if settings.debug
                 puts "Result count: #{result.length}"
                 begin
                   json_content = JSON.generate(result)
@@ -87,7 +101,7 @@ module NittyMail
             elsif name == "db.get_email_full"
               result = NittyMail::QueryTools.get_email_full(
                 db: db,
-                address: address,
+                address: settings.address,
                 id: args["id"],
                 mailbox: args["mailbox"],
                 uid: args["uid"],
@@ -102,7 +116,7 @@ module NittyMail
             elsif name == "db.filter_emails"
               result = NittyMail::QueryTools.filter_emails(
                 db: db,
-                address: address,
+                address: settings.address,
                 from_contains: args["from_contains"],
                 from_domain: args["from_domain"],
                 subject_contains: args["subject_contains"],
@@ -121,9 +135,9 @@ module NittyMail
                 query: query,
                 item_types: item_types,
                 limit: args["limit"].to_i,
-                ollama_host: ollama_host
+                ollama_host: settings.ollama_host
               )
-              if debug
+              if settings.debug
                 puts "Search result count: #{result.length}"
                 begin
                   json_content = JSON.generate(result)
@@ -157,7 +171,7 @@ module NittyMail
             elsif name == "db.count_emails"
               count = NittyMail::QueryTools.count_emails(
                 db: db,
-                address: address,
+                address: settings.address,
                 from_contains: args["from_contains"],
                 from_domain: args["from_domain"],
                 subject_contains: args["subject_contains"],
@@ -165,7 +179,7 @@ module NittyMail
                 date_from: args["date_from"],
                 date_to: args["date_to"]
               )
-              if debug
+              if settings.debug
                 puts "Count result: #{count}"
                 begin
                   json_content = JSON.generate({count: count})
@@ -179,14 +193,14 @@ module NittyMail
             elsif name == "db.get_email_stats"
               result = NittyMail::QueryTools.get_email_stats(
                 db: db,
-                address: address,
+                address: settings.address,
                 top_limit: args["top_limit"] || 10
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
             elsif name == "db.get_top_senders"
               result = NittyMail::QueryTools.get_top_senders(
                 db: db,
-                address: address,
+                address: settings.address,
                 limit: args["limit"] || 20,
                 mailbox: args["mailbox"]
               )
@@ -194,7 +208,7 @@ module NittyMail
             elsif name == "db.get_top_domains"
               result = NittyMail::QueryTools.get_top_domains(
                 db: db,
-                address: address,
+                address: settings.address,
                 limit: args["limit"] || 20
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
@@ -207,7 +221,7 @@ module NittyMail
             elsif name == "db.get_emails_by_date_range"
               result = NittyMail::QueryTools.get_emails_by_date_range(
                 db: db,
-                address: address,
+                address: settings.address,
                 period: args["period"] || "monthly",
                 date_from: args["date_from"],
                 date_to: args["date_to"],
@@ -217,7 +231,7 @@ module NittyMail
             elsif name == "db.get_emails_with_attachments"
               result = NittyMail::QueryTools.get_emails_with_attachments(
                 db: db,
-                address: address,
+                address: settings.address,
                 mailbox: args["mailbox"],
                 date_from: args["date_from"],
                 date_to: args["date_to"],
@@ -227,9 +241,81 @@ module NittyMail
             elsif name == "db.get_email_thread"
               result = NittyMail::QueryTools.get_email_thread(
                 db: db,
-                address: address,
+                address: settings.address,
                 thread_id: args["thread_id"],
                 order: args["order"] || "date_asc"
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_activity_heatmap"
+              result = NittyMail::QueryTools.get_email_activity_heatmap(
+                db: db,
+                address: settings.address,
+                date_from: args["date_from"],
+                date_to: args["date_to"]
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_response_time_stats"
+              result = NittyMail::QueryTools.get_response_time_stats(
+                db: db,
+                address: settings.address,
+                limit: args["limit"] || 50
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_email_frequency_by_sender"
+              result = NittyMail::QueryTools.get_email_frequency_by_sender(
+                db: db,
+                address: settings.address,
+                sender: args["sender"],
+                period: args["period"] || "monthly",
+                limit: args["limit"] || 50
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_seasonal_trends"
+              result = NittyMail::QueryTools.get_seasonal_trends(
+                db: db,
+                address: settings.address,
+                years_back: args["years_back"] || 3
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_by_size_range"
+              result = NittyMail::QueryTools.get_emails_by_size_range(
+                db: db,
+                address: settings.address,
+                size_category: args["size_category"] || "large",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_duplicate_emails"
+              result = NittyMail::QueryTools.get_duplicate_emails(
+                db: db,
+                address: settings.address,
+                similarity_field: args["similarity_field"] || "subject",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.search_email_headers"
+              result = NittyMail::QueryTools.search_email_headers(
+                db: db,
+                address: settings.address,
+                header_pattern: args["header_pattern"],
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_emails_by_keywords"
+              result = NittyMail::QueryTools.get_emails_by_keywords(
+                db: db,
+                address: settings.address,
+                keywords: args["keywords"] || [],
+                match_mode: args["match_mode"] || "any",
+                limit: args["limit"] || 100
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.execute_sql_query"
+              result = NittyMail::QueryTools.execute_sql_query(
+                db: db,
+                address: settings.address,
+                sql_query: args["sql_query"],
+                limit: args["limit"] || 1000
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
             else
@@ -257,7 +343,7 @@ module NittyMail
       body[:tools] = tools if tools && !tools.empty?
 
       # Debug logging for request
-      if debug
+      if settings.debug
         puts "=== DEBUG: Ollama Request ==="
         puts "URL: #{uri}"
         puts "Model: #{model}"
@@ -290,7 +376,7 @@ module NittyMail
       # Make request and log response
       res = http.request(req)
 
-      if debug
+      if settings.debug
         puts "=== DEBUG: Ollama Response ==="
         puts "HTTP Status: #{res.code} #{res.message}"
         puts "Response size: #{res.body.length} bytes"

@@ -330,6 +330,69 @@ class NittyMailMCPServer
           thread_id: arguments["thread_id"],
           order: arguments["order"] || "date_asc"
         )
+      when "db.get_email_activity_heatmap"
+        NittyMail::QueryTools.get_email_activity_heatmap(
+          db: db,
+          address: @address,
+          date_from: arguments["date_from"],
+          date_to: arguments["date_to"]
+        )
+      when "db.get_response_time_stats"
+        NittyMail::QueryTools.get_response_time_stats(
+          db: db,
+          address: @address,
+          limit: arguments["limit"] || 50
+        )
+      when "db.get_email_frequency_by_sender"
+        NittyMail::QueryTools.get_email_frequency_by_sender(
+          db: db,
+          address: @address,
+          sender: arguments["sender"],
+          period: arguments["period"] || "monthly",
+          limit: arguments["limit"] || 50
+        )
+      when "db.get_seasonal_trends"
+        NittyMail::QueryTools.get_seasonal_trends(
+          db: db,
+          address: @address,
+          years_back: arguments["years_back"] || 3
+        )
+      when "db.get_emails_by_size_range"
+        NittyMail::QueryTools.get_emails_by_size_range(
+          db: db,
+          address: @address,
+          size_category: arguments["size_category"] || "large",
+          limit: arguments["limit"] || 100
+        )
+      when "db.get_duplicate_emails"
+        NittyMail::QueryTools.get_duplicate_emails(
+          db: db,
+          address: @address,
+          similarity_field: arguments["similarity_field"] || "subject",
+          limit: arguments["limit"] || 100
+        )
+      when "db.search_email_headers"
+        NittyMail::QueryTools.search_email_headers(
+          db: db,
+          address: @address,
+          header_pattern: arguments["header_pattern"],
+          limit: arguments["limit"] || 100
+        )
+      when "db.get_emails_by_keywords"
+        NittyMail::QueryTools.get_emails_by_keywords(
+          db: db,
+          address: @address,
+          keywords: arguments["keywords"] || [],
+          match_mode: arguments["match_mode"] || "any",
+          limit: arguments["limit"] || 100
+        )
+      when "db.execute_sql_query"
+        NittyMail::QueryTools.execute_sql_query(
+          db: db,
+          address: @address,
+          sql_query: arguments["sql_query"],
+          limit: arguments["limit"] || 1000
+        )
       else
         {error: "Unknown tool: #{tool_name}"}
       end

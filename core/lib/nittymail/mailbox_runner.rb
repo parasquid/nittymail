@@ -7,7 +7,7 @@ require "ruby-progressbar"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false, embedding: {enabled: false})
+    def self.run(settings:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, progress: nil, embedding: {enabled: false})
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -31,16 +31,29 @@ module NittyMail
             end
             insert_stmt.call(to_bind)
           rescue Sequel::UniqueConstraintViolation => e
-            raise e if strict_errors
+            raise e if settings.strict_errors
             progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
+          rescue => e
+            # Handle other database errors
+            if settings.strict_errors
+              raise e
+            else
+              progress&.log("Database error for #{rec[:mailbox]} #{rec[:uid]}: #{e.class}: #{e.message}")
+            end
           end
           # Embeddings disabled in sync: no-op after insert
         end
+      rescue => e
+        # Catch any unhandled exceptions in writer thread to prevent silent exits
+        progress&.log("FATAL: Writer thread crashed: #{e.class}: #{e.message}")
+        progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+        # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
+        raise e
       end
 
       workers = Array.new(threads_count) do
         Thread.new do
-          client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+          client = NittyMail::IMAPClient.new(address: settings.imap_address, password: settings.imap_password)
           client.reconnect_and_select(mbox_name, uidvalidity)
           loop do
             break if mailbox_abort
@@ -51,12 +64,13 @@ module NittyMail
             end
             break unless batch
 
-            fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID"]
+            fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID", "INTERNALDATE"]
             begin
-              fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: retry_attempts, progress: progress)
-            rescue => _e
+              fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: settings.retry_attempts, progress: progress)
+            rescue => e
               mailbox_abort = true
-              progress&.log("Aborting mailbox '#{mbox_name}' after #{retry_attempts} failed attempt(s); proceeding to next mailbox")
+              progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox")
+              progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
               break
             end
             fetched.each do |fd|
@@ -66,11 +80,11 @@ module NittyMail
               raw = attrs["BODY[]"] || attrs["RFC822"]
               mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
               flags_json = attrs["FLAGS"].to_json
-              unless quiet
-                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: strict_errors)
+              unless settings.quiet
+                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: settings.strict_errors)
               end
               rec = build_record(
-                imap_address:,
+                imap_address: settings.imap_address,
                 mbox_name:,
                 uid:,
                 uidvalidity:,
@@ -78,7 +92,7 @@ module NittyMail
                 attrs:,
                 flags_json:,
                 raw:,
-                strict_errors:
+                strict_errors: settings.strict_errors
               )
               # Embeddings disabled in sync: do not prepare embed fields
               write_queue << rec
@@ -87,14 +101,44 @@ module NittyMail
             end
           end
           client.close
+        rescue => e
+          # Catch any unhandled exceptions in worker threads to prevent silent exits
+          mailbox_abort = true
+          progress&.log("FATAL: Worker thread crashed in mailbox '#{mbox_name}': #{e.class}: #{e.message}")
+          progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+          # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
+          raise e
         end
       end
 
-      workers.each(&:join)
-      write_queue << :__DONE__
-      writer.join
-      # No embedding summary in sync mode
+      # Wait for all workers to complete and check for exceptions
+      worker_exceptions = []
+      workers.each do |worker|
+        worker.join
+      rescue => e
+        worker_exceptions << e
+        mailbox_abort = true
+      end
 
+      write_queue << :__DONE__
+
+      # Wait for writer thread and check for exceptions
+      begin
+        writer.join
+      rescue => e
+        worker_exceptions << e
+        mailbox_abort = true
+      end
+
+      # If we collected any exceptions, report them
+      unless worker_exceptions.empty?
+        progress&.log("Mailbox processing failed with #{worker_exceptions.size} thread exception(s)")
+        worker_exceptions.each_with_index do |e, i|
+          progress&.log("Exception #{i + 1}: #{e.class}: #{e.message}")
+        end
+      end
+
+      # No embedding summary in sync mode
       mailbox_abort ? :aborted : :ok
     end
   end
