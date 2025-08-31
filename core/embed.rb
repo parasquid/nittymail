@@ -11,7 +11,7 @@ require_relative "lib/nittymail/settings"
 module EmbedSettings
   class Settings < NittyMail::BaseSettings
     attr_accessor :ollama_host, :model, :dimension, :item_types, :address_filter,
-      :limit, :offset, :batch_size, :regenerate
+      :limit, :offset, :batch_size, :regenerate, :use_search_prompt
 
     REQUIRED = [:database_path, :ollama_host].freeze
 
@@ -23,7 +23,8 @@ module EmbedSettings
       limit: nil,
       offset: nil,
       batch_size: 1000,
-      regenerate: false
+      regenerate: false,
+      use_search_prompt: true
     }).freeze
   end
 end
@@ -179,14 +180,14 @@ module NittyMail
             end
             break if job == :__STOP__
             begin
-              # Use search prompt optimization when regenerating embeddings (this is the key improvement!)
+              # Use search prompt optimization based on settings (enabled by default)
               vector = fetch_with_retry(
                 ollama_host: settings.ollama_host,
                 model: settings.model,
                 text: job[:text],
                 retry_attempts: settings.retry_attempts,
                 stop_requested: -> { stop_requested },
-                use_search_prompt: settings.regenerate
+                use_search_prompt: settings.use_search_prompt
               )
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e

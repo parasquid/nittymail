@@ -427,6 +427,7 @@ References:
 Requirements and defaults:
 - The sqlite-vec Ruby gem is bundled; the extension is loaded by the gem at runtime.
 - `SQLITE_VEC_DIMENSION`: embedding dimension for the virtual table (default: `1024`).
+- `EMBED_USE_SEARCH_PROMPT`: enable/disable search prompt optimization (default: `true`).
 - Default embedding model for Ollama: `mxbai-embed-large` (English, high quality, 1024‑dim). Multilingual alternative: `bge-m3` (also 1024‑dim).
 
 What the app creates on startup:
@@ -575,6 +576,23 @@ Embeddings are generated via the `embed` subcommand (sync does not embed):
 # Ensure OLLAMA_HOST points to your server
 DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
   docker compose run --rm ruby ./cli.rb embed
+```
+
+**Search Prompt Optimization (Default):**
+By default, embeddings use search prompt optimization for better search quality. For mxbai models, this prepends "Represent this sentence for searching relevant passages: " to the text before embedding.
+
+```bash
+# Default behavior (search prompts enabled)
+./cli.rb embed
+
+# Disable search prompts (use raw text)
+./cli.rb embed --no-search-prompt
+
+# Environment variable control
+EMBED_USE_SEARCH_PROMPT=false ./cli.rb embed
+
+# Regenerate all embeddings with current settings
+./cli.rb embed --regenerate
 ```
 
 See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
