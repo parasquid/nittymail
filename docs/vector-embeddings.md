@@ -101,10 +101,26 @@ Flags and environment:
 - `--model` or `EMBEDDING_MODEL`: embedding model name; defaults to `mxbai-embed-large`.
 - `--dimension` or `SQLITE_VEC_DIMENSION`: vector dimension; defaults to `1024`.
 - `--item-types`: comma-separated list from `subject,body` (default both).
+- `--threads`: number of embedding worker threads.
+- `--retry-attempts`: max embedding retry attempts.
 - `--batch-size` or `EMBED_BATCH_SIZE`: max in-flight jobs enqueued at a time (default `1000`).
 - `--limit`, `--offset`, `--quiet`: processing controls.
+- `--regenerate`: regenerate ALL embeddings for the specified model.
+- `--no_search_prompt`: disable search prompt optimization.
 
 Tip: After running `sync` with `DATABASE` and `ADDRESS` set, you can run `embed` without flags and it will target the same database and address.
+
+### Regenerating Embeddings
+
+If you want to re-generate all embeddings for a specific model, use the `--regenerate` flag. This is useful if you want to switch to a new model or if the embedding logic has changed.
+
+```bash
+# Regenerate all embeddings for the default model
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --regenerate
+```
+
 
 
 ## Progress
@@ -118,6 +134,7 @@ Graceful stop: Pressing Ctrl‑C requests a clean shutdown (stops enqueuing, fin
 - Dimension lock-in: the vec table’s dimension is fixed at creation; keep `SQLITE_VEC_DIMENSION` consistent with your model.
 - Performance: wrap inserts in transactions. WAL mode is enabled by default for better write throughput.
 - Errors: if Ollama returns an error or the embedding dimension doesn’t match, the run logs the error. You can raise retry limits with `--retry-attempts` on the embed command; fatal mismatches are skipped and reported.
+- Search Prompt Optimization: By default, the `embed` command uses a search-optimized prompt to generate embeddings. If you want to disable this and use the raw text for embeddings, use the `--no_search_prompt` flag.
 - References:
   - sqlite-vec Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
   - Demo script: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb

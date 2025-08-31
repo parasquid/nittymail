@@ -103,12 +103,27 @@ Notes:
 
 #### MCP Tools Cheat Sheet (Quick)
 
+**Core Analytics:**
 - `db.get_email_stats(top_limit)` – overview: totals, date range, top senders/domains
 - `db.get_top_senders(limit, mailbox)` – most frequent senders
 - `db.get_top_domains(limit)` – most frequent sender domains
-- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` is one of `any|with|without`
-- `db.filter_emails(...)` – filter by sender/subject contains, mailbox, dates
-- `db.search_emails(query, item_types, limit)` – semantic search (needs embeddings)
+- `db.get_largest_emails(limit, attachments, mailbox, from_domain)` – largest messages by stored size; `attachments` = any|with|without
+
+**Filtering & Search:**
+- `db.filter_emails(...)` – simple filters: from/subject contains, mailbox, date range
+- `db.search_emails(query, item_types, limit)` – semantic search (requires embeddings)
+- `db.get_emails_by_keywords(keywords, match_mode, limit)` – keyword search with scoring; `match_mode` = any|all
+- `db.get_emails_by_size_range(size_category, limit)` – filter by size: small|medium|large|huge
+
+**Time Analytics:**
+- `db.get_email_activity_heatmap(date_from, date_to)` – hourly/daily activity patterns
+- `db.get_seasonal_trends(years_back)` – monthly trends with seasonal classification
+- `db.get_response_time_stats(limit)` – response times between thread emails
+
+**Advanced:**
+- `db.get_duplicate_emails(similarity_field, limit)` – find duplicates by subject/message_id
+- `db.search_email_headers(header_pattern, limit)` – search raw headers
+- `db.execute_sql_query(sql_query, limit)` – run custom SELECT queries (security-restricted)
 
 ### Advanced Options
 
@@ -420,216 +435,29 @@ Core modules live under `core/lib/nittymail` to keep `sync.rb` lean and focused 
 
 We support vector embeddings using sqlite-vec via the official Ruby gem. This enables fast, local semantic search over message content. The full guide moved to [docs/vector-embeddings.md](../docs/vector-embeddings.md).
 
-References:
-- Ruby docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
-- Minimal example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
-
-Requirements and defaults:
-- The sqlite-vec Ruby gem is bundled; the extension is loaded by the gem at runtime.
-- `SQLITE_VEC_DIMENSION`: embedding dimension for the virtual table (default: `1024`).
-- `EMBED_USE_SEARCH_PROMPT`: enable/disable search prompt optimization (default: `true`).
-- Default embedding model for Ollama: `mxbai-embed-large` (English, high quality, 1024‑dim). Multilingual alternative: `bge-m3` (also 1024‑dim).
-
-What the app creates on startup:
-- `email_vec` (virtual table): `CREATE VIRTUAL TABLE IF NOT EXISTS email_vec USING vec0(embedding float[DIM])`
-- `email_vec_meta`: maps `email_vec.rowid` to `email.id` with metadata (`item_type`, `model`, `dimension`, `created_at`).
-
-If the sqlite-vec extension cannot be loaded via the gem helper, the process aborts (no fallback schema is created).
-
-Choosing a dimension and model:
-- The vec table’s dimension is fixed at creation time. Set `SQLITE_VEC_DIMENSION` (default 1024) before the first run, and keep it consistent with your embedding model.
-- Recommended default: `mxbai-embed-large` (1024 dims). To try others, create separate vec tables per dimension or re‑create the table to match the new dimension.
-
-Quick start with Ollama (verify dimension):
-```bash
-# Pull the default high-quality embedding model (English)
-ollama pull mxbai-embed-large
-
-# Verify the output embedding dimension
-curl -s http://localhost:11434/api/embeddings \
-  -d '{"model":"mxbai-embed-large","prompt":"hello world"}' | jq '.embedding | length'
-
-# Ensure vec table dimension matches your model (1024 recommended)
-export SQLITE_VEC_DIMENSION=1024
-```
-
-Ruby usage overview (from the sqlite-vec docs):
-```ruby
-require "sqlite3"
-require "sqlite_vec"
-
-db = SQLite3::Database.new(":memory:")
-db.enable_load_extension(true)
-SqliteVec.load(db)
-db.enable_load_extension(false)
-
-db.execute("CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[4])")
-
-# Insert: pack float32s into a BLOB
-embedding = [0.1, 0.1, 0.1, 0.1]
-db.execute("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)", [1, embedding.pack("f*")])
-
-# Query: use MATCH with a packed query vector
-query = [0.1, 0.1, 0.1, 0.1]
-rows = db.execute(<<~SQL, [query.pack("f*")])
-  SELECT rowid, distance
-  FROM vec_items
-  WHERE embedding MATCH ?
-  ORDER BY distance
-  LIMIT 3
-SQL
-```
-
-NittyMail specifics (Sequel + sqlite-vec):
-- We load sqlite-vec using the gem helper against the underlying SQLite3 connection that Sequel manages. No manual extension path is needed.
-- Virtual table: `email_vec(embedding float[DIM])` with DIM from `SQLITE_VEC_DIMENSION`.
-- Metadata table: `email_vec_meta(vec_rowid, email_id, item_type, model, dimension, created_at)`.
-- Insert embeddings as packed float32 BLOBs. Use transactions for batching.
-
-Insert an embedding and link it to an email row:
-```ruby
-require "sequel"
-require "sqlite3"
-
-db = Sequel.sqlite("data/your-email.sqlite3")
-NittyMail::DB.ensure_schema!(db)
-
-email_id = 123                         # existing row in the email table
-vector   = some_floats                 # Array(Float), length must equal DIM (e.g., 1024)
-packed   = vector.pack("f*")           # pack as float32 (native endianness)
-model    = ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large")
-item     = "body"                      # e.g., body, subject, snippet
-dimension = (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
-
-# Insert into vec table and get the rowid, then insert metadata
-vec_rowid = nil
-db.transaction do
-  db.synchronize do |conn|
-    conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
-    vec_rowid = conn.last_insert_row_id
-  end
-  db[:email_vec_meta].insert(vec_rowid:, email_id:, item_type: item, model:, dimension:)
-end
-```
-
-Top‑K search for similar messages (join with metadata):
-```ruby
-require "sequel"
-require "sqlite3"
-
-db = Sequel.sqlite("data/your-email.sqlite3")
-query = make_query_vector(...)          # Array(Float) with DIM elements
-blob  = SQLite3::Blob.new(query.pack("f*"))
-
-rows = nil
-db.synchronize do |conn|
-  rows = conn.execute(<<~SQL, blob)
-    SELECT m.email_id, v.rowid AS vec_rowid, v.distance
-    FROM email_vec v
-    JOIN email_vec_meta m ON m.vec_rowid = v.rowid
-    WHERE v.embedding MATCH ?
-    ORDER BY v.distance
-    LIMIT 10
-  SQL
-end
-pp rows
-```
-
-Helper methods (recommended):
-```ruby
-require "sequel"
-require "sqlite3"
-require_relative "lib/nittymail/db"
-
-db = Sequel.sqlite("data/your-email.sqlite3")
-
-# Prepare your vector (length must equal SQLITE_VEC_DIMENSION, default 1024)
-vector = embed_text_with_ollama("some text to embed") # => Array(Float)
-
-# Insert a new embedding and link to email_id
-vec_rowid = NittyMail::DB.insert_email_embedding!(
-  db,
-  email_id: 123,
-  vector: vector,
-  item_type: "body",                      # or "subject", "snippet"
-  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
-  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
-)
-
-# Or upsert by (email_id, item_type, model)
-vec_rowid = NittyMail::DB.upsert_email_embedding!(
-  db,
-  email_id: 123,
-  vector: vector,
-  item_type: "body",
-  model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"),
-  dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
-)
-```
-
-Notes:
-- The helpers validate vector length and pack to float32 BLOBs.
-- They ensure the sqlite-vec virtual table and metadata table exist for the configured dimension.
-
-Embeddings are generated via the `embed` subcommand (sync does not embed):
-```bash
-# Ensure OLLAMA_HOST points to your server
-DATABASE=data/your.sqlite3 ADDRESS=user@gmail.com OLLAMA_HOST=http://localhost:11434 \
-  docker compose run --rm ruby ./cli.rb embed
-```
-
-**Search Prompt Optimization (Default):**
-By default, embeddings use search prompt optimization for better search quality. For mxbai models, this prepends "Represent this sentence for searching relevant passages: " to the text before embedding.
-
-```bash
-# Default behavior (search prompts enabled)
-./cli.rb embed
-
-# Disable search prompts (use raw text)
-./cli.rb embed --no-search-prompt
-
-# Environment variable control
-EMBED_USE_SEARCH_PROMPT=false ./cli.rb embed
-
-# Regenerate all embeddings with current settings
-./cli.rb embed --regenerate
-```
-
-See `docs/vector-embeddings.md` for details on configuration, schema, data flow, and querying.
-
 Backfill embeddings for existing emails (examples):
 ```bash
-# Or pass flags explicitly
-docker compose run --rm ruby ./cli.rb embed \
-  --database data/your.sqlite3 \
-  --ollama-host http://localhost:11434 \
-  --item-types subject,body
+# Embed all emails in the DB (subject + body) using OLLAMA_HOST
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3
+
+# Embed only for a specific address, and only subjects
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3 --address user@gmail.com --item-types subject
+
+# Limit processing for smoke testing
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --database data/your.sqlite3 --limit 100
+
+# Regenerate all embeddings for the default model
+docker compose run --rm \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  ruby ./cli.rb embed --regenerate
 ```
 
-Tip: Use `--batch-size 1000` (default) to control how many embedding jobs are kept in-flight. Increase for higher throughput or reduce to limit memory usage.
-
-**Understanding the embed progress bar:**
-```
-embed: |████████████████████| 45% (15420/34200) job=998 write=5 [2m15s]
-```
-- **`45% (15420/34200)`**: 15,420 embeddings completed out of 34,200 total estimated jobs
-- **`job=998`**: 998 embedding jobs queued and waiting to be processed by worker threads
-- **`write=5`**: 5 completed embeddings waiting to be written to the database
-- **`[2m15s]`**: Estimated time remaining
-
-Queue indicators:
-- **High job queue** (near batch-size): Worker threads are busy, Ollama is keeping up
-- **High write queue**: Database writes may be slower than embedding generation
-- **Both queues low**: System is keeping up well, no bottlenecks
-
-Notes and tips:
-- The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
-- The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.
-- Smaller `distance` means a closer match. Use `LIMIT` to constrain results.
-- Wrap mass inserts in a transaction for better performance.
-- See the official docs and example for more patterns:
-  - Docs: https://alexgarcia.xyz/sqlite-vec/ruby.html
-  - Example: https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb
 
 ## Troubleshooting
 

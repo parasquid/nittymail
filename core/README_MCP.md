@@ -46,7 +46,7 @@ Add to MCP config file (`~/Library/Application Support/Claude/claude_desktop_con
     Replace `/path/to/your/nittymail/core` with the absolute path to the `core` directory.
 
     ```bash
-    gemini mcp add nittymail "docker compose run --rm ruby ./mcp_server.rb" --scope project
+    gemini mcp add nittymail "docker compose run --rm ruby ./mcp_server.rb" --scope project --description "NittyMail Email Client"
     ```
 
 3.  **Chat with your email:**

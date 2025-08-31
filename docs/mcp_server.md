@@ -527,18 +527,4 @@ brew services list | grep docker  # macOS
 - Ensure `.env` file is in the correct directory (same as `mcp_server.rb`)
 - Check file permissions are readable by the Docker process
 - Use absolute paths in environment variables, not relative paths
-### db.get_largest_emails
 
-Returns the largest emails ranked by stored message size (`length(encoded)`), optionally filtered by attachments.
-
-- Parameters:
-  - `limit`: integer, default 5
-  - `attachments`: string enum: `any`, `with`, `without` (default `any`)
-  - `mailbox`: optional mailbox filter (e.g., INBOX, [Gmail]/All Mail)
-  - `from_domain`: optional sender domain filter (e.g., example.com)
-- Returns fields: `id, address, mailbox, uid, uidvalidity, message_id, date, from, subject, size_bytes`
-
-Example request:
-```json
-{ "jsonrpc":"2.0", "id": 1, "method": "tools/call", "params": { "name": "db.get_largest_emails", "arguments": { "limit": 5, "attachments": "any", "mailbox": "INBOX", "from_domain": "example.com" } } }
-```
