@@ -36,33 +36,13 @@ module NittyMail
         mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
 
         # Reconstruct envelope with field-specific error handling
-        env_to = begin
-          NittyMail::Util.safe_json(mail&.to)
-        rescue => e
-          progress.log("enrich to field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          "[]"
-        end
+        env_to = NittyMail::Util.safe_json(mail&.to, on_error: "enrich to field error id=#{row[:id]}: encoding error")
         
-        env_cc = begin
-          NittyMail::Util.safe_json(mail&.cc)
-        rescue => e
-          progress.log("enrich cc field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          "[]"
-        end
+        env_cc = NittyMail::Util.safe_json(mail&.cc, on_error: "enrich cc field error id=#{row[:id]}: encoding error")
         
-        env_bcc = begin
-          NittyMail::Util.safe_json(mail&.bcc)
-        rescue => e
-          progress.log("enrich bcc field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          "[]"
-        end
+        env_bcc = NittyMail::Util.safe_json(mail&.bcc, on_error: "enrich bcc field error id=#{row[:id]}: encoding error")
         
-        env_reply_to = begin
-          NittyMail::Util.safe_json(mail&.reply_to)
-        rescue => e
-          progress.log("enrich reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          "[]"
-        end
+        env_reply_to = NittyMail::Util.safe_json(mail&.reply_to, on_error: "enrich reply_to field error id=#{row[:id]}: encoding error")
         
         in_reply_to = begin
           NittyMail::Util.safe_utf8(mail&.in_reply_to)
@@ -71,12 +51,7 @@ module NittyMail
           ""
         end
         
-        references = begin
-          NittyMail::Util.safe_json(mail&.references)
-        rescue => e
-          progress.log("enrich references field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          "[]"
-        end
+        references = NittyMail::Util.safe_json(mail&.references, on_error: "enrich references field error id=#{row[:id]}: encoding error")
 
         # RFC822 size from raw bytes
         rfc822_size = raw&.bytesize

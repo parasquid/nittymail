@@ -18,7 +18,7 @@ module NittyMail
       else
         safe_utf8(value).to_json
       end
-    rescue JSON::GeneratorError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+    rescue JSON::GeneratorError, ArgumentError, Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
       raise if strict_errors
       warn(on_error) if on_error
       value.is_a?(Array) ? "[]" : "\"\""

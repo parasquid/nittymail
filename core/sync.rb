@@ -36,8 +36,6 @@ require_relative "lib/nittymail/mailbox_runner"
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
 
-# format moved to NittyMail::Logging
-
 # patch only this instance of Net::IMAP::ResponseParser
 def patch(gmail_imap)
   NittyMail::GmailPatch.apply(gmail_imap)
@@ -64,13 +62,7 @@ def build_record(imap_address:, mbox_name:, uid:, uidvalidity:, mail:, attrs:, f
     message_id: NittyMail::Util.safe_utf8(mail&.message_id),
     date:,
     internaldate: attrs&.fetch("INTERNALDATE", nil),
-    from: begin
-      NittyMail::Util.safe_json(mail&.from, strict_errors: strict_errors)
-    rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-      raise if strict_errors
-      warn "encoding error for 'from' while building record; subject: #{subject_str}"
-      "[]"
-    end,
+    from: NittyMail::Util.safe_json(mail&.from, on_error: "encoding error for 'from' while building record; subject: #{subject_str}", strict_errors: strict_errors),
     subject: subject_str,
     has_attachments: mail ? mail.has_attachments? : false,
 
@@ -86,13 +78,7 @@ end
 # Log a concise processing line (handles odd headers safely)
 def log_processing(mbox_name:, uid:, mail:, flags_json:, raw:, progress: nil, strict_errors: false)
   subj = NittyMail::Util.extract_subject(mail, raw, strict_errors: strict_errors)
-  from = begin
-    NittyMail::Util.safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: strict_errors)
-  rescue ArgumentError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-    raise if strict_errors
-    warn "encoding error for 'from' during logging; subject: #{subj}"
-    "[]"
-  end
+  from = NittyMail::Util.safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: strict_errors)
   suffix = begin
     date = mail&.date
     "sent on #{date}"
