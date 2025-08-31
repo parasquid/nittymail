@@ -147,6 +147,7 @@ class NittyMailCLI < Thor
   option :retry_attempts, aliases: "-R", desc: "Max embedding retry attempts (-1 = retry indefinitely, 0 = no retries)", type: :numeric
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
   option :batch_size, aliases: "-b", desc: "Emails-to-queue window during embed (default: 1000)", type: :numeric
+  option :regenerate, desc: "Regenerate ALL embeddings (deletes existing embeddings for this model)", type: :boolean, default: false
   def embed
     database_path = options[:database] || ENV["DATABASE"]
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
@@ -161,11 +162,28 @@ class NittyMailCLI < Thor
     threads_count = (options[:threads] || (ENV["THREADS"] || "2").to_i).to_i
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
+    regenerate = options[:regenerate]
+
+    # Warning for regenerate option
+    if regenerate
+      puts "⚠️  WARNING: --regenerate will DELETE ALL existing embeddings for model '#{model}' and recreate them."
+      puts "   This will take advantage of the new search prompt optimization but will require"
+      puts "   re-processing all emails, which may take significant time and API calls."
+      puts ""
+      unless quiet
+        print "Are you sure you want to regenerate all embeddings? [y/N]: "
+        answer = $stdin.gets&.strip&.downcase
+        unless %w[y yes].include?(answer)
+          puts "Aborted by user."
+          exit 1
+        end
+      end
+    end
 
     settings = EmbedSettings::Settings.new(
       database_path:, ollama_host:, model:, dimension:, item_types:,
       address_filter:, limit:, offset:, quiet:, threads_count:,
-      retry_attempts:, batch_size:
+      retry_attempts:, batch_size:, regenerate:
     )
     NittyMail::Embed.perform(settings)
   end

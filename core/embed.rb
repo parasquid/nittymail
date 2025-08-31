@@ -11,7 +11,7 @@ require_relative "lib/nittymail/settings"
 module EmbedSettings
   class Settings < NittyMail::BaseSettings
     attr_accessor :ollama_host, :model, :dimension, :item_types, :address_filter,
-      :limit, :offset, :batch_size
+      :limit, :offset, :batch_size, :regenerate
 
     REQUIRED = [:database_path, :ollama_host].freeze
 
@@ -22,7 +22,8 @@ module EmbedSettings
       address_filter: nil,
       limit: nil,
       offset: nil,
-      batch_size: 1000
+      batch_size: 1000,
+      regenerate: false
     }).freeze
   end
 end
@@ -44,7 +45,33 @@ module NittyMail
 
       db = NittyMail::DB.connect(settings.database_path, wal: true, load_vec: true)
       email_ds = NittyMail::DB.ensure_schema!(db)
-      NittyMail::DB.ensure_vec_tables!(db, dimension: settings.dimension)
+
+      # Handle regenerate option by dropping existing vector data for this model
+      if settings.regenerate
+        puts "Regenerating embeddings: deleting existing vector data for model '#{settings.model}'..."
+        db.transaction do
+          # Delete vector metadata for this model
+          deleted_meta = db[:email_vec_meta].where(model: settings.model).delete
+          puts "Deleted #{deleted_meta} existing embedding metadata records"
+
+          # Drop and recreate vector tables to clear all vector data
+          # This is more efficient than trying to delete specific vectors
+          begin
+            db.drop_table?(:email_vec)
+            puts "Dropped email_vec table"
+          rescue => e
+            puts "Warning: Failed to drop email_vec table: #{e.message}"
+          end
+        end
+
+        # Recreate the vector tables after dropping
+        puts "Recreating vector tables..."
+        NittyMail::DB.ensure_vec_tables!(db, dimension: settings.dimension)
+        puts "Vector tables recreated successfully"
+      else
+        # Normal case: just ensure tables exist
+        NittyMail::DB.ensure_vec_tables!(db, dimension: settings.dimension)
+      end
 
       ds = email_ds
       ds = ds.where(address: settings.address_filter) if settings.address_filter && !settings.address_filter.strip.empty?
@@ -58,25 +85,31 @@ module NittyMail
       stop_requested = false
       original_int_handler = trap("INT") { stop_requested = true }
       original_term_handler = trap("TERM") { stop_requested = true }
-      # Calculate total emails needing embeddings with a simple query
-      # Find emails that don't have ANY of the requested embedding types
-      total_emails_without_embeddings = ds.where(
-        ~ds.db[:email_vec_meta].where(
-          email_id: Sequel[:email][:id],
-          item_type: settings.item_types.map(&:to_s),
-          model: settings.model
-        ).exists
-      ).count
+      # Calculate total emails needing embeddings
+      if settings.regenerate
+        # When regenerating, process all emails since we cleared existing embeddings
+        total_emails_without_embeddings = total_emails
+        puts "Regenerating embeddings for all #{total_emails} emails"
+      else
+        # Find emails that don't have ANY of the requested embedding types
+        total_emails_without_embeddings = ds.where(
+          ~ds.db[:email_vec_meta].where(
+            email_id: Sequel[:email][:id],
+            item_type: settings.item_types.map(&:to_s),
+            model: settings.model
+          ).exists
+        ).count
 
-      if total_emails_without_embeddings == 0
-        puts "No embedding jobs needed - all emails already have embeddings for requested item types."
-        # Clean up database connection on early return
-        begin
-          db&.disconnect
-        rescue => e
-          warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
+        if total_emails_without_embeddings == 0
+          puts "No embedding jobs needed - all emails already have embeddings for requested item types."
+          # Clean up database connection on early return
+          begin
+            db&.disconnect
+          rescue => e
+            warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
+          end
+          return
         end
-        return
       end
 
       # Continuous processing: persistent workers with streaming job queue
@@ -146,7 +179,15 @@ module NittyMail
             end
             break if job == :__STOP__
             begin
-              vector = fetch_with_retry(ollama_host: settings.ollama_host, model: settings.model, text: job[:text], retry_attempts: settings.retry_attempts, stop_requested: -> { stop_requested })
+              # Use search prompt optimization when regenerating embeddings (this is the key improvement!)
+              vector = fetch_with_retry(
+                ollama_host: settings.ollama_host,
+                model: settings.model,
+                text: job[:text],
+                retry_attempts: settings.retry_attempts,
+                stop_requested: -> { stop_requested },
+                use_search_prompt: settings.regenerate
+              )
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
               overall_progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
@@ -161,12 +202,16 @@ module NittyMail
         ds.each_slice(batch_size_lookup) do |email_batch|
           break if stop_requested
 
-          # Build bulk lookup for this batch of emails
-          batch_ids = email_batch.map { |row| row[:id] }
-          existing_embeddings = db[:email_vec_meta]
-            .where(model: settings.model, item_type: settings.item_types.map(&:to_s), email_id: batch_ids)
-            .select(:email_id, :item_type)
-            .to_hash_groups(:email_id, :item_type)
+          # Build bulk lookup for this batch of emails (skip if regenerating)
+          existing_embeddings = if settings.regenerate
+            {} # Empty hash - no existing embeddings to check
+          else
+            batch_ids = email_batch.map { |row| row[:id] }
+            db[:email_vec_meta]
+              .where(model: settings.model, item_type: settings.item_types.map(&:to_s), email_id: batch_ids)
+              .select(:email_id, :item_type)
+              .to_hash_groups(:email_id, :item_type)
+          end
 
           # Queue jobs for this batch (workers process immediately)
           email_batch.each do |row|
@@ -176,12 +221,12 @@ module NittyMail
 
             if settings.item_types.include?("subject")
               subj = row[:subject].to_s
-              if !subj.nil? && !subj.empty? && !existing_for_email.include?("subject")
+              if !subj.nil? && !subj.empty? && (settings.regenerate || !existing_for_email.include?("subject"))
                 job_queue << {email_id: email_id, item_type: :subject, text: subj}
               end
             end
             if settings.item_types.include?("body")
-              if !existing_for_email.include?("body")
+              if settings.regenerate || !existing_for_email.include?("body")
                 raw = row[:encoded]
                 mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
                 body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
@@ -247,7 +292,7 @@ module NittyMail
 
         # Ensure progress bar finishes cleanly
         begin
-          progress&.finish
+          overall_progress&.finish
         rescue => e
           warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
         end
@@ -317,11 +362,16 @@ module NittyMail
       !db[:email_vec_meta].where(email_id: email_id, item_type: item_type.to_s, model: model).first
     end
 
-    def self.fetch_with_retry(ollama_host:, model:, text:, retry_attempts: 3, stop_requested: nil)
+    def self.fetch_with_retry(ollama_host:, model:, text:, retry_attempts: 3, stop_requested: nil, use_search_prompt: false)
       attempts = 0
       loop do
         return nil if stop_requested&.call
-        return NittyMail::Embeddings.fetch_embedding(ollama_host: ollama_host, model: model, text: text)
+        return NittyMail::Embeddings.fetch_embedding(
+          ollama_host: ollama_host,
+          model: model,
+          text: text,
+          use_search_prompt: use_search_prompt
+        )
       rescue OpenSSL::SSL::SSLError, IOError, Errno::ECONNRESET, Net::OpenTimeout, Net::ReadTimeout => e
         return nil if stop_requested&.call
         attempts += 1
