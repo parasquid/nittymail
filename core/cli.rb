@@ -161,20 +161,12 @@ class NittyMailCLI < Thor
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
 
-    NittyMail::Embed.perform(
-      database_path: database_path,
-      ollama_host: ollama_host,
-      model: model,
-      dimension: dimension,
-      item_types: item_types,
-      address_filter: address_filter,
-      limit: limit,
-      offset: offset,
-      quiet: quiet,
-      threads_count: threads_count,
-      retry_attempts: retry_attempts,
-      batch_size: batch_size
+    settings = NittyMail::Embed::Settings.new(
+      database_path:, ollama_host:, model:, dimension:, item_types:,
+      address_filter:, limit:, offset:, quiet:, threads_count:,
+      retry_attempts:, batch_size:
     )
+    NittyMail::Embed.perform(settings)
   end
 
   desc "enrich", "Extract envelope/body metadata from stored raw messages and persist to the email table"
@@ -233,16 +225,11 @@ class NittyMailCLI < Thor
       exit 1
     end
 
-    response = NittyMail::Query.perform(
-      database_path: database_path,
-      address: address,
-      ollama_host: ollama_host,
-      model: model,
-      prompt: prompt,
-      default_limit: default_limit,
-      quiet: quiet,
-      debug: debug
+    settings = NittyMail::Query::Settings.new(
+      database_path:, address:, ollama_host:, model:, prompt:,
+      default_limit:, quiet:, debug:
     )
+    response = NittyMail::Query.perform(settings)
     puts response
   end
 end
