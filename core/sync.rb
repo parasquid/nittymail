@@ -96,28 +96,76 @@ end
 
 module NittyMail
   class Sync
-    def self.perform(imap_address:, imap_password:, database_path:, threads_count: 1, mailbox_threads: 1, purge_old_validity: false, auto_confirm: false, fetch_batch_size: 100, ignore_mailboxes: [], only_mailboxes: [], strict_errors: false, retry_attempts: 3, prune_missing: false, quiet: false, sqlite_wal: true)
-      new.perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, only_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
+    # Configuration object to encapsulate all sync settings
+    class Settings
+      attr_reader :imap_address, :imap_password, :database_path, :threads_count,
+                  :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
+                  :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
+                  :prune_missing, :quiet, :sqlite_wal
+
+      def initialize(
+        imap_address:,
+        imap_password:,
+        database_path:,
+        threads_count: 1,
+        mailbox_threads: 1,
+        purge_old_validity: false,
+        auto_confirm: false,
+        fetch_batch_size: 100,
+        ignore_mailboxes: [],
+        only_mailboxes: [],
+        strict_errors: false,
+        retry_attempts: 3,
+        prune_missing: false,
+        quiet: false,
+        sqlite_wal: true
+      )
+        @imap_address = imap_address
+        @imap_password = imap_password
+        @database_path = database_path
+        @threads_count = threads_count
+        @mailbox_threads = mailbox_threads
+        @purge_old_validity = purge_old_validity
+        @auto_confirm = auto_confirm
+        @fetch_batch_size = fetch_batch_size
+        @ignore_mailboxes = ignore_mailboxes
+        @only_mailboxes = only_mailboxes
+        @strict_errors = strict_errors
+        @retry_attempts = retry_attempts
+        @prune_missing = prune_missing
+        @quiet = quiet
+        @sqlite_wal = sqlite_wal
+      end
+    end
+    def self.perform(settings_or_options)
+      if settings_or_options.is_a?(Settings)
+        new.perform_sync(settings_or_options)
+      else
+        # Legacy support: if passed a hash with keyword arguments, create Settings object
+        new.perform_sync(Settings.new(**settings_or_options))
+      end
     end
 
-    def perform_sync(imap_address, imap_password, database_path, threads_count, mailbox_threads, purge_old_validity, auto_confirm, fetch_batch_size, ignore_mailboxes, only_mailboxes, strict_errors, retry_attempts, prune_missing, quiet, sqlite_wal)
-      @strict_errors = !!strict_errors
-      @retry_attempts = retry_attempts.to_i
-      @prune_missing = !!prune_missing
-      @quiet = !!quiet
+    def perform_sync(settings)
+      @strict_errors = !!settings.strict_errors
+      @retry_attempts = settings.retry_attempts.to_i
+      @prune_missing = !!settings.prune_missing
+      @quiet = !!settings.quiet
+      
       # Ensure threads count is valid
-      threads_count = 1 if threads_count < 1
-      fetch_batch_size = 1 if fetch_batch_size.to_i < 1
+      threads_count = settings.threads_count < 1 ? 1 : settings.threads_count
+      fetch_batch_size = settings.fetch_batch_size.to_i < 1 ? 1 : settings.fetch_batch_size.to_i
       Thread.abort_on_exception = true if threads_count > 1
+      
       Mail.defaults do
         retriever_method :imap, address: "imap.gmail.com",
           port: 993,
-          user_name: imap_address,
-          password: imap_password,
+          user_name: settings.imap_address,
+          password: settings.imap_password,
           enable_ssl: true
       end
 
-      @db = NittyMail::DB.connect(database_path, wal: sqlite_wal, load_vec: false)
+      @db = NittyMail::DB.connect(settings.database_path, wal: settings.sqlite_wal, load_vec: false)
       email = NittyMail::DB.ensure_schema!(@db)
       NittyMail::DB.ensure_query_indexes!(@db)
 
@@ -126,10 +174,8 @@ module NittyMail
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
 
       # Include-only filter (if provided), then filter out ignored mailboxes if configured
-      only_mailboxes ||= []
-      ignore_mailboxes ||= []
-      only_mailboxes = only_mailboxes.compact.map(&:to_s).map(&:strip).reject(&:empty?)
-      ignore_mailboxes = ignore_mailboxes.compact.map(&:to_s).map(&:strip).reject(&:empty?)
+      only_mailboxes = (settings.only_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
+      ignore_mailboxes = (settings.ignore_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
 
       if only_mailboxes.any?
         include_regexes = only_mailboxes.map do |pat|
@@ -171,7 +217,7 @@ module NittyMail
       end
 
       # Preflight mailbox checks (uidvalidity and UID diff) in parallel
-      mailbox_threads = mailbox_threads.to_i
+      mailbox_threads = settings.mailbox_threads.to_i
       mailbox_threads = 1 if mailbox_threads < 1
 
       preflight_results = []
@@ -192,7 +238,7 @@ module NittyMail
 
       preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
         Thread.new do
-          run_preflight_worker(imap_address, imap_password, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
+          run_preflight_worker(settings.imap_address, settings.imap_password, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
         end
       end
       preflight_workers.each(&:join)
@@ -223,8 +269,8 @@ module NittyMail
         )
 
         result = NittyMail::MailboxRunner.run(
-          imap_address:,
-          imap_password:,
+          imap_address: settings.imap_address,
+          imap_password: settings.imap_password,
           email_ds: email,
           mbox_name:,
           uidvalidity:,
@@ -257,9 +303,9 @@ module NittyMail
         other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
         unless other_validities.empty?
           do_purge = false
-          if purge_old_validity
+          if settings.purge_old_validity
             do_purge = true
-          elsif $stdin.tty? && !auto_confirm
+          elsif $stdin.tty? && !settings.auto_confirm
             print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
             ans = $stdin.gets&.strip&.downcase
             do_purge = %w[y yes].include?(ans)

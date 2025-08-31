@@ -107,7 +107,7 @@ class NittyMailCLI < Thor
     end
 
     # Perform the sync using the library
-    NittyMail::Sync.perform(
+    settings = NittyMail::Sync::Settings.new(
       imap_address:,
       imap_password:,
       database_path:,
@@ -124,6 +124,7 @@ class NittyMailCLI < Thor
       quiet:,
       sqlite_wal:
     )
+    NittyMail::Sync.perform(settings)
   end
 
   desc "version", "Show version information"
