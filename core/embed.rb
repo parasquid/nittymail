@@ -61,8 +61,8 @@ module NittyMail
 
       # Stream jobs with bounded queue instead of pre-planning entire dataset
       stop_requested = false
-      trap("INT") { stop_requested = true }
-      trap("TERM") { stop_requested = true }
+      original_int_handler = trap("INT") { stop_requested = true }
+      original_term_handler = trap("TERM") { stop_requested = true }
       progress = ProgressBar.create(title: "embed (jobs)", total: 1, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
@@ -155,13 +155,41 @@ module NittyMail
         stop_requested = true
         progress.log("Interrupt received, stopping...")
       ensure
+        # Restore original signal handlers
+        trap("INT", original_int_handler)
+        trap("TERM", original_term_handler)
+        
+        # Clean up threads
         settings.threads_count.to_i.times { job_queue << :__STOP__ }
         threads.each(&:join)
         write_queue << :__STOP__
         writer.join
-        progress.finish
+        
+        # Ensure progress bar finishes cleanly
+        begin
+          progress&.finish
+        rescue => e
+          warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
+        end
+        
         if stop_requested
           puts "Interrupted: embedded #{embedded_done}/#{progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
+        else
+          puts "Processing complete. Finalizing database writes (WAL checkpoint)..." unless settings.quiet
+        end
+      end
+    ensure
+      # Force WAL checkpoint and disconnect
+      begin
+        db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
+        puts "Database finalization complete." unless settings.quiet
+      rescue => e
+        warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
+      ensure
+        begin
+          db&.disconnect
+        rescue => e
+          warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
         end
       end
     end
