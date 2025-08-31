@@ -57,7 +57,7 @@ module NittyMail
         rfc822_size = raw&.bytesize
 
         updates = {
-          rfc822_size: rfc822_size,
+          rfc822_size:,
           envelope_to: env_to,
           envelope_cc: env_cc,
           envelope_bcc: env_bcc,
