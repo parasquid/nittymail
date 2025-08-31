@@ -458,6 +458,11 @@ docker compose run --rm \
   ruby ./cli.rb embed --regenerate
 ```
 
+Performance tips:
+- Increase embedding workers: add `--threads 4` (or more) to keep the writer busy.
+- Batch DB writes: add `--write-batch-size 200` (or 500/1000) to reduce transaction overhead.
+- Control queueing window: raise `--batch-size` (default 1000) to avoid worker stalls when writes spike.
+
 
 ## Troubleshooting
 

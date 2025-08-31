@@ -104,6 +104,7 @@ Flags and environment:
 - `--threads`: number of embedding worker threads.
 - `--retry-attempts`: max embedding retry attempts.
 - `--batch-size` or `EMBED_BATCH_SIZE`: max in-flight jobs enqueued at a time (default `1000`).
+- `--write-batch-size` or `EMBED_WRITE_BATCH_SIZE`: number of embeddings written per DB transaction batch (default `200`). Larger values reduce transaction overhead.
 - `--limit`, `--offset`, `--quiet`: processing controls.
 - `--regenerate`: regenerate ALL embeddings for the specified model.
 - `--no_search_prompt`: disable search prompt optimization.
@@ -132,7 +133,11 @@ Graceful stop: Pressing Ctrl‑C requests a clean shutdown (stops enqueuing, fin
 ## Notes & Tips
 
 - Dimension lock-in: the vec table’s dimension is fixed at creation; keep `SQLITE_VEC_DIMENSION` consistent with your model.
-- Performance: wrap inserts in transactions. WAL mode is enabled by default for better write throughput.
+- Performance:
+  - Increase `--threads` to keep the writer busy (e.g., 4–8).
+  - Increase `--write-batch-size` (e.g., 200–1000) to reduce transaction overhead.
+  - WAL mode is enabled by default with `synchronous=NORMAL` for faster writes.
+  - Prefer local SSD for the database file; avoid networked filesystems.
 - Errors: if Ollama returns an error or the embedding dimension doesn’t match, the run logs the error. You can raise retry limits with `--retry-attempts` on the embed command; fatal mismatches are skipped and reported.
 - Search Prompt Optimization: By default, the `embed` command uses a search-optimized prompt to generate embeddings. If you want to disable this and use the raw text for embeddings, use the `--no_search_prompt` flag.
 - References:
