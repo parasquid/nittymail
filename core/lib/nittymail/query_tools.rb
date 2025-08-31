@@ -451,10 +451,10 @@ module NittyMail
       limit = ((limit.to_i <= 0) ? 100 : limit.to_i)
 
       begin
-        # Get query embedding using configured model/dimension
+        # Get query embedding using configured model/dimension with search optimization
         model = ENV["EMBEDDING_MODEL"] || "mxbai-embed-large"
         dimension = (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i
-        vector = NittyMail::Embeddings.fetch_embedding(ollama_host: ollama_host, model: model, text: query.to_s)
+        vector = NittyMail::Embeddings.fetch_embedding(ollama_host: ollama_host, model: model, text: query.to_s, use_search_prompt: true)
         raise "embedding dimension mismatch" unless vector.length == dimension
         packed = vector.pack("f*")
 

@@ -11,16 +11,30 @@ module NittyMail
     module_function
 
     # Fetch a single embedding vector from an Ollama server
-    def fetch_embedding(ollama_host:, model:, text:)
+    #
+    # Parameters:
+    #   - ollama_host: Base URL of Ollama server
+    #   - model: Embedding model name
+    #   - text: Text to embed
+    #   - use_search_prompt: If true, prepends mxbai search optimization prompt for query embeddings
+    def fetch_embedding(ollama_host:, model:, text:, use_search_prompt: false)
       raise ArgumentError, "ollama_host is required" if ollama_host.nil? || ollama_host.strip.empty?
       base = URI.parse(ollama_host.strip)
       unless base.is_a?(URI::HTTP) && base.host
         raise ArgumentError, "ollama_host must start with http:// or https:// and include a host (e.g., http://localhost:11434)"
       end
+
+      # Apply mxbai-embed-large optimization prompt for search queries
+      prompt_text = if use_search_prompt && model.include?("mxbai")
+        "Represent this sentence for searching relevant passages: #{text}"
+      else
+        text.to_s
+      end
+
       uri = URI.join(base.to_s, "/api/embeddings")
       req = Net::HTTP::Post.new(uri)
       req["Content-Type"] = "application/json"
-      req.body = {model: model, prompt: text.to_s}.to_json
+      req.body = {model: model, prompt: prompt_text}.to_json
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
       res = http.request(req)
