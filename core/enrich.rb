@@ -32,54 +32,53 @@ module NittyMail
       begin
         ds.each do |row|
           break if stop_requested
-        raw = row[:encoded]
-        mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
+          raw = row[:encoded]
+          mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
 
-        # Reconstruct envelope with field-specific error handling
-        env_to = NittyMail::Util.safe_json(mail&.to, on_error: "enrich to field error id=#{row[:id]}: encoding error")
-        
-        env_cc = NittyMail::Util.safe_json(mail&.cc, on_error: "enrich cc field error id=#{row[:id]}: encoding error")
-        
-        env_bcc = NittyMail::Util.safe_json(mail&.bcc, on_error: "enrich bcc field error id=#{row[:id]}: encoding error")
-        
-        env_reply_to = NittyMail::Util.safe_json(mail&.reply_to, on_error: "enrich reply_to field error id=#{row[:id]}: encoding error")
-        
-        in_reply_to = begin
-          NittyMail::Util.safe_utf8(mail&.in_reply_to)
-        rescue => e
-          progress.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
-          ""
-        end
-        
-        references = NittyMail::Util.safe_json(mail&.references, on_error: "enrich references field error id=#{row[:id]}: encoding error")
+          # Reconstruct envelope with field-specific error handling
+          env_to = NittyMail::Util.safe_json(mail&.to, on_error: "enrich to field error id=#{row[:id]}: encoding error")
 
-        # RFC822 size from raw bytes
-        rfc822_size = raw&.bytesize
+          env_cc = NittyMail::Util.safe_json(mail&.cc, on_error: "enrich cc field error id=#{row[:id]}: encoding error")
 
-        updates = {
-          rfc822_size:,
-          envelope_to: env_to,
-          envelope_cc: env_cc,
-          envelope_bcc: env_bcc,
-          envelope_reply_to: env_reply_to,
-          envelope_in_reply_to: in_reply_to,
-          envelope_references: references
-        }
-        
-        # Retry database updates on lock errors
-        retries = 3
-        begin
-          db[:email].where(id: row[:id]).update(updates)
-        rescue Sequel::SerializationFailure => e
-          retries -= 1
-          if retries > 0 && e.message.include?("database is locked")
-            sleep(rand(0.1..0.5)) # Random backoff
-            retry
-          else
-            raise e
+          env_bcc = NittyMail::Util.safe_json(mail&.bcc, on_error: "enrich bcc field error id=#{row[:id]}: encoding error")
+
+          env_reply_to = NittyMail::Util.safe_json(mail&.reply_to, on_error: "enrich reply_to field error id=#{row[:id]}: encoding error")
+
+          in_reply_to = begin
+            NittyMail::Util.safe_utf8(mail&.in_reply_to)
+          rescue => e
+            progress.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+            ""
           end
-        end
-        
+
+          references = NittyMail::Util.safe_json(mail&.references, on_error: "enrich references field error id=#{row[:id]}: encoding error")
+
+          # RFC822 size from raw bytes
+          rfc822_size = raw&.bytesize
+
+          updates = {
+            rfc822_size:,
+            envelope_to: env_to,
+            envelope_cc: env_cc,
+            envelope_bcc: env_bcc,
+            envelope_reply_to: env_reply_to,
+            envelope_in_reply_to: in_reply_to,
+            envelope_references: references
+          }
+
+          # Retry database updates on lock errors
+          retries = 3
+          begin
+            db[:email].where(id: row[:id]).update(updates)
+          rescue Sequel::SerializationFailure => e
+            retries -= 1
+            if retries > 0 && e.message.include?("database is locked")
+              sleep(rand(0.1..0.5)) # Random backoff
+              retry
+            else
+              raise e
+            end
+          end
         rescue Mail::Field::NilParseError, ArgumentError => e
           progress.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
         rescue => e

@@ -798,14 +798,14 @@ module NittyMail
 
       # SQLite datetime functions to extract hour and day of week
       heatmap_data = query.select(
-        Sequel.function(:strftime, '%H', :date).as(:hour_of_day),
-        Sequel.function(:strftime, '%w', :date).as(:day_of_week),
-        Sequel.function(:count, Sequel.lit('*')).as(:count)
+        Sequel.function(:strftime, "%H", :date).as(:hour_of_day),
+        Sequel.function(:strftime, "%w", :date).as(:day_of_week),
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
       ).group(:hour_of_day, :day_of_week).all
 
       # Convert day_of_week numbers to names (0=Sunday, 1=Monday, etc.)
       days = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday]
-      
+
       result = heatmap_data.map do |row|
         {
           hour: row[:hour_of_day].to_i,
@@ -859,15 +859,15 @@ module NittyMail
       query = query.where(Sequel.ilike(:from, "%#{sender}%")) if sender
 
       date_format = case period.to_s.downcase
-      when "daily" then '%Y-%m-%d'
-      when "yearly" then '%Y'
-      else '%Y-%m' # monthly default
+      when "daily" then "%Y-%m-%d"
+      when "yearly" then "%Y"
+      else "%Y-%m" # monthly default
       end
 
       result = query.select(
         :from,
         Sequel.function(:strftime, date_format, :date).as(:period),
-        Sequel.function(:count, Sequel.lit('*')).as(:count)
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
       ).group(:from, :period).order(:from, :period).limit(limit).all
 
       safe_encode_result(result)
@@ -877,7 +877,7 @@ module NittyMail
       # Email volume trends by month/season over multiple years
       query = db[:email]
       query = query.where(address: address) if address
-      
+
       # Filter to recent years if specified
       if years_back
         cutoff_date = Date.today << (years_back * 12) # Go back N years
@@ -885,17 +885,17 @@ module NittyMail
       end
 
       monthly_data = query.select(
-        Sequel.function(:strftime, '%Y', :date).as(:year),
-        Sequel.function(:strftime, '%m', :date).as(:month),
-        Sequel.function(:count, Sequel.lit('*')).as(:count)
+        Sequel.function(:strftime, "%Y", :date).as(:year),
+        Sequel.function(:strftime, "%m", :date).as(:month),
+        Sequel.function(:count, Sequel.lit("*")).as(:count)
       ).group(:year, :month).order(:year, :month).all
 
       # Add season classification
       seasons = {
-        '12' => 'Winter', '01' => 'Winter', '02' => 'Winter',
-        '03' => 'Spring', '04' => 'Spring', '05' => 'Spring',
-        '06' => 'Summer', '07' => 'Summer', '08' => 'Summer',
-        '09' => 'Fall', '10' => 'Fall', '11' => 'Fall'
+        "12" => "Winter", "01" => "Winter", "02" => "Winter",
+        "03" => "Spring", "04" => "Spring", "05" => "Spring",
+        "06" => "Summer", "07" => "Summer", "08" => "Summer",
+        "09" => "Fall", "10" => "Fall", "11" => "Fall"
       }
 
       result = monthly_data.map do |row|
@@ -915,18 +915,18 @@ module NittyMail
       query = db[:email].select_all(:email)
       query = query.where(address: address) if address
 
-      case size_category.to_s.downcase
+      query = case size_category.to_s.downcase
       when "small"
-        query = query.where { Sequel.function(:length, :encoded) < 10240 } # <10KB
+        query.where { Sequel.function(:length, :encoded) < 10240 } # <10KB
       when "medium"
-        query = query.where { (Sequel.function(:length, :encoded) >= 10240) & (Sequel.function(:length, :encoded) < 102400) } # 10KB-100KB  
+        query.where { (Sequel.function(:length, :encoded) >= 10240) & (Sequel.function(:length, :encoded) < 102400) } # 10KB-100KB
       when "large"
-        query = query.where { Sequel.function(:length, :encoded) >= 102400 } # >100KB
+        query.where { Sequel.function(:length, :encoded) >= 102400 } # >100KB
       when "huge"
-        query = query.where { Sequel.function(:length, :encoded) >= 1048576 } # >1MB
+        query.where { Sequel.function(:length, :encoded) >= 1048576 } # >1MB
       else
         # Default to large
-        query = query.where { Sequel.function(:length, :encoded) >= 102400 }
+        query.where { Sequel.function(:length, :encoded) >= 102400 }
       end
 
       query = query.select_append(Sequel.function(:length, :encoded).as(:size_bytes))
@@ -942,25 +942,25 @@ module NittyMail
       query = db[:email]
       query = query.where(address: address) if address
 
-      field = similarity_field.to_s == "message_id" ? :message_id : :subject
-      
+      field = (similarity_field.to_s == "message_id") ? :message_id : :subject
+
       # Find emails with identical subjects/message_ids
       duplicates = query.select(
         field,
-        Sequel.function(:count, Sequel.lit('*')).as(:count),
+        Sequel.function(:count, Sequel.lit("*")).as(:count),
         Sequel.function(:group_concat, :id).as(:email_ids)
       ).where(Sequel.~(field => nil))
-      .group(field)
-      .having { count(Sequel.lit('*')) > 1 }
-      .order(Sequel.desc(:count))
-      .limit(limit)
-      .all
+        .group(field)
+        .having { count(Sequel.lit("*")) > 1 }
+        .order(Sequel.desc(:count))
+        .limit(limit)
+        .all
 
       result = duplicates.map do |dup|
         {
           similarity_field => dup[field],
-          duplicate_count: dup[:count],
-          email_ids: dup[:email_ids]&.split(',')&.map(&:to_i) || []
+          :duplicate_count => dup[:count],
+          :email_ids => dup[:email_ids]&.split(",")&.map(&:to_i) || []
         }
       end
 
@@ -972,7 +972,7 @@ module NittyMail
       # This is a simplified version that searches in the raw encoded content
       query = db[:email].select_all(:email)
       query = query.where(address: address) if address
-      
+
       if header_pattern
         # Search in the encoded field (which contains full RFC822 message including headers)
         query = query.where(Sequel.ilike(:encoded, "%#{header_pattern}%"))
@@ -995,24 +995,24 @@ module NittyMail
         Sequel.|(Sequel.ilike(:subject, "%#{keyword}%"), Sequel.ilike(:encoded, "%#{keyword}%"))
       end
 
-      if match_mode.to_s.downcase == "all"
+      combined_condition = if match_mode.to_s.downcase == "all"
         # All keywords must match
-        combined_condition = keyword_conditions.reduce { |acc, cond| acc & cond }
+        keyword_conditions.reduce { |acc, cond| acc & cond }
       else
         # Any keyword matches (default)
-        combined_condition = keyword_conditions.reduce { |acc, cond| acc | cond }
+        keyword_conditions.reduce { |acc, cond| acc | cond }
       end
 
       query = query.where(combined_condition) if combined_condition
       query = query.limit(limit)
-      
+
       emails = query.all.map { |row| symbolize_keys(row.to_h) }
 
       # Add keyword match scoring
       result = emails.map do |email|
         subject_text = (email[:subject] || "").downcase
         body_text = (email[:encoded] || "").downcase
-        
+
         keyword_matches = keywords.count do |keyword|
           subject_text.include?(keyword.downcase) || body_text.include?(keyword.downcase)
         end
@@ -1032,36 +1032,36 @@ module NittyMail
 
     def execute_sql_query(db:, address: nil, sql_query: nil, limit: 1000)
       return safe_encode_result({error: "SQL query is required"}) if sql_query.nil? || sql_query.strip.empty?
-      
+
       # Security: Only allow SELECT statements and block destructive operations
       normalized_query = sql_query.strip.downcase
-      
+
       # Must start with SELECT or WITH (for CTEs)
-      unless normalized_query.start_with?('select') || normalized_query.start_with?('with')
+      unless normalized_query.start_with?("select", "with")
         return safe_encode_result({
           error: "Only SELECT queries and WITH expressions (CTEs) are allowed. Query must start with SELECT or WITH.",
           example: "SELECT * FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
         })
       end
-      
+
       # More precise security check: look for forbidden SQL statements at word boundaries
       # This prevents blocking legitimate searches for emails containing these words
       forbidden_patterns = [
         # Destructive operations that should appear as SQL commands (word boundaries)
         '\binsert\s+into\b', '\bupdate\s+\w+\s+set\b', '\bdelete\s+from\b',
-        '\bdrop\s+(table|index|view|database)\b', '\bcreate\s+(table|index|view|database)\b', 
+        '\bdrop\s+(table|index|view|database)\b', '\bcreate\s+(table|index|view|database)\b',
         '\balter\s+table\b', '\btruncate\s+table\b', '\breplace\s+into\b',
-        
+
         # Dangerous pragmas and commands
         '\bpragma\b', '\battach\s+database\b', '\bdetach\s+database\b',
-        
+
         # Transaction commands
         '\bbegin\s+(transaction|immediate|exclusive)\b', '\bcommit\b', '\brollback\b',
         '\bsavepoint\b', '\brelease\s+savepoint\b'
       ]
-      
+
       forbidden_patterns.each do |pattern|
-        if normalized_query.match(/#{pattern}/i)
+        if /#{pattern}/i.match?(normalized_query)
           matched_text = normalized_query.match(/#{pattern}/i)[0]
           return safe_encode_result({
             error: "Forbidden SQL operation detected: '#{matched_text}'. Only SELECT queries are allowed.",
@@ -1070,27 +1070,26 @@ module NittyMail
           })
         end
       end
-      
+
       # Add LIMIT clause if not present to prevent runaway queries
-      unless normalized_query.include?('limit')
+      unless normalized_query.include?("limit")
         sql_query += " LIMIT #{limit}"
       end
-      
+
       begin
         # Execute the query
         result = db.fetch(sql_query).all
-        
+
         # Convert to hash array and ensure encoding safety
         rows = result.map { |row| symbolize_keys(row.to_h) }
-        
+
         response = {
           query: sql_query,
           row_count: rows.length,
           rows: rows
         }
-        
+
         safe_encode_result(response)
-        
       rescue Sequel::DatabaseError => e
         safe_encode_result({
           error: "SQL execution error: #{e.message}",

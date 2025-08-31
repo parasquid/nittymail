@@ -99,7 +99,7 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     - Description of what was changed.
     EOF
     ```
-3.  **Co-Author Lines**: Do **NOT** include co-author lines (e.g., `Co-Authored-By: Claude <noreply@anthropic.com>`) in commit messages.
+3.  **Co-Author Lines**: Do **NOT** include co-author lines (e.g., `Co-Authored-By: Claude <noreply@anthropic.com>`) or generated lines (e.g., `🤖 Generated with [Claude Code]`) in commit messages.
 
 ### Ruby Style Guidelines (AI Agents)
 

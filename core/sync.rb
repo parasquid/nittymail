@@ -99,9 +99,9 @@ module NittyMail
     # Configuration object to encapsulate all sync settings
     class Settings
       attr_accessor :imap_address, :imap_password, :database_path, :threads_count,
-                    :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
-                    :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
-                    :prune_missing, :quiet, :sqlite_wal
+        :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
+        :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
+        :prune_missing, :quiet, :sqlite_wal
 
       DEFAULTS = {
         threads_count: 1,
@@ -122,7 +122,7 @@ module NittyMail
         # Validate required parameters
         required = [:imap_address, :imap_password, :database_path]
         missing = required - options.keys
-        raise ArgumentError, "Missing required options: #{missing.join(', ')}" unless missing.empty?
+        raise ArgumentError, "Missing required options: #{missing.join(", ")}" unless missing.empty?
 
         # Apply defaults and set instance variables
         DEFAULTS.merge(options).each do |key, value|
@@ -147,8 +147,8 @@ module NittyMail
       @quiet = !!settings.quiet
 
       # Ensure threads count is valid
-      threads_count = settings.threads_count < 1 ? 1 : settings.threads_count
-      fetch_batch_size = settings.fetch_batch_size.to_i < 1 ? 1 : settings.fetch_batch_size.to_i
+      threads_count = (settings.threads_count < 1) ? 1 : settings.threads_count
+      fetch_batch_size = (settings.fetch_batch_size.to_i < 1) ? 1 : settings.fetch_batch_size.to_i
       Thread.abort_on_exception = true if threads_count > 1
 
       Mail.defaults do

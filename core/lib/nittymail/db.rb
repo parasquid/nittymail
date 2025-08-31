@@ -45,7 +45,10 @@ module NittyMail
         # Best-effort; ignore if not supported in current context
       end
 
-      unless db.table_exists?(:email)
+      if db.table_exists?(:email)
+        # Ensure new enrichment columns exist on older databases
+        ensure_enrichment_columns!(db)
+      else
         db.create_table :email do
           primary_key :id
           String :address, index: true
@@ -71,9 +74,6 @@ module NittyMail
           unique %i[mailbox uid uidvalidity]
           index %i[mailbox uidvalidity]
         end
-      else
-        # Ensure new enrichment columns exist on older databases
-        ensure_enrichment_columns!(db)
       end
 
       # Require sqlite-vec virtual tables for vector search. No fallback.

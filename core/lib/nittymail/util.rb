@@ -86,32 +86,32 @@ module NittyMail
       parts = email_string.split(/\r?\n\r?\n/, 2)
       headers = parts[0] || ""
       body = parts[1] || ""
-      
+
       # Process header lines individually to preserve valid headers
       header_lines = headers.split(/\r?\n/)
       sanitized_lines = []
-      
+
       header_lines.each do |line|
         # Skip lines that start with HTML tags (these aren't valid headers)
         if line.strip.match?(/^<[^>]+>/)
           # This is likely HTML masquerading as a header line, skip it
           next
         end
-        
+
         # For lines that contain HTML but might be valid headers, clean them up
-        if line.include?('<') && line.include?('>')
+        if line.include?("<") && line.include?(">")
           # Remove HTML tags but preserve the rest of the line structure
-          cleaned_line = line.gsub(/<[^>]*>/, ' ').gsub(/\s+/, ' ').strip
+          cleaned_line = line.gsub(/<[^>]*>/, " ").gsub(/\s+/, " ").strip
           # Only keep it if it still looks like a valid header (contains :)
-          sanitized_lines << cleaned_line if cleaned_line.include?(':')
+          sanitized_lines << cleaned_line if cleaned_line.include?(":")
         else
           # Line doesn't contain HTML, keep as-is
           sanitized_lines << line
         end
       end
-      
+
       sanitized_headers = sanitized_lines.join("\r\n")
-      
+
       # Reconstruct email with sanitized headers
       if body.empty?
         sanitized_headers
