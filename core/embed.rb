@@ -11,7 +11,7 @@ require_relative "lib/nittymail/settings"
 module EmbedSettings
   class Settings < NittyMail::BaseSettings
     attr_accessor :ollama_host, :model, :dimension, :item_types, :address_filter,
-      :limit, :offset, :batch_size, :regenerate, :use_search_prompt
+      :limit, :offset, :batch_size, :regenerate, :use_search_prompt, :write_batch_size
 
     REQUIRED = [:database_path, :ollama_host].freeze
 
@@ -23,6 +23,7 @@ module EmbedSettings
       limit: nil,
       offset: nil,
       batch_size: 1000,
+      write_batch_size: (ENV["EMBED_WRITE_BATCH_SIZE"] || "200").to_i,
       regenerate: false,
       use_search_prompt: true
     }).freeze
@@ -130,7 +131,7 @@ module NittyMail
       # Start persistent writer thread
       writer = Thread.new do
         batch = []
-        batch_size = 50
+        batch_size = [settings.write_batch_size.to_i, 1].max
         last_flush = Time.now
 
         loop do
@@ -208,26 +209,32 @@ module NittyMail
             {} # Empty hash - no existing embeddings to check
           else
             batch_ids = email_batch.map { |row| row[:id] }
-            db[:email_vec_meta]
+            rows = db[:email_vec_meta]
               .where(model: settings.model, item_type: settings.item_types.map(&:to_s), email_id: batch_ids)
-              .select(:email_id, :item_type)
-              .to_hash_groups(:email_id, :item_type)
+              .select(:email_id, :item_type, :vec_rowid)
+              .all
+            # Map to { email_id => { 'subject' => vec_rowid, 'body' => vec_rowid } }
+            h = Hash.new { |hh, k| hh[k] = {} }
+            rows.each do |r|
+              h[r[:email_id]][r[:item_type]] = r[:vec_rowid]
+            end
+            h
           end
 
           # Queue jobs for this batch (workers process immediately)
           email_batch.each do |row|
             break if stop_requested
             email_id = row[:id]
-            existing_for_email = existing_embeddings[email_id] || []
+            existing_for_email = existing_embeddings[email_id] || {}
 
             if settings.item_types.include?("subject")
               subj = row[:subject].to_s
-              if !subj.nil? && !subj.empty? && (settings.regenerate || !existing_for_email.include?("subject"))
-                job_queue << {email_id: email_id, item_type: :subject, text: subj}
+              if !subj.nil? && !subj.empty? && (settings.regenerate || !existing_for_email.key?("subject"))
+                job_queue << {email_id: email_id, item_type: :subject, text: subj, vec_rowid: existing_for_email["subject"]}
               end
             end
             if settings.item_types.include?("body")
-              if settings.regenerate || !existing_for_email.include?("body")
+              if settings.regenerate || !existing_for_email.key?("body")
                 raw = row[:encoded]
                 mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
                 body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
@@ -235,7 +242,7 @@ module NittyMail
                   body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
                 end
                 if body_text && !body_text.empty?
-                  job_queue << {email_id: email_id, item_type: :body, text: body_text}
+                  job_queue << {email_id: email_id, item_type: :body, text: body_text, vec_rowid: existing_for_email["body"]}
                 end
               end
             end
@@ -333,26 +340,47 @@ module NittyMail
       end
     end
 
-    # Process a batch of embeddings in a single transaction for better performance
+    # Process a batch of embeddings in a single transaction using prepared statements
     def self.process_write_batch(db, batch, progress, settings)
       return 0 if batch.empty?
 
       processed_count = 0
 
+      # Ensure vec tables exist once per run; no per-row checks
+      NittyMail::DB.ensure_vec_tables!(db, dimension: settings.dimension)
+
       db.transaction do
-        batch.each do |job|
-          NittyMail::DB.upsert_email_embedding!(
-            db,
-            email_id: job[:email_id],
-            vector: job[:vector],
-            item_type: job[:item_type],
-            model: settings.model,
-            dimension: settings.dimension
-          )
-          progress.increment
-          processed_count += 1
-        rescue => e
-          progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+        db.synchronize do |conn|
+          begin
+            insert_vec_stmt = conn.prepare("INSERT INTO email_vec(embedding) VALUES (?)")
+            update_vec_stmt = conn.prepare("UPDATE email_vec SET embedding = ? WHERE rowid = ?")
+            insert_meta_stmt = conn.prepare("INSERT OR IGNORE INTO email_vec_meta(vec_rowid, email_id, item_type, model, dimension) VALUES (?, ?, ?, ?, ?)")
+          rescue => e
+            progress.log("db prepare error: #{e.class}: #{e.message}")
+          end
+
+          batch.each do |job|
+            packed = job[:vector].pack("f*")
+            if job[:vec_rowid]
+              update_vec_stmt.execute(SQLite3::Blob.new(packed), job[:vec_rowid])
+            else
+              conn.execute("INSERT INTO email_vec(embedding) VALUES (?)", SQLite3::Blob.new(packed))
+              new_rowid = conn.last_insert_row_id
+              insert_meta_stmt.execute(new_rowid, job[:email_id], job[:item_type].to_s, settings.model, settings.dimension)
+            end
+            progress.increment
+            processed_count += 1
+          rescue => e
+            progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+          end
+
+          begin
+            insert_vec_stmt&.close
+            update_vec_stmt&.close
+            insert_meta_stmt&.close
+          rescue => e
+            progress.log("db finalize error: #{e.class}: #{e.message}")
+          end
         end
       end
 

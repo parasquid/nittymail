@@ -149,6 +149,7 @@ class NittyMailCLI < Thor
   option :batch_size, aliases: "-b", desc: "Emails-to-queue window during embed (default: 1000)", type: :numeric
   option :regenerate, desc: "Regenerate ALL embeddings (deletes existing embeddings for this model)", type: :boolean, default: false
   option :no_search_prompt, desc: "Disable search prompt optimization (use raw text for embeddings)", type: :boolean, default: false
+  option :write_batch_size, aliases: "-W", desc: "Number of embeddings to write per DB transaction batch (default from EMBED_WRITE_BATCH_SIZE or 200)", type: :numeric
   def embed
     database_path = options[:database] || ENV["DATABASE"]
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
@@ -164,6 +165,7 @@ class NittyMailCLI < Thor
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
     regenerate = options[:regenerate]
+    write_batch_size = (options[:write_batch_size] || (ENV["EMBED_WRITE_BATCH_SIZE"] || "200").to_i).to_i
     # Search prompt is enabled by default, can be disabled via CLI option or env var
     use_search_prompt = if options[:no_search_prompt]
       false
@@ -192,7 +194,7 @@ class NittyMailCLI < Thor
     settings = EmbedSettings::Settings.new(
       database_path:, ollama_host:, model:, dimension:, item_types:,
       address_filter:, limit:, offset:, quiet:, threads_count:,
-      retry_attempts:, batch_size:, regenerate:, use_search_prompt:
+      retry_attempts:, batch_size:, regenerate:, use_search_prompt:, write_batch_size:
     )
     NittyMail::Embed.perform(settings)
   end
