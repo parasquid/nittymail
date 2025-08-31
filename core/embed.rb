@@ -253,7 +253,7 @@ module NittyMail
         end
 
         if stop_requested
-          puts "Interrupted: embedded #{embedded_done}/#{progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
+          puts "Interrupted: embedded #{embedded_done}/#{overall_progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
           # Check if there's significant WAL data to drain
           begin
             wal_info = db.fetch("PRAGMA wal_checkpoint").first
