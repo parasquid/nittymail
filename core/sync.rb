@@ -98,15 +98,12 @@ module NittyMail
   class Sync
     # Configuration object to encapsulate all sync settings
     class Settings
-      attr_reader :imap_address, :imap_password, :database_path, :threads_count,
-                  :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
-                  :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
-                  :prune_missing, :quiet, :sqlite_wal
+      attr_accessor :imap_address, :imap_password, :database_path, :threads_count,
+                    :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
+                    :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
+                    :prune_missing, :quiet, :sqlite_wal
 
-      def initialize(
-        imap_address:,
-        imap_password:,
-        database_path:,
+      DEFAULTS = {
         threads_count: 1,
         mailbox_threads: 1,
         purge_old_validity: false,
@@ -119,22 +116,18 @@ module NittyMail
         prune_missing: false,
         quiet: false,
         sqlite_wal: true
-      )
-        @imap_address = imap_address
-        @imap_password = imap_password
-        @database_path = database_path
-        @threads_count = threads_count
-        @mailbox_threads = mailbox_threads
-        @purge_old_validity = purge_old_validity
-        @auto_confirm = auto_confirm
-        @fetch_batch_size = fetch_batch_size
-        @ignore_mailboxes = ignore_mailboxes
-        @only_mailboxes = only_mailboxes
-        @strict_errors = strict_errors
-        @retry_attempts = retry_attempts
-        @prune_missing = prune_missing
-        @quiet = quiet
-        @sqlite_wal = sqlite_wal
+      }.freeze
+
+      def initialize(**options)
+        # Validate required parameters
+        required = [:imap_address, :imap_password, :database_path]
+        missing = required - options.keys
+        raise ArgumentError, "Missing required options: #{missing.join(', ')}" unless missing.empty?
+
+        # Apply defaults and set instance variables
+        DEFAULTS.merge(options).each do |key, value|
+          instance_variable_set("@#{key}", value)
+        end
       end
     end
     def self.perform(settings_or_options)
