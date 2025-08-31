@@ -92,14 +92,14 @@ module NittyMail
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
-        
+
         # Ensure progress bar finishes cleanly
         begin
           progress&.finish
         rescue => e
           warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
         end
-        
+
         if stop_requested
           puts "Interrupted: processed #{progress.progress}/#{progress.total} emails."
         else

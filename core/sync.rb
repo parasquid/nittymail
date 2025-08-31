@@ -192,8 +192,8 @@ module NittyMail
       puts
 
       # Process each mailbox (sequentially) using preflight results
-      preflight_results.each do |pf|
-        process_mailbox(pf, settings, email, threads_count, fetch_batch_size)
+      preflight_results.each do |preflight_result|
+        process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size)
       end
     end
 
@@ -236,10 +236,10 @@ module NittyMail
       imap.disconnect
     end
 
-    def process_mailbox(pf, settings, email, threads_count, fetch_batch_size)
-      mbox_name = pf[:name]
-      uidvalidity = pf[:uidvalidity]
-      uids = pf[:uids]
+    def process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size)
+      mbox_name = preflight_result[:name]
+      uidvalidity = preflight_result[:uidvalidity]
+      uids = preflight_result[:uids]
 
       # Skip mailboxes with nothing to fetch
       if uids.nil? || uids.empty?
@@ -270,8 +270,16 @@ module NittyMail
         progress:
       )
 
-      # Optionally prune rows that no longer exist on the server for this mailbox
-      db_only = pf[:db_only] || []
+      # Handle pruning and purging operations
+      db_only = preflight_result[:db_only] || []
+      handle_prune_missing(mbox_name, uidvalidity, db_only, result)
+      handle_purge_old_validity(email, settings, mbox_name, uidvalidity)
+      puts
+    end
+
+    private
+
+    def handle_prune_missing(mbox_name, uidvalidity, db_only, result)
       if @prune_missing && result != :aborted
         if db_only.any?
           count = @db.transaction do
@@ -286,32 +294,31 @@ module NittyMail
       elsif !@prune_missing && db_only.any?
         puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
       end
-
-      # Optionally purge old UIDVALIDITY generations for this mailbox
-      other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
-      unless other_validities.empty?
-        do_purge = false
-        if settings.purge_old_validity
-          do_purge = true
-        elsif $stdin.tty? && !settings.auto_confirm
-          print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
-          ans = $stdin.gets&.strip&.downcase
-          do_purge = %w[y yes].include?(ans)
-        end
-        if do_purge
-          count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
-          @db.transaction do
-            email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
-          end
-          puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
-        else
-          puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
-        end
-      end
-      puts
     end
 
-    private
+    def handle_purge_old_validity(email, settings, mbox_name, uidvalidity)
+      other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
+      return if other_validities.empty?
+
+      do_purge = false
+      if settings.purge_old_validity
+        do_purge = true
+      elsif $stdin.tty? && !settings.auto_confirm
+        print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
+        ans = $stdin.gets&.strip&.downcase
+        do_purge = %w[y yes].include?(ans)
+      end
+
+      if do_purge
+        count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
+        @db.transaction do
+          email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
+        end
+        puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
+      else
+        puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
+      end
+    end
 
     def filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
       return selectable_mailboxes if only_mailboxes.empty?
