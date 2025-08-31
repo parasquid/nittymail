@@ -155,48 +155,12 @@ module NittyMail
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
 
-      # Include-only filter (if provided), then filter out ignored mailboxes if configured
+      # Apply mailbox filters
       only_mailboxes = (settings.only_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
       ignore_mailboxes = (settings.ignore_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
 
-      if only_mailboxes.any?
-        include_regexes = only_mailboxes.map do |pat|
-          escaped = Regexp.escape(pat)
-          escaped = escaped.gsub(/\\\*/m, ".*")
-          escaped = escaped.gsub(/\\\?/m, ".")
-          Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
-        end
-        before = selectable_mailboxes.size
-        kept = selectable_mailboxes.select { |mb| include_regexes.any? { |rx| rx.match?(mb.name) } }
-        dropped = selectable_mailboxes - kept
-        selectable_mailboxes = kept
-        if kept.any?
-          puts "including #{kept.size} mailbox(es) via --only: #{kept.map(&:name).join(", ")} (was #{before})"
-        else
-          puts "--only matched 0 mailboxes; nothing to process"
-        end
-        puts "skipping #{dropped.size} mailbox(es) due to --only" if dropped.any?
-      end
-
-      # Filter out ignored mailboxes if configured
-      if ignore_mailboxes.any?
-        # Convert simple glob patterns (* and ?) to regex safely
-        regexes = ignore_mailboxes.map do |pat|
-          escaped = Regexp.escape(pat)
-          escaped = escaped.gsub(/\\\*/m, ".*")
-          escaped = escaped.gsub(/\\\?/m, ".")
-          Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
-        end
-
-        before = selectable_mailboxes.size
-        ignored, kept = selectable_mailboxes.partition { |mb| regexes.any? { |rx| rx.match?(mb.name) } }
-        selectable_mailboxes = kept
-        if ignored.any?
-          ignored_names = ignored.map(&:name)
-          puts "ignoring #{ignored_names.size} mailbox(es): #{ignored_names.join(", ")}"
-        end
-        puts "will consider #{selectable_mailboxes.size} selectable mailbox(es) after ignore filter (was #{before})"
-      end
+      selectable_mailboxes = filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
+      selectable_mailboxes = filter_mailboxes_by_ignore_list(selectable_mailboxes, ignore_mailboxes)
 
       # Preflight mailbox checks (uidvalidity and UID diff) in parallel
       mailbox_threads = settings.mailbox_threads.to_i
@@ -345,6 +309,54 @@ module NittyMail
         end
       end
       puts
+    end
+
+    private
+
+    def filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
+      return selectable_mailboxes if only_mailboxes.empty?
+
+      include_regexes = only_mailboxes.map do |pat|
+        escaped = Regexp.escape(pat)
+        escaped = escaped.gsub(/\\\*/m, ".*")
+        escaped = escaped.gsub(/\\\?/m, ".")
+        Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
+      end
+
+      before = selectable_mailboxes.size
+      kept = selectable_mailboxes.select { |mb| include_regexes.any? { |rx| rx.match?(mb.name) } }
+      dropped = selectable_mailboxes - kept
+
+      if kept.any?
+        puts "including #{kept.size} mailbox(es) via --only: #{kept.map(&:name).join(", ")} (was #{before})"
+      else
+        puts "--only matched 0 mailboxes; nothing to process"
+      end
+      puts "skipping #{dropped.size} mailbox(es) due to --only" if dropped.any?
+
+      kept
+    end
+
+    def filter_mailboxes_by_ignore_list(selectable_mailboxes, ignore_mailboxes)
+      return selectable_mailboxes if ignore_mailboxes.empty?
+
+      regexes = ignore_mailboxes.map do |pat|
+        escaped = Regexp.escape(pat)
+        escaped = escaped.gsub(/\\\*/m, ".*")
+        escaped = escaped.gsub(/\\\?/m, ".")
+        Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
+      end
+
+      before = selectable_mailboxes.size
+      ignored, kept = selectable_mailboxes.partition { |mb| regexes.any? { |rx| rx.match?(mb.name) } }
+
+      if ignored.any?
+        ignored_names = ignored.map(&:name)
+        puts "ignoring #{ignored_names.size} mailbox(es): #{ignored_names.join(", ")}"
+      end
+      puts "will consider #{kept.size} selectable mailbox(es) after ignore filter (was #{before})"
+
+      kept
     end
   end
 end
