@@ -16,7 +16,9 @@ module NittyMail
         begin
           @imap.logout
           @imap.disconnect
-        rescue
+        rescue => e
+          # Log the exception but don't let it crash the cleanup process
+          warn "Warning: Exception during IMAP cleanup: #{e.class}: #{e.message}"
         end
         @imap = nil
       end

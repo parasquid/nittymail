@@ -17,15 +17,18 @@ module NittyMail
           after_connect: proc do |conn|
             begin
               conn.enable_load_extension(true) if conn.respond_to?(:enable_load_extension)
-            rescue
+            rescue => e
+              warn "Warning: Failed to enable SQLite load_extension: #{e.class}: #{e.message}"
             end
             begin
               SqliteVec.load(conn)
-            rescue
+            rescue => e
+              warn "Warning: Failed to load sqlite-vec extension: #{e.class}: #{e.message}"
             ensure
               begin
                 conn.enable_load_extension(false) if conn.respond_to?(:enable_load_extension)
-              rescue
+              rescue => e
+                warn "Warning: Failed to disable SQLite load_extension: #{e.class}: #{e.message}"
               end
             end
           end
@@ -41,8 +44,9 @@ module NittyMail
       # Enable foreign keys for referential integrity
       begin
         db.run("PRAGMA foreign_keys = ON")
-      rescue
+      rescue => e
         # Best-effort; ignore if not supported in current context
+        warn "Warning: Failed to enable foreign keys: #{e.class}: #{e.message}"
       end
 
       if db.table_exists?(:email)
