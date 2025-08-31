@@ -8,7 +8,7 @@ require_relative "lib/nittymail/db"
 
 module NittyMail
   class Enrich
-    def self.perform(database_path:, address_filter: nil, limit: nil, offset: nil, quiet: false)
+    def self.perform(database_path:, address_filter: nil, limit: nil, offset: nil, quiet: false, regenerate: false)
       raise ArgumentError, "database_path is required" if database_path.to_s.strip.empty?
 
       db = NittyMail::DB.connect(database_path, wal: true, load_vec: false)
@@ -17,6 +17,14 @@ module NittyMail
 
       ds = email_ds
       ds = ds.where(address: address_filter) if address_filter && !address_filter.to_s.strip.empty?
+
+      # By default, only process rows that have not yet been enriched.
+      # Use rfc822_size as a sentinel column that enrich always sets.
+      unless regenerate
+        ds = ds.where(rfc822_size: nil)
+        puts "Skipping already-enriched rows (use --regenerate to reprocess all)" unless quiet
+      end
+
       ds = ds.offset(offset.to_i) if offset && offset.to_i > 0
       ds = ds.limit(limit.to_i) if limit && limit.to_i > 0
 

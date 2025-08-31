@@ -244,6 +244,7 @@ docker compose run --rm ruby ./cli.rb enrich \
 Notes:
 - Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
 - `internaldate` is captured during sync from IMAP and not modified by enrich.
+ - By default, enrich only processes rows that have not yet been enriched (it filters where `rfc822_size IS NULL`). Use `--regenerate` to re-enrich all matching rows regardless of prior enrichment.
 
 **SQLite performance (WAL journaling):**
 ```bash

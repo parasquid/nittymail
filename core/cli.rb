@@ -205,12 +205,14 @@ class NittyMailCLI < Thor
   option :limit, aliases: "-n", desc: "Limit number of emails to process", type: :numeric
   option :offset, desc: "Offset for pagination", type: :numeric
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
+  option :regenerate, desc: "Re-enrich all rows (do not skip already-enriched emails)", type: :boolean, default: false
   def enrich
     database_path = options[:database] || ENV["DATABASE"]
     address_filter = options[:address] || ENV["ADDRESS"]
     limit = options[:limit]&.to_i
     offset = options[:offset]&.to_i
     quiet = options[:quiet]
+    regenerate = options[:regenerate]
 
     unless database_path
       puts "Error: DATABASE must be provided via --database or env"
@@ -222,7 +224,8 @@ class NittyMailCLI < Thor
       address_filter: address_filter,
       limit: limit,
       offset: offset,
-      quiet: quiet
+      quiet: quiet,
+      regenerate: regenerate
     )
   end
 
