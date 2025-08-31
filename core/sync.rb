@@ -241,80 +241,7 @@ module NittyMail
 
       # Process each mailbox (sequentially) using preflight results
       preflight_results.each do |pf|
-        mbox_name = pf[:name]
-        uidvalidity = pf[:uidvalidity]
-        uids = pf[:uids]
-        # Skip mailboxes with nothing to fetch
-        if uids.nil? || uids.empty?
-          puts "skipping mailbox #{mbox_name} (nothing to fetch)"
-          puts
-          next
-        end
-
-        puts "processing mailbox #{mbox_name}"
-        puts "uidvalidity is #{uidvalidity}"
-        thread_word = (threads_count == 1) ? "thread" : "threads"
-        puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
-
-        progress = ProgressBar.create(
-          title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})",
-          total: uids.size,
-          format: "%t: |%B| %p%% (%c/%C) [%e]"
-        )
-
-        result = NittyMail::MailboxRunner.run(
-          imap_address: settings.imap_address,
-          imap_password: settings.imap_password,
-          email_ds: email,
-          mbox_name:,
-          uidvalidity:,
-          uids:,
-          threads_count:,
-          fetch_batch_size:,
-          retry_attempts: @retry_attempts,
-          strict_errors: @strict_errors,
-          progress:,
-          quiet: @quiet
-        )
-
-        # Optionally prune rows that no longer exist on the server for this mailbox
-        db_only = pf[:db_only] || []
-        if @prune_missing && result != :aborted
-          if db_only.any?
-            count = @db.transaction do
-              NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
-            end
-            puts "Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})"
-          else
-            puts "No rows to prune for '#{mbox_name}'"
-          end
-        elsif @prune_missing && result == :aborted
-          puts "Skipped pruning for '#{mbox_name}' due to mailbox abort"
-        elsif !@prune_missing && db_only.any?
-          puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
-        end
-        # Optionally purge old UIDVALIDITY generations for this mailbox
-        other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
-        unless other_validities.empty?
-          do_purge = false
-          if settings.purge_old_validity
-            do_purge = true
-          elsif $stdin.tty? && !settings.auto_confirm
-            print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
-            ans = $stdin.gets&.strip&.downcase
-            do_purge = %w[y yes].include?(ans)
-          end
-          if do_purge
-            count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
-            @db.transaction do
-              email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
-            end
-            puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
-          else
-            puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
-          end
-        end
-        puts
+        process_mailbox(pf, settings, email, threads_count, fetch_batch_size)
       end
     end
 
@@ -355,6 +282,85 @@ module NittyMail
       end
       imap.logout
       imap.disconnect
+    end
+
+    def process_mailbox(pf, settings, email, threads_count, fetch_batch_size)
+      mbox_name = pf[:name]
+      uidvalidity = pf[:uidvalidity]
+      uids = pf[:uids]
+      
+      # Skip mailboxes with nothing to fetch
+      if uids.nil? || uids.empty?
+        puts "skipping mailbox #{mbox_name} (nothing to fetch)"
+        puts
+        return
+      end
+
+      puts "processing mailbox #{mbox_name}"
+      puts "uidvalidity is #{uidvalidity}"
+      thread_word = (threads_count == 1) ? "thread" : "threads"
+      puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
+
+      progress = ProgressBar.create(
+        title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})",
+        total: uids.size,
+        format: "%t: |%B| %p%% (%c/%C) [%e]"
+      )
+
+      result = NittyMail::MailboxRunner.run(
+        imap_address: settings.imap_address,
+        imap_password: settings.imap_password,
+        email_ds: email,
+        mbox_name:,
+        uidvalidity:,
+        uids:,
+        threads_count:,
+        fetch_batch_size:,
+        retry_attempts: @retry_attempts,
+        strict_errors: @strict_errors,
+        progress:,
+        quiet: @quiet
+      )
+
+      # Optionally prune rows that no longer exist on the server for this mailbox
+      db_only = pf[:db_only] || []
+      if @prune_missing && result != :aborted
+        if db_only.any?
+          count = @db.transaction do
+            NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
+          end
+          puts "Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})"
+        else
+          puts "No rows to prune for '#{mbox_name}'"
+        end
+      elsif @prune_missing && result == :aborted
+        puts "Skipped pruning for '#{mbox_name}' due to mailbox abort"
+      elsif !@prune_missing && db_only.any?
+        puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
+      end
+      
+      # Optionally purge old UIDVALIDITY generations for this mailbox
+      other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
+      unless other_validities.empty?
+        do_purge = false
+        if settings.purge_old_validity
+          do_purge = true
+        elsif $stdin.tty? && !settings.auto_confirm
+          print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
+          ans = $stdin.gets&.strip&.downcase
+          do_purge = %w[y yes].include?(ans)
+        end
+        if do_purge
+          count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
+          @db.transaction do
+            email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
+          end
+          puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
+        else
+          puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
+        end
+      end
+      puts
     end
   end
 end
