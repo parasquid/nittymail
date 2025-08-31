@@ -63,7 +63,31 @@ module NittyMail
       stop_requested = false
       original_int_handler = trap("INT") { stop_requested = true }
       original_term_handler = trap("TERM") { stop_requested = true }
-      progress = ProgressBar.create(title: "embed (jobs)", total: 1, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      # Calculate total emails needing embeddings with a simple query
+      # Find emails that don't have ANY of the requested embedding types
+      total_emails_without_embeddings = ds.where(
+        ~ds.db[:email_vec_meta].where(
+          email_id: Sequel[:email][:id],
+          item_type: settings.item_types.map(&:to_s),
+          model: settings.model
+        ).exists
+      ).count
+      
+      if total_emails_without_embeddings == 0
+        puts "No embedding jobs needed - all emails already have embeddings for requested item types."
+        # Clean up database connection on early return
+        begin
+          db&.disconnect
+        rescue => e
+          warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
+        end
+        return
+      end
+      
+      # Estimate total jobs (emails × item_types that need embeddings)
+      estimated_jobs = total_emails_without_embeddings * settings.item_types.length
+      puts "Processing #{total_emails_without_embeddings} emails (estimated #{estimated_jobs} embedding jobs)" unless settings.quiet
+      progress = ProgressBar.create(title: "embed", total: estimated_jobs, format: "%t: |%B| %p%% (%c/%C) [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
       embedded_done = 0
@@ -114,8 +138,7 @@ module NittyMail
         end
       end
 
-      # Enqueue jobs while workers run; apply simple backpressure using batch_size
-      total_jobs = 0
+      # Enqueue jobs; apply simple backpressure using batch_size
       begin
         ds.each do |row|
           break if stop_requested
@@ -124,8 +147,6 @@ module NittyMail
             subj = row[:subject].to_s
             if !subj.nil? && !subj.empty? && missing_embedding?(db, row[:id], :subject, settings.model)
               job_queue << {email_id: row[:id], item_type: :subject, text: subj}
-              total_jobs += 1
-              progress.total = [total_jobs, 1].max
             end
           end
           if settings.item_types.include?("body")
@@ -137,8 +158,6 @@ module NittyMail
             end
             if body_text && !body_text.empty? && missing_embedding?(db, row[:id], :body, settings.model)
               job_queue << {email_id: row[:id], item_type: :body, text: body_text}
-              total_jobs += 1
-              progress.total = [total_jobs, 1].max
             end
           end
           # apply backpressure if queue grows beyond window
