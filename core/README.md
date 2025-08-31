@@ -590,6 +590,20 @@ docker compose run --rm ruby ./cli.rb embed \
 
 Tip: Use `--batch-size 1000` (default) to control how many embedding jobs are kept in-flight. Increase for higher throughput or reduce to limit memory usage.
 
+**Understanding the embed progress bar:**
+```
+embed: |████████████████████| 45% (15420/34200) job=998 write=5 [2m15s]
+```
+- **`45% (15420/34200)`**: 15,420 embeddings completed out of 34,200 total estimated jobs
+- **`job=998`**: 998 embedding jobs queued and waiting to be processed by worker threads
+- **`write=5`**: 5 completed embeddings waiting to be written to the database
+- **`[2m15s]`**: Estimated time remaining
+
+Queue indicators:
+- **High job queue** (near batch-size): Worker threads are busy, Ollama is keeping up
+- **High write queue**: Database writes may be slower than embedding generation
+- **Both queues low**: System is keeping up well, no bottlenecks
+
 Notes and tips:
 - The `embedding` column expects a packed float32 BLOB (`Array#pack("f*")`).
 - The array length must exactly match the dimension used in `CREATE VIRTUAL TABLE`.

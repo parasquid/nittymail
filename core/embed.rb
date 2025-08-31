@@ -57,7 +57,7 @@ module NittyMail
       ds = ds.limit(settings.limit.to_i) if settings.limit && settings.limit.to_i > 0
 
       total_emails = ds.count
-      puts "Embedding #{total_emails} email(s)#{settings.address_filter ? " for #{settings.address_filter}" : ""} using model=#{settings.model} dim=#{settings.dimension} at #{settings.ollama_host}"
+      puts "Checking #{total_emails} email(s)#{settings.address_filter ? " for #{settings.address_filter}" : ""} using model=#{settings.model} dim=#{settings.dimension} at #{settings.ollama_host}"
 
       # Stream jobs with bounded queue instead of pre-planning entire dataset
       stop_requested = false
@@ -87,7 +87,7 @@ module NittyMail
       # Estimate total jobs (emails × item_types that need embeddings)
       estimated_jobs = total_emails_without_embeddings * settings.item_types.length
       puts "Processing #{total_emails_without_embeddings} emails (estimated #{estimated_jobs} embedding jobs)" unless settings.quiet
-      progress = ProgressBar.create(title: "embed", total: estimated_jobs, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      progress = ProgressBar.create(title: "embed", total: estimated_jobs, format: "%t: |%B| %p%% (%c/%C) job=? write=? [%e]")
       job_queue = Queue.new
       write_queue = Queue.new
       embedded_done = 0
@@ -107,8 +107,9 @@ module NittyMail
             NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: settings.model, dimension: settings.dimension)
             progress.increment
             embedded_done += 1
-            if !settings.quiet && ((embedded_done % 100).zero? || (Time.now - last_log_at) >= 2)
-              progress.log("embedded #{embedded_done}/#{progress.total} | queues: job=#{job_queue.size} write=#{write_queue.size}")
+            # Update progress bar format to show queue sizes
+            if (embedded_done % 10).zero? || (Time.now - last_log_at) >= 1
+              progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
               last_log_at = Time.now
             end
           rescue => e
