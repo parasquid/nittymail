@@ -130,6 +130,7 @@ module NittyMail
         end
       end
     end
+
     def self.perform(settings_or_options)
       if settings_or_options.is_a?(Settings)
         new.perform_sync(settings_or_options)
@@ -144,12 +145,12 @@ module NittyMail
       @retry_attempts = settings.retry_attempts.to_i
       @prune_missing = !!settings.prune_missing
       @quiet = !!settings.quiet
-      
+
       # Ensure threads count is valid
       threads_count = settings.threads_count < 1 ? 1 : settings.threads_count
       fetch_batch_size = settings.fetch_batch_size.to_i < 1 ? 1 : settings.fetch_batch_size.to_i
       Thread.abort_on_exception = true if threads_count > 1
-      
+
       Mail.defaults do
         retriever_method :imap, address: "imap.gmail.com",
           port: 993,
