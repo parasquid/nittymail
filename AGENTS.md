@@ -99,6 +99,15 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     - Description of what was changed.
     EOF
     ```
+3.  **Co-Author Lines**: Do **NOT** include co-author lines (e.g., `Co-Authored-By: Claude <noreply@anthropic.com>`) in commit messages.
+
+### Ruby Style Guidelines (AI Agents)
+
+- **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
+
+### Development Workflow (AI Agents)
+
+- **Working Directory**: Always execute file operations from the project root directory, not from the `core/` subdirectory. Commands like `./bin/lint`, `git add`, `git commit` should be run from the parent directory where these tools are located.
 
 ### Exception Handling (AI Agents)
 
