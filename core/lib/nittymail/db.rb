@@ -94,7 +94,7 @@ module NittyMail
     end
 
     # Add enrichment columns reconstructed from the raw message (encoded)
-    # - internaldate (DateTime): approximated from Date header
+    # - internaldate (DateTime): captured from IMAP INTERNALDATE during sync
     # - rfc822_size (Integer): bytesize of raw encoded message
     # - envelope_* fields as JSON strings for address lists and references
     def ensure_enrichment_columns!(db)

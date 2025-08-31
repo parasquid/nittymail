@@ -221,7 +221,7 @@ Notes:
 
 **Enrich stored messages (extract metadata from raw):**
 ```bash
-# Extract ENVELOPE-like fields, RFC822 size, and approximate internaldate from stored raw messages
+# Extract ENVELOPE-like fields and RFC822 size from stored raw messages
 docker compose run --rm ruby ./cli.rb enrich \
   --database core/data/your-email.sqlite3 \
   --address user@gmail.com
@@ -636,7 +636,7 @@ Some messages in the wild have a missing or invalid `Date:` header. When the Mai
   ```bash
   sqlite3 core/data/your-email.sqlite3 "SELECT COUNT(*) FROM email WHERE date IS NULL;"
   ```
-  You can later derive a date from other headers (e.g., `Received`) or IMAP `INTERNALDATE` downstream if needed.
+  You can later derive a date from other headers (e.g., `Received`) or use the `internaldate` field downstream if needed.
 
 ## Contributing
 
