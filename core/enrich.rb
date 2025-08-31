@@ -25,8 +25,8 @@ module NittyMail
 
       # Add interrupt handling
       stop_requested = false
-      trap("INT") { stop_requested = true }
-      trap("TERM") { stop_requested = true }
+      original_int_handler = trap("INT") { stop_requested = true }
+      original_term_handler = trap("TERM") { stop_requested = true }
 
       progress = ProgressBar.create(title: "enrich", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
       begin
@@ -83,20 +83,43 @@ module NittyMail
           progress.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
         rescue => e
           progress.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
-        ensure
-          progress.increment
         end
+        progress.increment
       rescue Interrupt
         stop_requested = true
         progress.log("Interrupt received, stopping...")
       ensure
-        progress.finish
+        # Restore original signal handlers
+        trap("INT", original_int_handler)
+        trap("TERM", original_term_handler)
+        
+        # Ensure progress bar finishes cleanly
+        begin
+          progress&.finish
+        rescue => e
+          warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
+        end
+        
         if stop_requested
           puts "Interrupted: processed #{progress.progress}/#{progress.total} emails."
+        else
+          puts "Processing complete. Finalizing database writes (WAL checkpoint)..." unless quiet
         end
       end
     ensure
-      db&.disconnect
+      # Force WAL checkpoint and disconnect
+      begin
+        db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
+        puts "Database finalization complete." unless quiet
+      rescue => e
+        warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
+      ensure
+        begin
+          db&.disconnect
+        rescue => e
+          warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
+        end
+      end
     end
   end
 end
