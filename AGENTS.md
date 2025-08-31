@@ -1,4 +1,6 @@
-# GEMINI.md: NittyMail Project Guide
+# Main Project Guide: core/README.md
+
+Canonical user-facing guide is `core/README.md`.
 
 This document provides a comprehensive overview of the NittyMail project, its architecture, and the primary commands and conventions required for development. For a strict set of rules for AI agent behavior, refer to `AGENTS.md`.
 

@@ -353,7 +353,7 @@ Before fetching, NittyMail performs a per‑mailbox preflight that shows what wi
 
 - Transient IMAP errors such as `SSL_read: unexpected eof while reading` (OpenSSL::SSL::SSLError), `IOError`, and `Errno::ECONNRESET` trigger a reconnect + retry with backoff.
 - Retries are controlled by `--retry-attempts` (default: 3; `-1` means retry indefinitely, `0` disables retries).
-- If a batch continues to fail and retries are exhausted, NittyMail aborts processing of the current mailbox and proceeds to the next; an informational message is logged.
+- If a batch continues to fail and retries are exhausted, NittyMail aborts processing of the current mailbox and proceeds to the next; an informational message is logged including the exception class, message, and full backtrace.
 
 ### Local Deletions Are Re-synced
 
