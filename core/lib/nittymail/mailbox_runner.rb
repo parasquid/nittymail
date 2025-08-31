@@ -7,7 +7,7 @@ require "ruby-progressbar"
 
 module NittyMail
   class MailboxRunner
-    def self.run(imap_address:, imap_password:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, retry_attempts:, strict_errors:, progress: nil, quiet: false, embedding: {enabled: false})
+    def self.run(settings:, email_ds:, mbox_name:, uidvalidity:, uids:, threads_count:, fetch_batch_size:, progress: nil, embedding: {enabled: false})
       # Build batches
       batch_queue = Queue.new
       uids.each_slice(fetch_batch_size) { |batch| batch_queue << batch }
@@ -31,7 +31,7 @@ module NittyMail
             end
             insert_stmt.call(to_bind)
           rescue Sequel::UniqueConstraintViolation => e
-            raise e if strict_errors
+            raise e if settings.strict_errors
             progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
           end
           # Embeddings disabled in sync: no-op after insert
@@ -40,7 +40,7 @@ module NittyMail
 
       workers = Array.new(threads_count) do
         Thread.new do
-          client = NittyMail::IMAPClient.new(address: imap_address, password: imap_password)
+          client = NittyMail::IMAPClient.new(address: settings.imap_address, password: settings.imap_password)
           client.reconnect_and_select(mbox_name, uidvalidity)
           loop do
             break if mailbox_abort
@@ -53,10 +53,10 @@ module NittyMail
 
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID", "INTERNALDATE"]
             begin
-              fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: retry_attempts, progress: progress)
+              fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: settings.retry_attempts, progress: progress)
             rescue => _e
               mailbox_abort = true
-              progress&.log("Aborting mailbox '#{mbox_name}' after #{retry_attempts} failed attempt(s); proceeding to next mailbox")
+              progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s); proceeding to next mailbox")
               break
             end
             fetched.each do |fd|
@@ -66,11 +66,11 @@ module NittyMail
               raw = attrs["BODY[]"] || attrs["RFC822"]
               mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
               flags_json = attrs["FLAGS"].to_json
-              unless quiet
-                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: strict_errors)
+              unless settings.quiet
+                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: settings.strict_errors)
               end
               rec = build_record(
-                imap_address:,
+                imap_address: settings.imap_address,
                 mbox_name:,
                 uid:,
                 uidvalidity:,
@@ -78,7 +78,7 @@ module NittyMail
                 attrs:,
                 flags_json:,
                 raw:,
-                strict_errors:
+                strict_errors: settings.strict_errors
               )
               # Embeddings disabled in sync: do not prepare embed fields
               write_queue << rec

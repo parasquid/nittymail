@@ -288,7 +288,7 @@ module NittyMail
       mbox_name = pf[:name]
       uidvalidity = pf[:uidvalidity]
       uids = pf[:uids]
-      
+
       # Skip mailboxes with nothing to fetch
       if uids.nil? || uids.empty?
         puts "skipping mailbox #{mbox_name} (nothing to fetch)"
@@ -308,18 +308,14 @@ module NittyMail
       )
 
       result = NittyMail::MailboxRunner.run(
-        imap_address: settings.imap_address,
-        imap_password: settings.imap_password,
+        settings:,
         email_ds: email,
         mbox_name:,
         uidvalidity:,
         uids:,
         threads_count:,
         fetch_batch_size:,
-        retry_attempts: @retry_attempts,
-        strict_errors: @strict_errors,
-        progress:,
-        quiet: @quiet
+        progress:
       )
 
       # Optionally prune rows that no longer exist on the server for this mailbox
@@ -338,7 +334,7 @@ module NittyMail
       elsif !@prune_missing && db_only.any?
         puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
       end
-      
+
       # Optionally purge old UIDVALIDITY generations for this mailbox
       other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
       unless other_validities.empty?
