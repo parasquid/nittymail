@@ -14,6 +14,7 @@ module NittyMail
       db = NittyMail::DB.connect(database_path, wal: true, load_vec: false)
       email_ds = NittyMail::DB.ensure_schema!(db)
       NittyMail::DB.ensure_enrichment_columns!(db)
+      NittyMail::DB.ensure_enrich_indexes!(db)
 
       ds = email_ds
       ds = ds.where(address: address_filter) if address_filter && !address_filter.to_s.strip.empty?

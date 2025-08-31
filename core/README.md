@@ -245,6 +245,7 @@ Notes:
 - Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
 - `internaldate` is captured during sync from IMAP and not modified by enrich.
  - By default, enrich only processes rows that have not yet been enriched (it filters where `rfc822_size IS NULL`). Use `--regenerate` to re-enrich all matching rows regardless of prior enrichment.
+ - Performance: NittyMail creates a partial index (`email_idx_rfc822_size_null`) to speed scanning rows where `rfc822_size IS NULL`.
 
 **SQLite performance (WAL journaling):**
 ```bash

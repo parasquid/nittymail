@@ -97,6 +97,14 @@ module NittyMail
       db
     end
 
+    # Indexes that speed up enrichment passes.
+    # The enrich task primarily scans for rows where rfc822_size IS NULL.
+    # A partial index on that predicate dramatically reduces scan cost.
+    def ensure_enrich_indexes!(db)
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_rfc822_size_null ON email(rfc822_size) WHERE rfc822_size IS NULL")
+      db
+    end
+
     # Add enrichment columns reconstructed from the raw message (encoded)
     # - internaldate (DateTime): captured from IMAP INTERNALDATE during sync
     # - rfc822_size (Integer): bytesize of raw encoded message
