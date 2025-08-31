@@ -47,6 +47,8 @@ module NittyMail
 
       db = NittyMail::DB.connect(settings.database_path, wal: true, load_vec: true)
       email_ds = NittyMail::DB.ensure_schema!(db)
+      # Ensure helpful general indexes (address/date, etc.) exist on existing DBs
+      NittyMail::DB.ensure_query_indexes!(db)
 
       # Handle regenerate option by dropping existing vector data for this model
       if settings.regenerate
