@@ -7,27 +7,23 @@ require "uri"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/embeddings"
 require_relative "lib/nittymail/query_tools"
+require_relative "lib/nittymail/settings"
+
+module QuerySettings
+  class Settings < NittyMail::BaseSettings
+    attr_accessor :address, :ollama_host, :model, :prompt, :default_limit, :debug
+
+    REQUIRED = [:database_path, :address, :ollama_host, :model, :prompt].freeze
+
+    DEFAULTS = BASE_DEFAULTS.merge({
+      default_limit: 100,
+      debug: false
+    }).freeze
+  end
+end
 
 module NittyMail
   module Query
-    class Settings
-      attr_accessor :database_path, :address, :ollama_host, :model, :prompt,
-        :default_limit, :quiet, :debug
-
-      DEFAULTS = {
-        default_limit: 100,
-        quiet: false,
-        debug: false
-      }.freeze
-
-      def initialize(**options)
-        required = [:database_path, :address, :ollama_host, :model, :prompt]
-        missing = required - options.keys
-        raise ArgumentError, "Missing required options: #{missing.join(", ")}" unless missing.empty?
-        DEFAULTS.merge(options).each { |key, value| instance_variable_set("@#{key}", value) }
-      end
-    end
-
     module_function
 
     # Orchestrates a single-turn (with tools) chat to answer a prompt.

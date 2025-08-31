@@ -32,6 +32,29 @@ require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/preflight"
 require_relative "lib/nittymail/imap_client"
 require_relative "lib/nittymail/mailbox_runner"
+require_relative "lib/nittymail/settings"
+
+module SyncSettings
+  class Settings < NittyMail::BaseSettings
+    attr_accessor :imap_address, :imap_password, :mailbox_threads, :purge_old_validity,
+      :auto_confirm, :fetch_batch_size, :ignore_mailboxes, :only_mailboxes,
+      :strict_errors, :prune_missing, :sqlite_wal
+
+    REQUIRED = [:imap_address, :imap_password, :database_path].freeze
+
+    DEFAULTS = BASE_DEFAULTS.merge({
+      mailbox_threads: 1,
+      purge_old_validity: false,
+      auto_confirm: false,
+      fetch_batch_size: 100,
+      ignore_mailboxes: [],
+      only_mailboxes: [],
+      strict_errors: false,
+      prune_missing: false,
+      sqlite_wal: true
+    }).freeze
+  end
+end
 
 # Ensure immediate flushing so output appears promptly in Docker
 $stdout.sync = true
@@ -96,47 +119,12 @@ end
 
 module NittyMail
   class Sync
-    # Configuration object to encapsulate all sync settings
-    class Settings
-      attr_accessor :imap_address, :imap_password, :database_path, :threads_count,
-        :mailbox_threads, :purge_old_validity, :auto_confirm, :fetch_batch_size,
-        :ignore_mailboxes, :only_mailboxes, :strict_errors, :retry_attempts,
-        :prune_missing, :quiet, :sqlite_wal
-
-      DEFAULTS = {
-        threads_count: 1,
-        mailbox_threads: 1,
-        purge_old_validity: false,
-        auto_confirm: false,
-        fetch_batch_size: 100,
-        ignore_mailboxes: [],
-        only_mailboxes: [],
-        strict_errors: false,
-        retry_attempts: 3,
-        prune_missing: false,
-        quiet: false,
-        sqlite_wal: true
-      }.freeze
-
-      def initialize(**options)
-        # Validate required parameters
-        required = [:imap_address, :imap_password, :database_path]
-        missing = required - options.keys
-        raise ArgumentError, "Missing required options: #{missing.join(", ")}" unless missing.empty?
-
-        # Apply defaults and set instance variables
-        DEFAULTS.merge(options).each do |key, value|
-          instance_variable_set("@#{key}", value)
-        end
-      end
-    end
-
     def self.perform(settings_or_options)
-      if settings_or_options.is_a?(Settings)
+      if settings_or_options.is_a?(SyncSettings::Settings)
         new.perform_sync(settings_or_options)
       else
         # Legacy support: if passed a hash with keyword arguments, create Settings object
-        new.perform_sync(Settings.new(**settings_or_options))
+        new.perform_sync(SyncSettings::Settings.new(**settings_or_options))
       end
     end
 

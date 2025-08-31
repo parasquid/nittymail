@@ -24,6 +24,7 @@ require_relative "sync"
 require_relative "embed"
 require_relative "enrich"
 require_relative "query"
+require_relative "lib/nittymail/settings"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
@@ -107,7 +108,7 @@ class NittyMailCLI < Thor
     end
 
     # Perform the sync using the library
-    settings = NittyMail::Sync::Settings.new(
+    settings = SyncSettings::Settings.new(
       imap_address:,
       imap_password:,
       database_path:,
@@ -161,7 +162,7 @@ class NittyMailCLI < Thor
     retry_attempts = (options[:retry_attempts] || (ENV["RETRY_ATTEMPTS"] || "3").to_i).to_i
     batch_size = (options[:batch_size] || (ENV["EMBED_BATCH_SIZE"] || "1000").to_i).to_i
 
-    settings = NittyMail::Embed::Settings.new(
+    settings = EmbedSettings::Settings.new(
       database_path:, ollama_host:, model:, dimension:, item_types:,
       address_filter:, limit:, offset:, quiet:, threads_count:,
       retry_attempts:, batch_size:
@@ -225,7 +226,7 @@ class NittyMailCLI < Thor
       exit 1
     end
 
-    settings = NittyMail::Query::Settings.new(
+    settings = QuerySettings::Settings.new(
       database_path:, address:, ollama_host:, model:, prompt:,
       default_limit:, quiet:, debug:
     )

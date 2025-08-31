@@ -6,34 +6,29 @@ require "ruby-progressbar"
 require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/embeddings"
+require_relative "lib/nittymail/settings"
+
+module EmbedSettings
+  class Settings < NittyMail::BaseSettings
+    attr_accessor :ollama_host, :model, :dimension, :item_types, :address_filter,
+      :limit, :offset, :batch_size
+
+    REQUIRED = [:database_path, :ollama_host].freeze
+
+    DEFAULTS = BASE_DEFAULTS.merge({
+      model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large",
+      dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i,
+      item_types: %w[subject body],
+      address_filter: nil,
+      limit: nil,
+      offset: nil,
+      batch_size: 1000
+    }).freeze
+  end
+end
 
 module NittyMail
   class Embed
-    class Settings
-      attr_accessor :database_path, :ollama_host, :model, :dimension, :item_types, :address_filter,
-        :limit, :offset, :quiet, :threads_count, :retry_attempts, :batch_size
-
-      DEFAULTS = {
-        model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large",
-        dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i,
-        item_types: %w[subject body],
-        address_filter: nil,
-        limit: nil,
-        offset: nil,
-        quiet: false,
-        threads_count: 2,
-        retry_attempts: 3,
-        batch_size: 1000
-      }.freeze
-
-      def initialize(**options)
-        required = [:database_path, :ollama_host]
-        missing = required - options.keys
-        raise ArgumentError, "Missing required options: #{missing.join(", ")}" unless missing.empty?
-        DEFAULTS.merge(options).each { |key, value| instance_variable_set("@#{key}", value) }
-      end
-    end
-
     def self.perform(settings)
       raise ArgumentError, "database_path is required" if settings.database_path.to_s.strip.empty?
       raise ArgumentError, "ollama_host is required (set OLLAMA_HOST or pass --ollama-host)" if settings.ollama_host.to_s.strip.empty?
@@ -72,7 +67,7 @@ module NittyMail
           model: settings.model
         ).exists
       ).count
-      
+
       if total_emails_without_embeddings == 0
         puts "No embedding jobs needed - all emails already have embeddings for requested item types."
         # Clean up database connection on early return
@@ -83,27 +78,27 @@ module NittyMail
         end
         return
       end
-      
+
       # Continuous processing: persistent workers with streaming job queue
       estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
       overall_progress = ProgressBar.create(
-        title: "embed", 
+        title: "embed",
         total: estimated_total_jobs,
         format: "%t: |%B| %p%% (%c/%C) job=0 write=0 [%e]"
       )
-      
+
       # Global queues for continuous processing
       job_queue = Queue.new
       write_queue = Queue.new
       embedded_done = 0
       last_progress_update = Time.now
-      
+
       # Start persistent writer thread
       writer = Thread.new do
         batch = []
         batch_size = 50
         last_flush = Time.now
-        
+
         loop do
           break if stop_requested
           begin
@@ -120,24 +115,24 @@ module NittyMail
             end
             next
           end
-          
+
           if batch.size >= batch_size
             process_write_batch(db, batch, overall_progress, settings)
             batch.clear
             last_flush = Time.now
           end
-          
+
           # Update progress bar format with queue sizes periodically
           if (Time.now - last_progress_update) >= 1.0
             overall_progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
             last_progress_update = Time.now
           end
         end
-        
+
         # Process final batch
         process_write_batch(db, batch, overall_progress, settings) unless batch.empty?
       end
-      
+
       # Start persistent worker threads
       threads = Array.new([settings.threads_count.to_i, 1].max) do
         Thread.new do
@@ -159,20 +154,20 @@ module NittyMail
           end
         end
       end
-      
-      # Stream emails and queue jobs continuously  
+
+      # Stream emails and queue jobs continuously
       batch_size_lookup = 5000
       begin
         ds.each_slice(batch_size_lookup) do |email_batch|
           break if stop_requested
-          
+
           # Build bulk lookup for this batch of emails
           batch_ids = email_batch.map { |row| row[:id] }
           existing_embeddings = db[:email_vec_meta]
             .where(model: settings.model, item_type: settings.item_types.map(&:to_s), email_id: batch_ids)
             .select(:email_id, :item_type)
             .to_hash_groups(:email_id, :item_type)
-          
+
           # Queue jobs for this batch (workers process immediately)
           email_batch.each do |row|
             break if stop_requested
@@ -198,7 +193,7 @@ module NittyMail
                 end
               end
             end
-            
+
             # Apply backpressure if job queue gets too large
             if settings.batch_size.to_i > 0
               while job_queue.size >= settings.batch_size.to_i
@@ -208,7 +203,7 @@ module NittyMail
             end
           end
         end
-        
+
         # Wait for all jobs to complete
         puts "Email scanning complete, waiting for embedding work to finish..." unless settings.quiet
         loop do
@@ -223,7 +218,7 @@ module NittyMail
         # Clean shutdown of persistent threads
         settings.threads_count.to_i.times { job_queue << :__STOP__ }
         write_queue << :__STOP__
-        
+
         # Wait for threads or kill them if interrupted
         threads.each do |thread|
           if stop_requested
@@ -232,31 +227,31 @@ module NittyMail
             thread.join
           end
         end
-        
+
         if stop_requested
           writer.kill if writer.alive?
         else
           writer.join
         end
-        
+
         overall_progress&.finish
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
-        
+
         # Clean up threads
         settings.threads_count.to_i.times { job_queue << :__STOP__ }
         threads.each(&:join)
         write_queue << :__STOP__
         writer.join
-        
+
         # Ensure progress bar finishes cleanly
         begin
           progress&.finish
         rescue => e
           warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
         end
-        
+
         if stop_requested
           puts "Interrupted: embedded #{embedded_done}/#{progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
           # Check if there's significant WAL data to drain
@@ -292,32 +287,29 @@ module NittyMail
       end
     end
 
-
-    # Process a batch of embeddings in a single transaction for better performance  
+    # Process a batch of embeddings in a single transaction for better performance
     def self.process_write_batch(db, batch, progress, settings)
       return 0 if batch.empty?
-      
+
       processed_count = 0
-      
+
       db.transaction do
         batch.each do |job|
-          begin
-            NittyMail::DB.upsert_email_embedding!(
-              db, 
-              email_id: job[:email_id], 
-              vector: job[:vector], 
-              item_type: job[:item_type], 
-              model: settings.model, 
-              dimension: settings.dimension
-            )
-            progress.increment
-            processed_count += 1
-          rescue => e
-            progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
-          end
+          NittyMail::DB.upsert_email_embedding!(
+            db,
+            email_id: job[:email_id],
+            vector: job[:vector],
+            item_type: job[:item_type],
+            model: settings.model,
+            dimension: settings.dimension
+          )
+          progress.increment
+          processed_count += 1
+        rescue => e
+          progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
         end
       end
-      
+
       processed_count
     end
 
