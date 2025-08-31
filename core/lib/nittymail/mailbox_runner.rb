@@ -54,9 +54,10 @@ module NittyMail
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID", "INTERNALDATE"]
             begin
               fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: settings.retry_attempts, progress: progress)
-            rescue => _e
+            rescue => e
               mailbox_abort = true
-              progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s); proceeding to next mailbox")
+              progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox")
+              progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
               break
             end
             fetched.each do |fd|
