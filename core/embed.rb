@@ -94,26 +94,45 @@ module NittyMail
 
       writer = Thread.new do
         last_log_at = Time.now
+        batch = []
+        batch_size = 50  # Process embeddings in batches of 50
+        last_flush = Time.now
+        
         loop do
           break if stop_requested
+          
+          # Collect items for batch processing
           begin
             job = write_queue.pop(true) # non-blocking
+            if job == :__STOP__
+              # Process final batch before stopping
+              process_batch(db, batch, progress, embedded_done, settings) unless batch.empty?
+              break
+            end
+            batch << job
           rescue ThreadError # empty queue
-            sleep 0.1
+            # Process batch if we have items and it's been a while, or if batch is full
+            if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
+              embedded_done += process_batch(db, batch, progress, embedded_done, settings)
+              batch.clear
+              last_flush = Time.now
+            else
+              sleep 0.1
+            end
             next
           end
-          break if job == :__STOP__
-          begin
-            NittyMail::DB.upsert_email_embedding!(db, email_id: job[:email_id], vector: job[:vector], item_type: job[:item_type], model: settings.model, dimension: settings.dimension)
-            progress.increment
-            embedded_done += 1
-            # Update progress bar format to show queue sizes
-            if (embedded_done % 10).zero? || (Time.now - last_log_at) >= 1
-              progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
-              last_log_at = Time.now
-            end
-          rescue => e
-            progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+          
+          # Process batch when it's full
+          if batch.size >= batch_size
+            embedded_done += process_batch(db, batch, progress, embedded_done, settings)
+            batch.clear
+            last_flush = Time.now
+          end
+          
+          # Update progress bar format periodically
+          if (embedded_done % 50).zero? || (Time.now - last_log_at) >= 1
+            progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
+            last_log_at = Time.now
           end
         end
       end
@@ -194,6 +213,19 @@ module NittyMail
         
         if stop_requested
           puts "Interrupted: embedded #{embedded_done}/#{progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
+          # Check if there's significant WAL data to drain
+          begin
+            wal_info = db.fetch("PRAGMA wal_checkpoint").first
+            if wal_info && wal_info[:pages_walted] && wal_info[:pages_walted] > 100
+              puts "Draining write-ahead log (#{wal_info[:pages_walted]} pages)..."
+            end
+          rescue => e
+            # Fallback: check if WAL file exists and is substantial
+            wal_path = "#{settings.database_path}-wal"
+            if File.exist?(wal_path) && File.size(wal_path) > 1_000_000  # > 1MB
+              puts "Draining write-ahead log..."
+            end
+          end
         else
           puts "Processing complete. Finalizing database writes (WAL checkpoint)..." unless settings.quiet
         end
@@ -212,6 +244,34 @@ module NittyMail
           warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
         end
       end
+    end
+
+    # Process a batch of embeddings in a single transaction for better performance
+    def self.process_batch(db, batch, progress, embedded_done, settings)
+      return 0 if batch.empty?
+      
+      processed_count = 0
+      
+      db.transaction do
+        batch.each do |job|
+          begin
+            NittyMail::DB.upsert_email_embedding!(
+              db, 
+              email_id: job[:email_id], 
+              vector: job[:vector], 
+              item_type: job[:item_type], 
+              model: settings.model, 
+              dimension: settings.dimension
+            )
+            progress.increment
+            processed_count += 1
+          rescue => e
+            progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+          end
+        end
+      end
+      
+      processed_count
     end
 
     def self.missing_embedding?(db, email_id, item_type, model)
