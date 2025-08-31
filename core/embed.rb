@@ -84,36 +84,35 @@ module NittyMail
         return
       end
       
-      # Estimate total jobs (emails × item_types that need embeddings)
-      estimated_jobs = total_emails_without_embeddings * settings.item_types.length
-      puts "Processing #{total_emails_without_embeddings} emails (estimated #{estimated_jobs} embedding jobs)" unless settings.quiet
-      progress = ProgressBar.create(title: "embed", total: estimated_jobs, format: "%t: |%B| %p%% (%c/%C) job=? write=? [%e]")
+      # Continuous processing: persistent workers with streaming job queue
+      estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
+      overall_progress = ProgressBar.create(
+        title: "embed", 
+        total: estimated_total_jobs,
+        format: "%t: |%B| %p%% (%c/%C) job=0 write=0 [%e]"
+      )
+      
+      # Global queues for continuous processing
       job_queue = Queue.new
       write_queue = Queue.new
       embedded_done = 0
-
+      last_progress_update = Time.now
+      
+      # Start persistent writer thread
       writer = Thread.new do
-        last_log_at = Time.now
         batch = []
-        batch_size = 50  # Process embeddings in batches of 50
+        batch_size = 50
         last_flush = Time.now
         
         loop do
           break if stop_requested
-          
-          # Collect items for batch processing
           begin
             job = write_queue.pop(true) # non-blocking
-            if job == :__STOP__
-              # Process final batch before stopping
-              process_batch(db, batch, progress, embedded_done, settings) unless batch.empty?
-              break
-            end
+            break if job == :__STOP__
             batch << job
           rescue ThreadError # empty queue
-            # Process batch if we have items and it's been a while, or if batch is full
             if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
-              embedded_done += process_batch(db, batch, progress, embedded_done, settings)
+              process_write_batch(db, batch, overall_progress, settings)
               batch.clear
               last_flush = Time.now
             else
@@ -122,21 +121,24 @@ module NittyMail
             next
           end
           
-          # Process batch when it's full
           if batch.size >= batch_size
-            embedded_done += process_batch(db, batch, progress, embedded_done, settings)
+            process_write_batch(db, batch, overall_progress, settings)
             batch.clear
             last_flush = Time.now
           end
           
-          # Update progress bar format periodically
-          if (embedded_done % 50).zero? || (Time.now - last_log_at) >= 1
-            progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
-            last_log_at = Time.now
+          # Update progress bar format with queue sizes periodically
+          if (Time.now - last_progress_update) >= 1.0
+            overall_progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
+            last_progress_update = Time.now
           end
         end
+        
+        # Process final batch
+        process_write_batch(db, batch, overall_progress, settings) unless batch.empty?
       end
-
+      
+      # Start persistent worker threads
       threads = Array.new([settings.threads_count.to_i, 1].max) do
         Thread.new do
           loop do
@@ -152,34 +154,26 @@ module NittyMail
               vector = fetch_with_retry(ollama_host: settings.ollama_host, model: settings.model, text: job[:text], retry_attempts: settings.retry_attempts, stop_requested: -> { stop_requested })
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
-              progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+              overall_progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
             end
           end
         end
       end
-
-      # Process in batches: scan 5k emails, embed them, repeat
-      batch_size_scan = 5000
-      estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
-      overall_progress = ProgressBar.create(
-        title: "embed", 
-        total: estimated_total_jobs,
-        format: "%t: |%B| %p%% (%c/%C) job=0 write=0 [%e]"
-      )
       
+      # Stream emails and queue jobs continuously  
+      batch_size_lookup = 5000
       begin
-        ds.each_slice(batch_size_scan) do |email_batch|
+        ds.each_slice(batch_size_lookup) do |email_batch|
           break if stop_requested
           
-          # Build bulk lookup for this batch
+          # Build bulk lookup for this batch of emails
           batch_ids = email_batch.map { |row| row[:id] }
           existing_embeddings = db[:email_vec_meta]
             .where(model: settings.model, item_type: settings.item_types.map(&:to_s), email_id: batch_ids)
             .select(:email_id, :item_type)
             .to_hash_groups(:email_id, :item_type)
           
-          # Scan this batch and queue jobs
-          batch_jobs = []
+          # Queue jobs for this batch (workers process immediately)
           email_batch.each do |row|
             break if stop_requested
             email_id = row[:id]
@@ -188,7 +182,7 @@ module NittyMail
             if settings.item_types.include?("subject")
               subj = row[:subject].to_s
               if !subj.nil? && !subj.empty? && !existing_for_email.include?("subject")
-                batch_jobs << {email_id: email_id, item_type: :subject, text: subj}
+                job_queue << {email_id: email_id, item_type: :subject, text: subj}
               end
             end
             if settings.item_types.include?("body")
@@ -200,24 +194,51 @@ module NittyMail
                   body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
                 end
                 if body_text && !body_text.empty?
-                  batch_jobs << {email_id: email_id, item_type: :body, text: body_text}
+                  job_queue << {email_id: email_id, item_type: :body, text: body_text}
                 end
               end
             end
+            
+            # Apply backpressure if job queue gets too large
+            if settings.batch_size.to_i > 0
+              while job_queue.size >= settings.batch_size.to_i
+                break if stop_requested
+                sleep 0.05
+              end
+            end
           end
-          
-          # Process this batch of embedding jobs
-          if batch_jobs.any? && !stop_requested
-            process_embedding_batch(batch_jobs, settings, db, overall_progress, -> { stop_requested })
-          end
-          
-          # Check for interrupt after batch processing
+        end
+        
+        # Wait for all jobs to complete
+        puts "Email scanning complete, waiting for embedding work to finish..." unless settings.quiet
+        loop do
           break if stop_requested
+          break if job_queue.size == 0 && write_queue.size == 0
+          sleep 0.5
         end
       rescue Interrupt
         stop_requested = true
         overall_progress&.log("Interrupt received, stopping...")
       ensure
+        # Clean shutdown of persistent threads
+        settings.threads_count.to_i.times { job_queue << :__STOP__ }
+        write_queue << :__STOP__
+        
+        # Wait for threads or kill them if interrupted
+        threads.each do |thread|
+          if stop_requested
+            thread.kill if thread.alive?
+          else
+            thread.join
+          end
+        end
+        
+        if stop_requested
+          writer.kill if writer.alive?
+        else
+          writer.join
+        end
+        
         overall_progress&.finish
         # Restore original signal handlers
         trap("INT", original_int_handler)
@@ -271,108 +292,6 @@ module NittyMail
       end
     end
 
-    # Process a complete batch of embedding jobs (scan -> embed -> write)
-    def self.process_embedding_batch(jobs, settings, db, progress, stop_requested_proc)
-      return if jobs.empty?
-      
-      # Create queues for this batch
-      job_queue = Queue.new
-      write_queue = Queue.new
-      embedded_done = 0
-      
-      # Queue all jobs
-      jobs.each { |job| job_queue << job }
-      
-      # Start writer thread for this batch
-      writer = Thread.new do
-        batch = []
-        batch_size = 50
-        last_flush = Time.now
-        last_progress_update = Time.now
-        
-        loop do
-          break if stop_requested_proc.call
-          begin
-            job = write_queue.pop(true)
-            break if job == :__STOP__
-            batch << job
-          rescue ThreadError
-            if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
-              embedded_done += process_write_batch(db, batch, progress, settings)
-              batch.clear
-              last_flush = Time.now
-            else
-              sleep 0.1
-            end
-            next
-          end
-          
-          if batch.size >= batch_size
-            embedded_done += process_write_batch(db, batch, progress, settings)
-            batch.clear
-            last_flush = Time.now
-          end
-          
-          # Update progress bar format with queue sizes periodically
-          if (Time.now - last_progress_update) >= 1.0
-            progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
-            last_progress_update = Time.now
-          end
-        end
-        
-        # Process final batch
-        embedded_done += process_write_batch(db, batch, progress, settings) unless batch.empty?
-      end
-      
-      # Start worker threads for this batch
-      threads = Array.new([settings.threads_count.to_i, 1].max) do
-        Thread.new do
-          loop do
-            break if stop_requested_proc.call
-            begin
-              job = job_queue.pop(true)
-            rescue ThreadError
-              sleep 0.1
-              next
-            end
-            break if job == :__STOP__
-            begin
-              vector = fetch_with_retry(ollama_host: settings.ollama_host, model: settings.model, text: job[:text], retry_attempts: settings.retry_attempts, stop_requested: stop_requested_proc)
-              write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
-            rescue => e
-              progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
-            end
-          end
-        end
-      end
-      
-      # Signal completion and wait (or interrupt early)
-      if stop_requested_proc.call
-        # Force early termination on interrupt
-        settings.threads_count.to_i.times { job_queue << :__STOP__ }
-        write_queue << :__STOP__
-      else
-        # Normal completion
-        settings.threads_count.to_i.times { job_queue << :__STOP__ }
-      end
-      
-      # Wait for threads with timeout to allow interruption
-      threads.each do |thread|
-        if stop_requested_proc.call
-          thread.kill if thread.alive?
-        else
-          thread.join
-        end
-      end
-      
-      write_queue << :__STOP__ unless stop_requested_proc.call
-      
-      if stop_requested_proc.call
-        writer.kill if writer.alive?
-      else
-        writer.join
-      end
-    end
 
     # Process a batch of embeddings in a single transaction for better performance  
     def self.process_write_batch(db, batch, progress, settings)
