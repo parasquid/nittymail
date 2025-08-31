@@ -160,10 +160,10 @@ module NittyMail
 
       # Process in batches: scan 5k emails, embed them, repeat
       batch_size_scan = 5000
-      total_processed = 0
+      estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
       overall_progress = ProgressBar.create(
         title: "embed", 
-        total: total_emails_without_embeddings,
+        total: estimated_total_jobs,
         format: "%t: |%B| %p%% (%c/%C) job=0 write=0 [%e]"
       )
       
@@ -211,11 +211,8 @@ module NittyMail
             process_embedding_batch(batch_jobs, settings, db, overall_progress, -> { stop_requested })
           end
           
-          # Check for interrupt before updating progress
+          # Check for interrupt after batch processing
           break if stop_requested
-          
-          total_processed += email_batch.size
-          overall_progress.progress = total_processed if total_processed <= overall_progress.total
         end
       rescue Interrupt
         stop_requested = true
