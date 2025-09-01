@@ -246,7 +246,7 @@ docker compose run --rm ruby ./cli.rb enrich \
 ```
 Notes:
 - Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`, and `plain_text`.
-- `plain_text` is a text‑only body suitable for embeddings. If the email is HTML, it is converted to text via Nokogiri (scripts/styles removed; whitespace normalized).
+- `plain_text` is a body representation suitable for embeddings. If the email is HTML, it is converted to Markdown (reverse_markdown) with scripts/styles removed.
 - `internaldate` is captured during sync from IMAP and not modified by enrich.
 - By default, enrich processes only rows that have not yet been enriched (filters where `rfc822_size IS NULL`).
 - `--regenerate` clears all enrichment columns (`rfc822_size`, `envelope_*`, `plain_text`) for the selected rows, then re-enriches them. This is destructive and lets you start over.

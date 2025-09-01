@@ -15,6 +15,7 @@ gem "sqlite3"
 gem "sqlite-vec", require: false
 gem "thor"
 gem "nokogiri"
+gem "reverse_markdown"
 
 # Linting
 gem "rubocop", require: false

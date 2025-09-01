@@ -5,10 +5,12 @@ require_relative "../lib/nittymail/util"
 require "mail"
 
 RSpec.describe NittyMail::Util do
-  describe ".html_to_text" do
+  describe ".html_to_markdown" do
     Given(:html) { "<div>Hello <b>world</b>!<br><span>Line 2</span></div>" }
-    When(:text) { described_class.html_to_text(html) }
-    Then { text == "Hello world! Line 2" }
+    When(:text) { described_class.html_to_markdown(html) }
+    Then { text.include?("Hello") }
+    Then { text.downcase.include?("world") }
+    Then { text.gsub("\n", " ").include?("Line 2") }
 
     context "with script and style tags" do
       Given(:html) do
@@ -26,7 +28,7 @@ RSpec.describe NittyMail::Util do
           </html>
         HTML
       end
-      When(:text) { described_class.html_to_text(html) }
+      When(:text) { described_class.html_to_markdown(html) }
       Then { text.include?("Keep this.") }
       Then { !text.include?("console.log") }
       Then { !text.include?("var a = 1") }
@@ -35,7 +37,7 @@ RSpec.describe NittyMail::Util do
 
     context "with excessive whitespace and HTML entities" do
       Given(:html) { "<p>&nbsp;Hello&nbsp;&nbsp; &amp;  goodbye</p>" }
-      When(:text) { described_class.html_to_text(html) }
+      When(:text) { described_class.html_to_markdown(html) }
       Then { text == "Hello & goodbye" }
     end
   end
@@ -84,7 +86,7 @@ RSpec.describe NittyMail::Util do
       end
       Given(:mail) { Mail.read_from_string(raw) }
       When(:text) { described_class.extract_plain_text(mail) }
-      Then { text == "HTML version" }
+      Then { text.downcase.include?("html version") }
     end
 
     context "when body contains inline HTML but no parts" do
@@ -101,8 +103,8 @@ RSpec.describe NittyMail::Util do
       end
       Given(:mail) { Mail.read_from_string(raw) }
       When(:text) { described_class.extract_plain_text(mail) }
-      Then { text == "Hello world" }
+      Then { text.downcase.include?("hello") }
+      Then { text.downcase.include?("world") }
     end
   end
 end
-
