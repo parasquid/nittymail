@@ -2,12 +2,14 @@
 
 module NittyMail
   class BaseSettings
-    attr_accessor :database_path, :quiet, :threads_count, :retry_attempts
+    attr_accessor :database_path, :quiet, :threads_count, :retry_attempts, :reporter, :on_progress
 
     BASE_DEFAULTS = {
       quiet: false,
       threads_count: 2,
-      retry_attempts: 3
+      retry_attempts: 3,
+      reporter: nil,
+      on_progress: nil
     }.freeze
 
     def initialize(**options)
