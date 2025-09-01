@@ -41,6 +41,75 @@ RSpec.describe NittyMail::SyncUtils do
     end
   end
 
+  context "preflight worker helper" do
+    Given(:imap) { double("imap") }
+    Given(:email_ds) { double("email_ds") }
+    Given(:mbox_queue) do
+      q = Queue.new
+      q << OpenStruct.new(name: "INBOX")
+      q << OpenStruct.new(name: "[Gmail]/All Mail")
+      q
+    end
+    Given(:preflight_results) { [] }
+    Given(:mutex) { Mutex.new }
+    Given(:reporter) { CollectingReporter.new }
+    Given do
+      allow(NittyMail::Preflight).to receive(:compute).and_return({
+        uidvalidity: 1, to_fetch: [1, 2], db_only: [], server_size: 2, db_size: 0
+      })
+    end
+    When { described_class.preflight_worker_with_imap(imap, email_ds, mbox_queue, preflight_results, mutex, reporter, Mutex.new) }
+    Then { preflight_results.size == 2 }
+    Then { reporter.events.map(&:first).include?(:preflight_mailbox) }
+  end
+
+  context "process_mailbox summary with errors" do
+    Given(:email_ds) { double("email_ds") }
+    Given(:settings) { OpenStruct.new(prune_missing: true) }
+    Given(:reporter) { CollectingReporter.new }
+    Given(:preflight_result) { {name: "INBOX", uidvalidity: 1, uids: [1, 2, 3], db_only: [9]} }
+    Given(:db) { double("db") }
+    Given do
+      allow(NittyMail::MailboxRunner).to receive(:run).and_return({status: :ok, processed: 5, errors: 2})
+      allow(described_class).to receive(:handle_prune_missing).and_return(1)
+      allow(described_class).to receive(:handle_purge_old_validity).and_return(4)
+    end
+    When(:summary) { described_class.process_mailbox(email_ds:, settings:, preflight_result:, threads_count: 2, fetch_batch_size: 10, reporter:, db:) }
+    Then { summary[:status] == :ok }
+    Then { summary[:processed] == 5 }
+    Then { summary[:errors] == 2 }
+    Then { summary[:pruned] == 1 }
+    Then { summary[:purged] == 4 }
+    Then do
+      evt = reporter.events.reverse.find { |(t, _)| t == :mailbox_summary }
+      expect(evt).not_to be_nil
+      payload = evt.last
+      expect(payload[:processed]).to eq(5)
+      expect(payload[:errors]).to eq(2)
+      expect(payload[:pruned]).to eq(1)
+      expect(payload[:purged]).to eq(4)
+    end
+  end
+
+  context "process_mailbox prune candidates when disabled" do
+    Given(:email_ds) { double("email_ds") }
+    Given(:settings) { OpenStruct.new(prune_missing: false) }
+    Given(:reporter) { CollectingReporter.new }
+    Given(:preflight_result) { {name: "INBOX", uidvalidity: 1, uids: [1], db_only: [9, 10]} }
+    Given(:db) { double("db") }
+    Given do
+      allow(NittyMail::MailboxRunner).to receive(:run).and_return({status: :ok, processed: 1, errors: 0})
+      allow(described_class).to receive(:handle_purge_old_validity).and_return(0)
+    end
+    When { described_class.process_mailbox(email_ds:, settings:, preflight_result:, threads_count: 1, fetch_batch_size: 10, reporter:, db:) }
+    Then { reporter.events.map(&:first).include?(:prune_candidates_present) }
+    Then do
+      sum = reporter.events.reverse.find { |(t, _)| t == :mailbox_summary }
+      expect(sum.last[:prune_candidates]).to eq(2)
+      expect(sum.last[:pruned]).to eq(0)
+    end
+  end
+
   context "prune logic" do
     Given(:db) do
       dbl = double("db")

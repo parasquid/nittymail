@@ -49,13 +49,13 @@ module NittyMail
             insert_stmt.call(to_bind)
           rescue Sequel::UniqueConstraintViolation => e
             raise e if settings.strict_errors
-            progress&.log("#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ...")
+            progress&.event(:sync_log, {message: "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."})
           rescue => e
             # Handle other database errors
             if settings.strict_errors
               raise e
             else
-              progress&.log("Database error for #{rec[:mailbox]} #{rec[:uid]}: #{e.class}: #{e.message}")
+              progress&.event(:sync_log, {message: "Database error for #{rec[:mailbox]} #{rec[:uid]}: #{e.class}: #{e.message}"})
               error_count += 1
             end
           end
@@ -64,8 +64,8 @@ module NittyMail
         progress&.event(:sync_writer_stopped, {mailbox: mbox_name, thread: Thread.current.object_id})
       rescue => e
         # Catch any unhandled exceptions in writer thread to prevent silent exits
-        progress&.log("FATAL: Writer thread crashed: #{e.class}: #{e.message}")
-        progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+        progress&.event(:sync_log, {message: "FATAL: Writer thread crashed: #{e.class}: #{e.message}"})
+        progress&.event(:sync_log, {message: "Backtrace:\n" + e.backtrace.join("\n")})
         # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
         error_count += 1
         raise e
@@ -89,8 +89,8 @@ module NittyMail
               progress&.event(:sync_fetch_finished, {mailbox: mbox_name, count: fetched.size})
             rescue => e
               mailbox_abort = true
-              progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox")
-              progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+              progress&.event(:sync_log, {message: "Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox"})
+              progress&.event(:sync_log, {message: "Backtrace:\n" + e.backtrace.join("\n")})
               error_count += 1
               break
             end
@@ -140,8 +140,8 @@ module NittyMail
         rescue => e
           # Catch any unhandled exceptions in worker threads to prevent silent exits
           mailbox_abort = true
-          progress&.log("FATAL: Worker thread crashed in mailbox '#{mbox_name}': #{e.class}: #{e.message}")
-          progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+          progress&.event(:sync_log, {message: "FATAL: Worker thread crashed in mailbox '#{mbox_name}': #{e.class}: #{e.message}"})
+          progress&.event(:sync_log, {message: "Backtrace:\n" + e.backtrace.join("\n")})
           # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
           error_count += 1
           raise e
@@ -169,9 +169,9 @@ module NittyMail
 
       # If we collected any exceptions, report them
       unless worker_exceptions.empty?
-        progress&.log("Mailbox processing failed with #{worker_exceptions.size} thread exception(s)")
+        progress&.event(:sync_log, {message: "Mailbox processing failed with #{worker_exceptions.size} thread exception(s)"})
         worker_exceptions.each_with_index do |e, i|
-          progress&.log("Exception #{i + 1}: #{e.class}: #{e.message}")
+          progress&.event(:sync_log, {message: "Exception #{i + 1}: #{e.class}: #{e.message}"})
         end
         error_count += worker_exceptions.size
       end

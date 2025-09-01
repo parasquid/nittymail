@@ -203,73 +203,13 @@ module NittyMail
       # Each preflight thread uses its own IMAP connection
       imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
       imap.login(imap_address, imap_password)
-      while (mailbox = begin
-        mbox_queue.pop(true)
-      rescue
-        nil
-      end)
-
-        mbox_name = mailbox.name
-        pfcalc = NittyMail::Preflight.compute(imap, email, mbox_name, db_mutex)
-        uidvalidity = pfcalc[:uidvalidity]
-        uids = pfcalc[:to_fetch]
-        db_only = pfcalc[:db_only]
-        server_size = pfcalc[:server_size]
-        db_size = pfcalc[:db_size]
-
-        preflight_mutex.synchronize do
-          preflight_results << {name: mbox_name, uidvalidity:, uids:, db_only:}
-          preflight_progress.event(:preflight_mailbox, {mailbox: mbox_name, uidvalidity: uidvalidity, to_fetch: uids.size, to_prune: db_only.size, server_size:, db_size:, uids_preview: NittyMail::Logging.format_uids_preview(uids)})
-        end
-      end
+      NittyMail::SyncUtils.preflight_worker_with_imap(imap, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
       imap.logout
       imap.disconnect
     end
 
     def process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size, reporter)
-      mbox_name = preflight_result[:name]
-      uidvalidity = preflight_result[:uidvalidity]
-      uids = preflight_result[:uids]
-
-      # Skip mailboxes with nothing to fetch
-      if uids.nil? || uids.empty?
-        reporter.event(:mailbox_skipped, {mailbox: mbox_name, reason: :nothing_to_fetch})
-        return
-      end
-
-      thread_word = (threads_count == 1) ? "thread" : "threads"
-      reporter.event(:mailbox_started, {mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size, threads: threads_count, thread_word: thread_word})
-
-      result = NittyMail::MailboxRunner.run(
-        settings:,
-        email_ds: email,
-        mbox_name:,
-        uidvalidity:,
-        uids:,
-        threads_count:,
-        fetch_batch_size:,
-        progress: reporter
-      )
-
-      # Handle pruning and purging operations
-      db_only = preflight_result[:db_only] || []
-      status = result.is_a?(Hash) ? result[:status] : result
-      processed_msgs = result.is_a?(Hash) ? (result[:processed] || uids.size) : uids.size
-      error_count = result.is_a?(Hash) ? (result[:errors] || 0) : 0
-      pruned_count = NittyMail::SyncUtils.handle_prune_missing(@db, @prune_missing, status, mbox_name, uidvalidity, db_only, reporter)
-      purged_count = NittyMail::SyncUtils.handle_purge_old_validity(@db, email, settings, mbox_name, uidvalidity, reporter)
-      reporter.event(:mailbox_summary, {
-        mailbox: mbox_name,
-        uidvalidity: uidvalidity,
-        total: uids.size,
-        prune_candidates: db_only.size,
-        pruned: pruned_count || 0,
-        purged: purged_count || 0,
-        processed: processed_msgs,
-        errors: error_count,
-        result: status
-      })
-      reporter.event(:mailbox_finished, {mailbox: mbox_name, uidvalidity: uidvalidity, processed: processed_msgs, result: status})
+      NittyMail::SyncUtils.process_mailbox(email_ds: email, settings:, preflight_result:, threads_count:, fetch_batch_size:, reporter:, db: @db)
     end
 
     private

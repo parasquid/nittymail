@@ -109,5 +109,84 @@ module NittyMail
         0
       end
     end
+
+    # New: preflight worker helper with injectable IMAP
+    def preflight_worker_with_imap(imap, email_ds, mbox_queue, preflight_results, preflight_mutex, reporter, db_mutex)
+      while (mailbox = begin
+        mbox_queue.pop(true)
+      rescue
+        nil
+      end)
+        mbox_name = mailbox.name
+        pfcalc = NittyMail::Preflight.compute(imap, email_ds, mbox_name, db_mutex)
+        uidvalidity = pfcalc[:uidvalidity]
+        uids = pfcalc[:to_fetch]
+        db_only = pfcalc[:db_only]
+        server_size = pfcalc[:server_size]
+        db_size = pfcalc[:db_size]
+
+        preflight_mutex.synchronize do
+          preflight_results << {name: mbox_name, uidvalidity: uidvalidity, uids: uids, db_only: db_only}
+          reporter.event(:preflight_mailbox, {
+            mailbox: mbox_name,
+            uidvalidity: uidvalidity,
+            to_fetch: uids.size,
+            to_prune: db_only.size,
+            server_size: server_size,
+            db_size: db_size,
+            uids_preview: NittyMail::Logging.format_uids_preview(uids)
+          })
+        end
+      end
+    end
+
+    # New: mailbox processing helper
+    def process_mailbox(email_ds:, settings:, preflight_result:, threads_count:, fetch_batch_size:, reporter:, db:)
+      mbox_name = preflight_result[:name]
+      uidvalidity = preflight_result[:uidvalidity]
+      uids = preflight_result[:uids]
+
+      if uids.nil? || uids.empty?
+        reporter.event(:mailbox_skipped, {mailbox: mbox_name, reason: :nothing_to_fetch})
+        return {status: :skipped, mailbox: mbox_name, uidvalidity: uidvalidity, total: 0, processed: 0, errors: 0, pruned: 0, purged: 0}
+      end
+
+      thread_word = (threads_count.to_i == 1) ? "thread" : "threads"
+      reporter.event(:mailbox_started, {mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size, threads: threads_count, thread_word: thread_word})
+
+      result = NittyMail::MailboxRunner.run(
+        settings: settings,
+        email_ds: email_ds,
+        mbox_name: mbox_name,
+        uidvalidity: uidvalidity,
+        uids: uids,
+        threads_count: threads_count,
+        fetch_batch_size: fetch_batch_size,
+        progress: reporter
+      )
+
+      db_only = preflight_result[:db_only] || []
+      status = result.is_a?(Hash) ? result[:status] : result
+      processed_msgs = result.is_a?(Hash) ? (result[:processed] || uids.size) : uids.size
+      error_count = result.is_a?(Hash) ? (result[:errors] || 0) : 0
+
+      pruned_count = handle_prune_missing(db, settings.prune_missing, status, mbox_name, uidvalidity, db_only, reporter) || 0
+      purged_count = handle_purge_old_validity(db, email_ds, settings, mbox_name, uidvalidity, reporter) || 0
+
+      reporter.event(:mailbox_summary, {
+        mailbox: mbox_name,
+        uidvalidity: uidvalidity,
+        total: uids.size,
+        prune_candidates: db_only.size,
+        pruned: pruned_count,
+        purged: purged_count,
+        processed: processed_msgs,
+        errors: error_count,
+        result: status
+      })
+      reporter.event(:mailbox_finished, {mailbox: mbox_name, uidvalidity: uidvalidity, processed: processed_msgs, result: status})
+
+      {status: status, mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size, processed: processed_msgs, errors: error_count, pruned: pruned_count, purged: purged_count}
+    end
   end
 end

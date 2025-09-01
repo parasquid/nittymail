@@ -155,8 +155,7 @@ module NittyMail
         batch_size = [settings.write_batch_size.to_i, 1].max
         last_flush = Time.now
 
-        loop do
-          break if stop_requested
+        until stop_requested
           begin
             job = write_queue.pop(true) # non-blocking
             break if job == :__STOP__
@@ -206,8 +205,7 @@ module NittyMail
       threads = Array.new([settings.threads_count.to_i, 1].max) do
         Thread.new do
           reporter.event(:embed_worker_started, {thread: Thread.current.object_id})
-          loop do
-            break if stop_requested
+          until stop_requested
             begin
               job = job_queue.pop(true) # non-blocking
             rescue ThreadError # empty queue
