@@ -113,7 +113,7 @@ RSpec.describe "Integration: sync with IMAP tape" do
             puts({event: type, **payload}.to_json)
           end
         end.new
-      elsif ENV["INTEGRATION_LOG"] || !STDOUT.tty?
+      elsif ENV["INTEGRATION_LOG"] || !$stdout.tty?
         NittyMail::Reporting::TextReporter.new(quiet: false)
       else
         NittyMail::Reporting::CLIReporter.new(quiet: false)
