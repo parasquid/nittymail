@@ -181,8 +181,7 @@ class NittyMailCLI < Thor
     # Warning for regenerate option
     if regenerate
       puts "⚠️  WARNING: --regenerate will DELETE ALL existing embeddings for model '#{model}' and recreate them."
-      puts "   This will take advantage of the new search prompt optimization but will require"
-      puts "   re-processing all emails, which may take significant time and API calls."
+      puts "   Re-processing all emails may take significant time and API calls."
       puts ""
       unless quiet
         print "Are you sure you want to regenerate all embeddings? [y/N]: "
