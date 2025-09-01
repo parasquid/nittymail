@@ -1,6 +1,8 @@
 # NittyMail Core
 
-This folder contains some common functionality, among which is a simple syncing script that will download all messages in a Gmail account to an sqlite3 database.
+This folder contains the core library and CLI for syncing Gmail to SQLite and querying it locally.
+
+See CHANGELOG for recent changes: core/CHANGELOG.md
 
 ## Usage
 
