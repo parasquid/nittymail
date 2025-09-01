@@ -301,12 +301,13 @@ NittyMail::API.embed(settings)
 
 Progress and logging are abstracted via a reporter interface:
 - Default for library calls is a no-op reporter (no stdout). Provide `on_progress` for simple progress callbacks.
-- For more control, pass a custom reporter object responding to:
-  - `start(title:, total:)`, `increment`, `log(message)`, `info(message)`, `warn(message)`, `finish`
-  - Optional structured events via `event(type, payload)`. Emitted events include:
-    - `:preflight_mailbox` (sync), `:mailbox_started`, `:mailbox_finished`
-    - `:enrich_started`, `:enrich_finished`, `:enrich_interrupted`, `:enrich_error`
-    - `:embed_started`, `:embed_status`, `:embed_finished`, `:embed_interrupted`, `:embed_error`, `:embed_skipped`, `:embed_regenerate`
+- For more control, pass a custom reporter object responding to `event(type, payload)`. Emitted events include:
+  - Sync: `:preflight_started`, `:preflight_mailbox`, `:preflight_finished`, `:mailbox_started`, `:mailbox_finished`, `:mailbox_skipped`, `:mailbox_summary`
+    - `:mailbox_summary` includes `{ total, prune_candidates, pruned, purged, processed, errors, result }`
+  - Enrich: `:enrich_started`, `:enrich_progress`, `:enrich_finished`, `:enrich_interrupted`, `:enrich_error`, `:enrich_field_error`
+    - `:enrich_finished`/`:enrich_interrupted` include `{ processed, total, errors }`
+  - Embed: `:embed_scan_started`, `:embed_started`, `:embed_status`, `:embed_finished`, `:embed_interrupted`, `:embed_error`, `:embed_db_error`, `:embed_skipped`, `:embed_regenerate`, `:embed_jobs_enqueued`, `:embed_batch_written`, `:embed_worker_started/stopped`, `:embed_writer_started/stopped`
+    - `:embed_finished`/`:embed_interrupted` include `{ processed, total, errors }`
 
 The CLI uses a progress-bar reporter; library usage stays silent unless you attach callbacks.
 

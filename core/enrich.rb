@@ -41,6 +41,7 @@ module NittyMail
       original_term_handler = trap("TERM") { stop_requested = true }
 
       processed = 0
+      error_count = 0
       begin
         ds.each do |row|
           break if stop_requested
@@ -60,6 +61,7 @@ module NittyMail
             NittyMail::Util.safe_utf8(mail&.in_reply_to)
           rescue => e
             reporter.event(:enrich_field_error, {id: row[:id], field: :in_reply_to, error: e.class.name, message: e.message})
+            error_count += 1
             ""
           end
 
@@ -93,20 +95,22 @@ module NittyMail
           end
         rescue Mail::Field::NilParseError, ArgumentError => e
           reporter.event(:enrich_error, {id: row[:id], error: e.class.name, message: e.message})
+          error_count += 1
         rescue => e
           reporter.event(:enrich_error, {id: row[:id], error: e.class.name, message: e.message})
+          error_count += 1
         end
         processed += 1
         reporter.event(:enrich_progress, {current: processed, total: total, delta: 1})
       rescue Interrupt
         stop_requested = true
-        reporter.event(:enrich_interrupted, {processed: processed, total: total})
+        reporter.event(:enrich_interrupted, {processed: processed, total: total, errors: error_count})
       ensure
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
 
-        reporter.event(:enrich_finished, {processed: processed, total: total}) unless stop_requested
+        reporter.event(:enrich_finished, {processed: processed, total: total, errors: error_count}) unless stop_requested
       end
     ensure
       # Force WAL checkpoint and disconnect

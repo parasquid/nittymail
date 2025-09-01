@@ -130,6 +130,7 @@ module NittyMail
       job_queue = Queue.new
       write_queue = Queue.new
       embedded_done = 0
+      embedded_errors = 0
       last_progress_update = Time.now
 
       # Start persistent writer thread
@@ -147,7 +148,8 @@ module NittyMail
             batch << job
           rescue ThreadError # empty queue
             if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
-              processed = process_write_batch(db, batch, reporter, settings)
+              processed, db_errors = process_write_batch(db, batch, reporter, settings)
+              embedded_errors += db_errors
               reporter.event(:embed_batch_written, {count: processed})
               embedded_done += processed
               batch.clear
@@ -159,7 +161,8 @@ module NittyMail
           end
 
           if batch.size >= batch_size
-            processed = process_write_batch(db, batch, reporter, settings)
+            processed, db_errors = process_write_batch(db, batch, reporter, settings)
+            embedded_errors += db_errors
             reporter.event(:embed_batch_written, {count: processed})
             embedded_done += processed
             batch.clear
@@ -176,7 +179,8 @@ module NittyMail
 
         # Process final batch
         unless batch.empty?
-          processed = process_write_batch(db, batch, reporter, settings)
+          processed, db_errors = process_write_batch(db, batch, reporter, settings)
+          embedded_errors += db_errors
           reporter.event(:embed_batch_written, {count: processed})
           embedded_done += processed
         end
@@ -210,6 +214,7 @@ module NittyMail
             rescue => e
               reporter.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
               reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
+              embedded_errors += 1
             end
           end
           reporter.event(:embed_worker_stopped, {thread: Thread.current.object_id})
@@ -281,11 +286,7 @@ module NittyMail
 
         # Wait for all jobs to complete
         reporter.info("Email scanning complete, waiting for embedding work to finish...")
-        loop do
-          break if stop_requested
-          break if job_queue.size == 0 && write_queue.size == 0
-          sleep 0.5
-        end
+        sleep 0.5 while !stop_requested && (job_queue.size > 0 || write_queue.size > 0)
       rescue Interrupt
         stop_requested = true
         reporter.log("Interrupt received, stopping...")
@@ -329,7 +330,7 @@ module NittyMail
 
         if stop_requested
           reporter.info("Interrupted: embedded #{embedded_done}/#{reporter.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size}).")
-          reporter.event(:embed_interrupted, {processed: embedded_done, total: reporter.total})
+          reporter.event(:embed_interrupted, {processed: embedded_done, total: reporter.total, errors: embedded_errors})
           # Check if there's significant WAL data to drain
           begin
             wal_info = db.fetch("PRAGMA wal_checkpoint").first
@@ -345,7 +346,7 @@ module NittyMail
           end
         else
           reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
-          reporter.event(:embed_finished, {processed: embedded_done, total: reporter.total})
+          reporter.event(:embed_finished, {processed: embedded_done, total: reporter.total, errors: embedded_errors})
         end
       end
     ensure
@@ -366,9 +367,10 @@ module NittyMail
 
     # Process a batch of embeddings in a single transaction using prepared statements
     def self.process_write_batch(db, batch, reporter, settings)
-      return 0 if batch.empty?
+      return [0, 0] if batch.empty?
 
       processed_count = 0
+      error_count = 0
 
       # Ensure vec tables exist once per run; no per-row checks
       NittyMail::DB.ensure_vec_tables!(db, dimension: settings.dimension)
@@ -381,6 +383,7 @@ module NittyMail
             insert_meta_stmt = conn.prepare("INSERT OR IGNORE INTO email_vec_meta(vec_rowid, email_id, item_type, model, dimension) VALUES (?, ?, ?, ?, ?)")
           rescue => e
             reporter.log("db prepare error: #{e.class}: #{e.message}")
+            error_count += 1
           end
 
           batch.each do |job|
@@ -392,10 +395,11 @@ module NittyMail
               new_rowid = conn.last_insert_row_id
               insert_meta_stmt.execute(new_rowid, job[:email_id], job[:item_type].to_s, settings.model, settings.dimension)
             end
-            reporter.increment
             processed_count += 1
           rescue => e
             reporter.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+            reporter.event(:embed_db_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
+            error_count += 1
           end
 
           begin
@@ -404,11 +408,12 @@ module NittyMail
             insert_meta_stmt&.close
           rescue => e
             reporter.log("db finalize error: #{e.class}: #{e.message}")
+            error_count += 1
           end
         end
       end
 
-      processed_count
+      [processed_count, error_count]
     end
 
     def self.missing_embedding?(db, email_id, item_type, model)

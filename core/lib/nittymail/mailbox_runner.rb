@@ -14,6 +14,8 @@ module NittyMail
 
       write_queue = Queue.new
       mailbox_abort = false
+      processed_count = 0
+      error_count = 0
 
       insert_stmt = NittyMail::DB.prepared_insert(email_ds)
 
@@ -21,8 +23,7 @@ module NittyMail
 
       writer = Thread.new do
         progress&.event(:sync_writer_started, {mailbox: mbox_name, thread: Thread.current.object_id})
-        loop do
-          rec = write_queue.pop
+        while (rec = write_queue.pop)
           break if rec == :__DONE__
           begin
             to_bind = rec
@@ -40,6 +41,7 @@ module NittyMail
               raise e
             else
               progress&.log("Database error for #{rec[:mailbox]} #{rec[:uid]}: #{e.class}: #{e.message}")
+              error_count += 1
             end
           end
           # Embeddings disabled in sync: no-op after insert
@@ -50,6 +52,7 @@ module NittyMail
         progress&.log("FATAL: Writer thread crashed: #{e.class}: #{e.message}")
         progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
         # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
+        error_count += 1
         raise e
       end
 
@@ -76,6 +79,7 @@ module NittyMail
               mailbox_abort = true
               progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox")
               progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
+              error_count += 1
               break
             end
             fetched.each do |fd|
@@ -115,6 +119,7 @@ module NittyMail
               )
               # Embeddings disabled in sync: do not prepare embed fields
               write_queue << rec
+              processed_count += 1
               # Progress is reported via events; no direct increments
             end
           end
@@ -126,6 +131,7 @@ module NittyMail
           progress&.log("FATAL: Worker thread crashed in mailbox '#{mbox_name}': #{e.class}: #{e.message}")
           progress&.log("Backtrace:\n" + e.backtrace.join("\n"))
           # Re-raise to ensure the exception is visible if Thread.abort_on_exception is true
+          error_count += 1
           raise e
         end
       end
@@ -155,10 +161,11 @@ module NittyMail
         worker_exceptions.each_with_index do |e, i|
           progress&.log("Exception #{i + 1}: #{e.class}: #{e.message}")
         end
+        error_count += worker_exceptions.size
       end
 
-      # No embedding summary in sync mode
-      mailbox_abort ? :aborted : :ok
+      # Return mailbox summary stats
+      {status: (mailbox_abort ? :aborted : :ok), processed: processed_count, errors: error_count}
     end
   end
 end
