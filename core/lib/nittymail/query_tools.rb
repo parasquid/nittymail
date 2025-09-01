@@ -1340,6 +1340,7 @@ module NittyMail
       unless normalized_query.start_with?("select", "with")
         return safe_encode_result({
           error: "Only SELECT queries and WITH expressions (CTEs) are allowed. Query must start with SELECT or WITH.",
+          query: sql_query,
           example: "SELECT * FROM email WHERE subject LIKE '%meeting%' LIMIT 10"
         })
       end
@@ -1365,6 +1366,7 @@ module NittyMail
           matched_text = normalized_query.match(/#{pattern}/i)[0]
           return safe_encode_result({
             error: "Forbidden SQL operation detected: '#{matched_text}'. Only SELECT queries are allowed.",
+            query: sql_query,
             allowed_operations: ["SELECT", "WITH (for CTEs)"],
             note: "Searches for emails containing these words in content are allowed, but SQL commands are blocked."
           })
