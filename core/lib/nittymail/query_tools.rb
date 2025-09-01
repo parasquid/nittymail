@@ -500,7 +500,7 @@ module NittyMail
             WHERE embedding MATCH ?
             LIMIT ?
           )
-          SELECT e.id, e.address, e.mailbox, e.uid, e.uidvalidity, e.message_id, e.date, e."from" as from, e.subject,
+          SELECT e.id, e.address, e.mailbox, e.uid, e.uidvalidity, e.message_id, e.date, e."from", e.subject,
                  MIN(nn.distance) AS score
           FROM nn
           JOIN email_vec_meta m ON m.vec_rowid = nn.vec_rowid
@@ -511,9 +511,19 @@ module NittyMail
           LIMIT ?
         SQL
 
-        binds = [SQLite3::Blob.new(packed), limit * 5, limit] # overfetch then group
-
-        rows = db[sql, *binds].all
+        # Use Sequel's synchronize to get the raw SQLite3 connection like sqlite-vec examples
+        rows = db.synchronize do |conn|
+          stmt = conn.prepare(sql)
+          stmt.bind_params(packed, limit * 5, limit)
+          results = []
+          stmt.execute do |result_set|
+            result_set.each do |row|
+              results << Hash[result_set.columns.zip(row)]
+            end
+          end
+          stmt.close
+          results
+        end
 
         # Apply encoding safety to each row individually to catch problematic records
         safe_rows = []

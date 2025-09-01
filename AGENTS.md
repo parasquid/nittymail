@@ -146,6 +146,41 @@ Then  { rep.events.map(&:first).include?(:enrich_finished) }
 - If a rescue is necessary (e.g., to continue a batch process), log the error with actionable context and surface failures (e.g., via return values or counters). Add a short justification in the PR/commit body.
 - Never hide initialization failures that would leave the process in an unusable state. Fail fast with a clear, user‑facing error message.
 
+### sqlite-vec Troubleshooting (AI Agents)
+
+When working with sqlite-vec vector search functionality, be aware of these common issues:
+
+**Binary Data Encoding Issues**: The most common problem is encoding errors like `"\xC8" from ASCII-8BIT to UTF-8` when passing vector embeddings to queries.
+
+- **Root Cause**: Sequel's query interface doesn't properly handle binary blob data for sqlite-vec MATCH operations
+- **Symptoms**: `Encoding::UndefinedConversionError` when executing vector search queries, even though embeddings exist in database
+- **Solution**: Use Sequel's `synchronize` method to get direct access to the underlying SQLite3 connection, following the sqlite-vec Ruby example pattern
+
+**SQL Syntax Issues**: Reserved keywords in column aliases cause parsing errors.
+
+- **Symptoms**: `near "from": syntax error` in vector search queries
+- **Root Cause**: Using `e."from" as from` creates invalid SQL syntax with reserved keyword
+- **Solution**: Remove problematic aliases or use different column names
+
+**Working Code Pattern**:
+```ruby
+# Use direct SQLite3 connection through Sequel
+rows = db.synchronize do |conn|
+  stmt = conn.prepare(sql)
+  stmt.bind_params(packed_vector, limit1, limit2)  # packed_vector from vector.pack("f*")
+  results = []
+  stmt.execute do |result_set|
+    result_set.each do |row|
+      results << Hash[result_set.columns.zip(row)]
+    end
+  end
+  stmt.close
+  results
+end
+```
+
+**Reference**: See https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb for canonical Ruby integration patterns.
+
 ### Event Schema (Reference for Agents)
 
 Library code reports progress exclusively via a single hook: `reporter.event(type, payload)`. The CLI adapts these into progress bars/logs. When writing code or tests, use these events and payloads.
