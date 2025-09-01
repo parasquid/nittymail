@@ -46,4 +46,3 @@ if !ENV["ALLOW_NET"] && !ENV["INTEGRATION_RECORD"]
 
   NetworkBlocker.wrap_tcp_methods!
 end
-

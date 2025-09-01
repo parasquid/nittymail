@@ -46,7 +46,7 @@ RSpec.describe "Integration: sync with IMAP tape" do
     paths.each { |p| FileUtils.rm_f(p) if p && !p.empty? }
   end
 
-  Invariant do
+  before do
     # Ensure environment has minimal config for live recording when requested
     if ENV["INTEGRATION_RECORD"]
       %w[ADDRESS PASSWORD].each do |k|
@@ -98,7 +98,10 @@ RSpec.describe "Integration: sync with IMAP tape" do
       )
     end
 
-    Then { (reporter.events.map(&:first) & [:mailbox_summary, :mailbox_skipped]).any? }
+    Then do
+      event_types = reporter.events.map(&:first)
+      expect(event_types.include?(:mailbox_summary) || event_types.include?(:mailbox_skipped)).to be true
+    end
   end
 
   context "record to cassette" do
@@ -137,7 +140,7 @@ RSpec.describe "Integration: sync with IMAP tape" do
         ukey = if uids.size > 1 && uids.each_cons(2).all? { |a, b| b.to_i == a.to_i + 1 }
           "#{uids.first}-#{uids.last}"
         else
-          uids.join(',')
+          uids.join(",")
         end
         puts "[cassette] fetch recorded: mailbox=#{kwargs[:mailbox_name]} uids=#{ukey} count=#{serial.length}" if ENV["INTEGRATION_VERBOSE"]
         res
