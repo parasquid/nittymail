@@ -245,10 +245,12 @@ docker compose run --rm ruby ./cli.rb enrich \
   --address user@gmail.com
 ```
 Notes:
-- Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
+- Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`, and `plain_text`.
+- `plain_text` is a text‑only body suitable for embeddings. If the email is HTML, it is converted to text via Nokogiri (scripts/styles removed; whitespace normalized).
 - `internaldate` is captured during sync from IMAP and not modified by enrich.
- - By default, enrich only processes rows that have not yet been enriched (it filters where `rfc822_size IS NULL`). Use `--regenerate` to re-enrich all matching rows regardless of prior enrichment.
- - Performance: NittyMail creates a partial index (`email_idx_rfc822_size_null`) to speed scanning rows where `rfc822_size IS NULL`.
+- By default, enrich processes only rows that have not yet been enriched (filters where `rfc822_size IS NULL`).
+- `--regenerate` clears all enrichment columns (`rfc822_size`, `envelope_*`, `plain_text`) for the selected rows, then re-enriches them. This is destructive and lets you start over.
+- Performance: NittyMail creates a partial index (`email_idx_rfc822_size_null`) to speed scanning rows where `rfc822_size IS NULL`.
 
 **SQLite performance (WAL journaling):**
 ```bash

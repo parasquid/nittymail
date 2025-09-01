@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+require "nokogiri"
+
 module NittyMail
   module Util
     module_function
@@ -24,6 +26,47 @@ module NittyMail
       s = value.to_s
       s = s.dup if s.frozen?
       s.encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "")
+    end
+
+    # Convert HTML to normalized plain text using Nokogiri when available.
+    # Removes script/style and collapses whitespace.
+    def html_to_text(html)
+      h = safe_utf8(html.to_s)
+      begin
+        doc = Nokogiri::HTML::DocumentFragment.parse(h)
+        doc.css("script,style").remove
+        text = doc.text
+      rescue => _
+        # Fallback: naive tag strip
+        text = h.gsub(/<[^>]+>/, " ")
+      end
+      text.gsub(/\s+/, " ").strip
+    end
+
+    # Extract a plain text body suitable for embedding/search.
+    # Preference order: text_part -> html_part (textized) -> whole body (textized when HTML-like)
+    def extract_plain_text(mail)
+      return "" if mail.nil?
+      # Prefer explicit text part when present
+      part = mail&.text_part&.decoded
+      if part && !part.empty?
+        return safe_utf8(part).gsub(/\s+/, " ").strip
+      end
+
+      # Otherwise use HTML part converted to text
+      html = mail&.html_part&.decoded
+      if html && !html.empty?
+        return html_to_text(html)
+      end
+
+      # Fallback to the full body
+      body = mail&.body&.decoded
+      body_str = safe_utf8(body)
+      if body_str.include?("<") && body_str.include?(">")
+        html_to_text(body_str)
+      else
+        body_str.gsub(/\s+/, " ").strip
+      end
     end
 
     # JSON-encode an Array or scalar after UTF-8 sanitization; never raise

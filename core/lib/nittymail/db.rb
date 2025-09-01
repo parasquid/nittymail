@@ -124,6 +124,7 @@ module NittyMail
     # - internaldate (DateTime): captured from IMAP INTERNALDATE during sync
     # - rfc822_size (Integer): bytesize of raw encoded message
     # - envelope_* fields as JSON strings for address lists and references
+    # - plain_text (String): stripped text-only body suitable for embedding
     def ensure_enrichment_columns!(db)
       cols = db.schema(:email).map { |c| c.first }
       db.alter_table(:email) { add_column :internaldate, DateTime } unless cols.include?(:internaldate)
@@ -132,6 +133,9 @@ module NittyMail
         unless cols.include?(col)
           db.alter_table(:email) { add_column col, String }
         end
+      end
+      unless cols.include?(:plain_text)
+        db.alter_table(:email) { add_column :plain_text, String }
       end
       db
     end

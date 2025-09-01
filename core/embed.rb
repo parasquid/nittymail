@@ -273,11 +273,11 @@ module NittyMail
             end
             if settings.item_types.include?("body")
               if settings.regenerate || !existing_for_email.key?("body")
-                raw = row[:encoded]
-                mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
-                body_text = NittyMail::Util.safe_utf8(mail&.text_part&.decoded || mail&.body&.decoded)
-                if body_text.include?("<") && body_text.include?(">") && mail&.text_part.nil? && mail&.html_part
-                  body_text = body_text.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+                body_text = row[:plain_text].to_s
+                if body_text.nil? || body_text.strip.empty?
+                  raw = row[:encoded]
+                  mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: row[:mailbox], uid: row[:uid])
+                  body_text = NittyMail::Util.extract_plain_text(mail)
                 end
                 if body_text && !body_text.empty?
                   job_queue << {email_id: email_id, item_type: :body, text: body_text, vec_rowid: existing_for_email["body"]}

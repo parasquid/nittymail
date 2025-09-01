@@ -34,6 +34,27 @@ module NittyMail
       # Build reporter (default to no-op for library usage)
       reporter ||= NittyMail::Reporting::NullReporter.new(quiet: quiet, on_progress: on_progress)
 
+      # When regenerating, clear enrichment columns to start fresh
+      if regenerate
+        puts "Regenerating enrichment: clearing enrichment columns for matching rows..."
+        to_clear = email_ds
+        to_clear = to_clear.where(address: address_filter) if address_filter && !address_filter.to_s.strip.empty?
+        to_clear = to_clear.offset(offset.to_i) if offset && offset.to_i > 0
+        to_clear = to_clear.limit(limit.to_i) if limit && limit.to_i > 0
+        db.transaction do
+          to_clear.update(
+            rfc822_size: nil,
+            envelope_to: nil,
+            envelope_cc: nil,
+            envelope_bcc: nil,
+            envelope_reply_to: nil,
+            envelope_in_reply_to: nil,
+            envelope_references: nil,
+            plain_text: nil
+          )
+        end
+      end
+
       ds = email_ds
       ds = ds.where(address: address_filter) if address_filter && !address_filter.to_s.strip.empty?
 
@@ -85,6 +106,14 @@ module NittyMail
           # RFC822 size from raw bytes
           rfc822_size = raw&.bytesize
 
+          # Stripped text-only body suitable for embedding (Nokogiri-backed)
+          plain_text = begin
+            NittyMail::Util.extract_plain_text(mail)
+          rescue => e
+            reporter.event(:enrich_field_error, {id: row[:id], field: :plain_text, error: e.class.name, message: e.message})
+            ""
+          end
+
           updates = {
             rfc822_size:,
             envelope_to: env_to,
@@ -92,7 +121,8 @@ module NittyMail
             envelope_bcc: env_bcc,
             envelope_reply_to: env_reply_to,
             envelope_in_reply_to: in_reply_to,
-            envelope_references: references
+            envelope_references: references,
+            plain_text: plain_text
           }
 
           # Retry database updates on lock errors

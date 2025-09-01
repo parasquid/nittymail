@@ -209,7 +209,7 @@ class NittyMailCLI < Thor
   option :limit, aliases: "-n", desc: "Limit number of emails to process", type: :numeric
   option :offset, desc: "Offset for pagination", type: :numeric
   option :quiet, aliases: "-q", desc: "Reduce log output", type: :boolean, default: false
-  option :regenerate, desc: "Re-enrich all rows (do not skip already-enriched emails)", type: :boolean, default: false
+  option :regenerate, desc: "Clear enrichment columns and re-enrich all matching rows", type: :boolean, default: false
   def enrich
     database_path = options[:database] || ENV["DATABASE"]
     address_filter = options[:address] || ENV["ADDRESS"]
@@ -221,6 +221,20 @@ class NittyMailCLI < Thor
     unless database_path
       puts "Error: DATABASE must be provided via --database or env"
       exit 1
+    end
+
+    if regenerate
+      puts "⚠️  WARNING: --regenerate will CLEAR all enrichment columns (rfc822_size, envelope_*, plain_text) for matching rows."
+      puts "   This lets you start over and re-enrich from raw messages."
+      puts ""
+      unless quiet
+        print "Are you sure you want to regenerate enrichment? [y/N]: "
+        answer = $stdin.gets&.strip&.downcase
+        unless %w[y yes].include?(answer)
+          puts "Aborted by user."
+          exit 1
+        end
+      end
     end
 
     reporter = NittyMail::Reporting::CLIReporter.new(quiet: quiet)
