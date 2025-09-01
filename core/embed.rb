@@ -225,9 +225,18 @@ module NittyMail
               )
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
-              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
-              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
-              embedded_errors += 1
+              msg = e.message.to_s
+              fatal_model_missing = (msg =~ /ollama embeddings HTTP 404/i) || (msg =~ /model\s+\"?.+\"?\s+not\s+found/i)
+              if fatal_model_missing
+                reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message, fatal: true})
+                warn "Embedding model '#{settings.model}' not found at #{settings.ollama_host}. Aborting embed."
+                warn "Hint: pull it with: ollama pull #{settings.model} (or set EMBEDDING_MODEL/--model)."
+                stop_requested = true
+                break
+              else
+                reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
+                embedded_errors += 1
+              end
             end
           end
           reporter.event(:embed_worker_stopped, {thread: Thread.current.object_id})
