@@ -1373,9 +1373,13 @@ module NittyMail
         end
       end
 
-      # Add LIMIT clause if not present to prevent runaway queries
+      # Add LIMIT clause if not present to prevent runaway queries for wide/row-returning queries.
+      # Heuristic: don't append for obvious aggregate/summary queries or when GROUP BY is used.
       unless normalized_query.include?("limit")
-        sql_query += " LIMIT #{limit}"
+        is_aggregate = ["sum(", "count(", "avg(", "min(", "max(", "total("]
+          .any? { |kw| normalized_query.include?(kw) }
+        uses_group_by = normalized_query.include?("group by")
+        sql_query += " LIMIT #{limit}" unless is_aggregate || uses_group_by
       end
 
       begin
