@@ -609,6 +609,7 @@ docker compose run --rm \
 ```
 
 Notes:
+- Requires the embedding model to be available on your Ollama host. Example: `ollama pull bge-m3` (or set a different `EMBEDDING_MODEL`).
 - Body embeddings use the `plain_text` column populated by `enrich` when available (preferred over parsing raw HTML). Subject embeddings use the `subject` field.
 
 Performance tips:
