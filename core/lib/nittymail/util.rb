@@ -51,7 +51,7 @@ module NittyMail
       # Prefer explicit text part when present
       part = mail&.text_part&.decoded
       if part && !part.empty?
-        return safe_utf8(part).gsub(/\s+/, " ").strip
+        return normalize_text_plain(part)
       end
 
       # Otherwise use HTML part converted to text
@@ -66,8 +66,20 @@ module NittyMail
       if body_str.include?("<") && body_str.include?(">")
         html_to_markdown(body_str)
       else
-        body_str.gsub(/\s+/, " ").strip
+        normalize_text_plain(body_str)
       end
+    end
+
+    # Preserve line breaks for text/plain while tidying whitespace.
+    # - Normalize CRLF to LF
+    # - Strip trailing spaces per line
+    # - Collapse 3+ blank lines to 2
+    def normalize_text_plain(text)
+      s = safe_utf8(text.to_s)
+      s = s.gsub("\r\n", "\n").gsub("\r", "\n")
+      s = s.lines.map { |ln| ln.rstrip }.join("\n")
+      s = s.gsub(/\n{3,}/, "\n\n")
+      s.strip
     end
 
     # JSON-encode an Array or scalar after UTF-8 sanitization; never raise
