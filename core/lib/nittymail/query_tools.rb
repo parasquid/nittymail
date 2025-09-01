@@ -18,6 +18,7 @@
 require "json"
 
 require_relative "db"
+require_relative "util"
 require_relative "embeddings"
 
 module NittyMail
@@ -31,7 +32,7 @@ module NittyMail
           "type" => "function",
           "function" => {
             "name" => "db.list_earliest_emails",
-            "description" => "Fetch earliest emails ordered by date ascending.",
+            "description" => "Fetch earliest emails ordered by date ascending. Includes plain_text (text-only body).",
             "parameters" => {
               "type" => "object",
               "properties" => {
@@ -45,7 +46,7 @@ module NittyMail
           "type" => "function",
           "function" => {
             "name" => "db.get_email_full",
-            "description" => "Fetch a single email and return full fields including raw encoded message. Prefer selecting by id, or by (mailbox, uid, uidvalidity), or message_id.",
+            "description" => "Fetch a single email and return full fields including raw encoded message and plain_text (text-only body). Prefer selecting by id, or by (mailbox, uid, uidvalidity), or message_id. For plain_text: prefer the email's text part when present; otherwise fall back to the stored plain_text column.",
             "parameters" => {
               "type" => "object",
               "properties" => {
@@ -67,7 +68,7 @@ module NittyMail
           "type" => "function",
           "function" => {
             "name" => "db.filter_emails",
-            "description" => "List emails filtered by simple criteria: from/subject contains, mailbox, and date range.",
+            "description" => "List emails filtered by simple criteria: from/subject contains, mailbox, and date range. Includes plain_text (text-only body).",
             "parameters" => {
               "type" => "object",
               "properties" => {
@@ -88,7 +89,7 @@ module NittyMail
           "type" => "function",
           "function" => {
             "name" => "db.search_emails",
-            "description" => "Semantic search over emails using vector similarity. Join results to the email table and return the most relevant.",
+            "description" => "Semantic search over emails using vector similarity. Join results to the email table and return the most relevant. Includes plain_text (text-only body).",
             "parameters" => {
               "type" => "object",
               "properties" => {
@@ -413,7 +414,7 @@ module NittyMail
       when "without"
         ds = ds.where(has_attachments: false)
       end
-      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, Sequel.function(:length, :encoded).as(:size_bytes))
+      ds = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, :plain_text, Sequel.function(:length, :encoded).as(:size_bytes))
         .order(Sequel.desc(:size_bytes))
         .limit(lim)
       rows = ds.all
@@ -426,7 +427,7 @@ module NittyMail
       ds = db[:email]
       ds = ds.where(address: address) if address && !address.to_s.strip.empty?
       rows = ds.order(Sequel.asc(:date)).limit(limit)
-        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size)
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, :plain_text)
         .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
@@ -472,7 +473,7 @@ module NittyMail
         ds = ds.order(Sequel.desc(:date))
       end
       ds = ds.limit(limit)
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, :plain_text).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
@@ -500,7 +501,7 @@ module NittyMail
             WHERE embedding MATCH ?
             LIMIT ?
           )
-          SELECT e.id, e.address, e.mailbox, e.uid, e.uidvalidity, e.message_id, e.date, e."from", e.subject,
+          SELECT e.id, e.address, e.mailbox, e.uid, e.uidvalidity, e.message_id, e.date, e."from", e.subject, e.plain_text,
                  MIN(nn.distance) AS score
           FROM nn
           JOIN email_vec_meta m ON m.vec_rowid = nn.vec_rowid
@@ -628,9 +629,21 @@ module NittyMail
       end
       row = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size,
         :envelope_to, :envelope_cc, :envelope_bcc, :envelope_reply_to, :envelope_in_reply_to, :envelope_references,
-        :encoded).first
+        :plain_text, :encoded).first
       return nil unless row
       result = symbolize_keys(row)
+      # Prefer actual text part when present, else stored plain_text column
+      begin
+        if result[:encoded]
+          mail = NittyMail::Util.parse_mail_safely(result[:encoded], mbox_name: result[:mailbox], uid: result[:uid])
+          text_part = mail&.text_part&.decoded
+          if text_part && !text_part.empty?
+            result[:plain_text] = NittyMail::Util.safe_utf8(text_part).gsub(/\s+/, " ").strip
+          end
+        end
+      rescue => _e
+        # Keep existing plain_text on parse errors
+      end
       safe_encode_result(result)
     end
 
@@ -802,7 +815,7 @@ module NittyMail
       end
 
       rows = ds.order(Sequel.desc(:date)).limit(limit)
-        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject)
+        .select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :from, :subject, :plain_text)
         .all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
@@ -823,7 +836,7 @@ module NittyMail
         ds.order(Sequel.asc(:date))
       end
 
-      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size).all
+      rows = ds.select(:id, :address, :mailbox, :uid, :uidvalidity, :message_id, :date, :internaldate, :from, :subject, :rfc822_size, :plain_text).all
       result = rows.map { |r| symbolize_keys(r) }
       safe_encode_result(result)
     end
