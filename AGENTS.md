@@ -198,6 +198,17 @@ Embed Events
 | `embed_finished` | `processed`, `total`, `errors` |
 | `db_checkpoint_complete` | `mode` |
 
+### IMAP Cassettes (Integration Guidance)
+
+- Record vs replay:
+  - On the first run there is no cassette; the replay example will fail. Set `INTEGRATION_RECORD=1` to record, then re-run to replay offline.
+  - Use `ONLY_MAILBOXES` or the Rake task argument to limit recording to a small mailbox (e.g., `INBOX`).
+- Expected logs:
+  - Filtering logs like `including 1 mailbox(es) via --only: INBOX (was 8)` and `skipping 7 mailbox(es) due to --only` are normal and indicate the include filter is applied.
+- Credentials:
+  - Tests run under Docker and load `core/config/.env` (via `dotenv/load`). Ensure `ADDRESS`, `PASSWORD`, `DATABASE` are set.
+  - Gmail App Password is required if 2FA is enabled; IMAP must be enabled in Gmail settings.
+
 ## 4. CLI Commands Reference
 
 All commands are invoked via `docker compose run --rm ruby ./cli.rb <command>`.

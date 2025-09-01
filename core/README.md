@@ -406,6 +406,9 @@ Notes:
 - Recording stores full message bodies by default.
 - Replay mode stubs Preflight and IMAP fetch using the cassette; no network is used.
 - Integration specs live in spec/integration_sync_spec.rb and will be pending unless a cassette exists or recording is enabled.
+- On first run, the replay example will fail if no cassette exists; this is expected. Use `INTEGRATION_RECORD=1` to record, then rerun replay.
+- During recording, you will see messages like `including 1 mailbox(es) via --only: INBOX (was 8)` and `skipping 7 mailbox(es) due to --only` — these are normal and indicate the include filter is applied before processing.
+- Gmail requirements: IMAP must be enabled and, if 2FA is on, you must use an App Password for `PASSWORD` (not your account password).
 
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
