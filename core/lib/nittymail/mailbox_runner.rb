@@ -86,7 +86,20 @@ module NittyMail
               mail = NittyMail::Util.parse_mail_safely(raw, mbox_name: mbox_name, uid: uid)
               flags_json = attrs["FLAGS"].to_json
               unless settings.quiet
-                log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: settings.strict_errors)
+                # emit the log line as an event instead of stdout
+                line = begin
+                  subj = NittyMail::Util.extract_subject(mail, raw, strict_errors: settings.strict_errors)
+                  from = NittyMail::Util.safe_json(mail&.from, on_error: "encoding error for 'from' during logging; subject: #{subj}", strict_errors: settings.strict_errors)
+                  suffix = begin
+                    date = mail&.date
+                    "sent on #{date}"
+                  rescue Mail::Field::NilParseError, ArgumentError
+                    raise if settings.strict_errors
+                    "sent on unknown date"
+                  end
+                  "processing mail in mailbox #{mbox_name} with uid: #{uid} from #{from} and subject: #{subj} #{flags_json} #{suffix}"
+                end
+                progress&.event(:sync_log, {message: line})
               end
               progress&.event(:sync_message_processed, {mailbox: mbox_name, uid: uid})
               rec = build_record(
@@ -102,8 +115,7 @@ module NittyMail
               )
               # Embeddings disabled in sync: do not prepare embed fields
               write_queue << rec
-              # Increment progress per message processed (not per batch)
-              progress&.increment
+              # Progress is reported via events; no direct increments
             end
           end
           client.close

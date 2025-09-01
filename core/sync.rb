@@ -179,9 +179,8 @@ module NittyMail
       mbox_queue = Queue.new
       selectable_mailboxes.each { |mb| mbox_queue << mb }
 
-      thread_word = (mailbox_threads == 1) ? "thread" : "threads"
-      reporter.info("preflighting #{selectable_mailboxes.size} mailboxes with #{mailbox_threads} #{thread_word}")
-      reporter.start(title: "preflight", total: selectable_mailboxes.size)
+      # emit preflight start event (thread count included)
+      reporter.event(:preflight_started, {total_mailboxes: selectable_mailboxes.size, threads: mailbox_threads})
 
       preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
         Thread.new do
@@ -189,7 +188,7 @@ module NittyMail
         end
       end
       preflight_workers.each(&:join)
-      reporter.finish
+      reporter.event(:preflight_finished, {mailboxes: selectable_mailboxes.size})
 
       # Process each mailbox (sequentially) using preflight results
       preflight_results.each do |preflight_result|
@@ -221,16 +220,7 @@ module NittyMail
 
         preflight_mutex.synchronize do
           preflight_results << {name: mbox_name, uidvalidity:, uids:, db_only:}
-          # Log counts
-          preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
-          # Log preview of UIDs to be synced (first 5, then summary)
-          preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
-          # If pruning is disabled but we detected candidates, inform the user upfront
-          if !@prune_missing && db_only.any?
-            preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
-          end
-          preflight_progress.event(:preflight_mailbox, {mailbox: mbox_name, uidvalidity: uidvalidity, to_fetch: uids.size, to_prune: db_only.size, server_size:, db_size:})
-          preflight_progress.increment
+          preflight_progress.event(:preflight_mailbox, {mailbox: mbox_name, uidvalidity: uidvalidity, to_fetch: uids.size, to_prune: db_only.size, server_size:, db_size:, uids_preview: NittyMail::Logging.format_uids_preview(uids)})
         end
       end
       imap.logout
@@ -244,17 +234,12 @@ module NittyMail
 
       # Skip mailboxes with nothing to fetch
       if uids.nil? || uids.empty?
-        reporter.info("skipping mailbox #{mbox_name} (nothing to fetch)")
-        reporter.info("")
+        reporter.event(:mailbox_skipped, {mailbox: mbox_name, reason: :nothing_to_fetch})
         return
       end
 
-      reporter.info("processing mailbox #{mbox_name}")
-      reporter.info("uidvalidity is #{uidvalidity}")
       thread_word = (threads_count == 1) ? "thread" : "threads"
-      reporter.info("processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}")
-      reporter.event(:mailbox_started, {mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size})
-      reporter.start(title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})", total: uids.size)
+      reporter.event(:mailbox_started, {mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size, threads: threads_count, thread_word: thread_word})
 
       result = NittyMail::MailboxRunner.run(
         settings:,
@@ -272,8 +257,6 @@ module NittyMail
       handle_prune_missing(mbox_name, uidvalidity, db_only, result, reporter)
       handle_purge_old_validity(email, settings, mbox_name, uidvalidity, reporter)
       reporter.event(:mailbox_finished, {mailbox: mbox_name, uidvalidity: uidvalidity, processed: uids.size, result: result})
-      reporter.finish
-      reporter.info("")
     end
 
     private
@@ -284,14 +267,14 @@ module NittyMail
           count = @db.transaction do
             NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
           end
-          reporter.info("Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})")
+          reporter.event(:pruned_missing, {mailbox: mbox_name, uidvalidity: uidvalidity, pruned: count})
         else
-          reporter.info("No rows to prune for '#{mbox_name}'")
+          reporter.event(:prune_none, {mailbox: mbox_name, uidvalidity: uidvalidity})
         end
       elsif @prune_missing && result == :aborted
-        reporter.info("Skipped pruning for '#{mbox_name}' due to mailbox abort")
+        reporter.event(:prune_skipped_due_to_abort, {mailbox: mbox_name, uidvalidity: uidvalidity})
       elsif !@prune_missing && db_only.any?
-        reporter.info("Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed")
+        reporter.event(:prune_candidates_present, {mailbox: mbox_name, uidvalidity: uidvalidity, candidates: db_only.size})
       end
     end
 
@@ -313,9 +296,9 @@ module NittyMail
         @db.transaction do
           email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
         end
-        reporter.info("Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values")
+        reporter.event(:purge_old_validity, {mailbox: mbox_name, uidvalidity: uidvalidity, purged: count})
       else
-        reporter.info("Skipped purging old UIDVALIDITY rows for '#{mbox_name}'")
+        reporter.event(:purge_skipped, {mailbox: mbox_name, uidvalidity: uidvalidity})
       end
     end
 

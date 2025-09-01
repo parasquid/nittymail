@@ -89,7 +89,7 @@ module NittyMail
       ds = ds.limit(settings.limit.to_i) if settings.limit && settings.limit.to_i > 0
 
       total_emails = ds.count
-      reporter.info("Checking #{total_emails} email(s)#{settings.address_filter ? " for #{settings.address_filter}" : ""} using model=#{settings.model} dim=#{settings.dimension} at #{settings.ollama_host}")
+      reporter.event(:embed_scan_started, {total_emails:, address: settings.address_filter, model: settings.model, dimension: settings.dimension, host: settings.ollama_host})
 
       # Stream jobs with bounded queue instead of pre-planning entire dataset
       stop_requested = false
@@ -99,7 +99,6 @@ module NittyMail
       if settings.regenerate
         # When regenerating, process all emails since we cleared existing embeddings
         total_emails_without_embeddings = total_emails
-        reporter.info("Regenerating embeddings for all #{total_emails} emails")
         reporter.event(:embed_regenerate, {total_emails: total_emails})
       else
         # Find emails that don't have ANY of the requested embedding types
@@ -112,7 +111,6 @@ module NittyMail
         ).count
 
         if total_emails_without_embeddings == 0
-          reporter.info("No embedding jobs needed - all emails already have embeddings for requested item types.")
           reporter.event(:embed_skipped, {reason: :already_embedded})
           # Clean up database connection on early return
           begin
@@ -126,7 +124,6 @@ module NittyMail
 
       # Continuous processing: persistent workers with streaming job queue
       estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
-      reporter.start(title: "embed", total: estimated_total_jobs)
       reporter.event(:embed_started, {estimated_jobs: estimated_total_jobs})
 
       # Global queues for continuous processing

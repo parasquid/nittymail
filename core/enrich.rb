@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require "sequel"
-require "ruby-progressbar"
 require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/reporter"
@@ -27,14 +26,13 @@ module NittyMail
       # Use rfc822_size as a sentinel column that enrich always sets.
       unless regenerate
         ds = ds.where(rfc822_size: nil)
-        puts "Skipping already-enriched rows (use --regenerate to reprocess all)" unless quiet
+        reporter.event(:enrich_skipping_enriched, {note: "use --regenerate to reprocess all"})
       end
 
       ds = ds.offset(offset.to_i) if offset && offset.to_i > 0
       ds = ds.limit(limit.to_i) if limit && limit.to_i > 0
 
       total = ds.count
-      reporter.info("Enriching #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} from stored raw messages")
       reporter.event(:enrich_started, {total: total, address: address_filter})
 
       # Add interrupt handling
@@ -42,7 +40,7 @@ module NittyMail
       original_int_handler = trap("INT") { stop_requested = true }
       original_term_handler = trap("TERM") { stop_requested = true }
 
-      reporter.start(title: "enrich", total: total)
+      processed = 0
       begin
         ds.each do |row|
           break if stop_requested
@@ -61,7 +59,7 @@ module NittyMail
           in_reply_to = begin
             NittyMail::Util.safe_utf8(mail&.in_reply_to)
           rescue => e
-            reporter.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+            reporter.event(:enrich_field_error, {id: row[:id], field: :in_reply_to, error: e.class.name, message: e.message})
             ""
           end
 
@@ -94,39 +92,27 @@ module NittyMail
             end
           end
         rescue Mail::Field::NilParseError, ArgumentError => e
-          reporter.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
+          reporter.event(:enrich_error, {id: row[:id], error: e.class.name, message: e.message})
         rescue => e
-          reporter.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
+          reporter.event(:enrich_error, {id: row[:id], error: e.class.name, message: e.message})
         end
-        reporter.increment
+        processed += 1
+        reporter.event(:enrich_progress, {current: processed, total: total, delta: 1})
       rescue Interrupt
         stop_requested = true
-        reporter.log("Interrupt received, stopping...")
+        reporter.event(:enrich_interrupted, {processed: processed, total: total})
       ensure
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
 
-        # Ensure progress bar finishes cleanly
-        begin
-          reporter.finish
-        rescue => e
-          warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
-        end
-
-        if stop_requested
-          reporter.info("Interrupted: processed #{reporter.current}/#{reporter.total} emails.")
-          reporter.event(:enrich_interrupted, {processed: reporter.current, total: reporter.total})
-        else
-          reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
-          reporter.event(:enrich_finished, {processed: reporter.current, total: reporter.total})
-        end
+        reporter.event(:enrich_finished, {processed: processed, total: total}) unless stop_requested
       end
     ensure
       # Force WAL checkpoint and disconnect
       begin
         db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
-        reporter.info("Database finalization complete.")
+        reporter.event(:db_checkpoint_complete, {mode: "TRUNCATE"})
       rescue => e
         warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
       ensure
