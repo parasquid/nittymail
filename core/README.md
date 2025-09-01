@@ -296,7 +296,7 @@ NittyMail::API.enrich(
 settings = EmbedSettings::Settings.new(
   database_path: ENV["DATABASE"],
   ollama_host: ENV["OLLAMA_HOST"],
-  model: "mxbai-embed-large",
+  model: "bge-m3",
   on_progress: ->(done, total) { puts "embed: #{done}/#{total}" }
 )
 NittyMail::API.embed(settings)

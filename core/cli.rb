@@ -144,7 +144,7 @@ class NittyMailCLI < Thor
   option :limit, aliases: "-n", desc: "Limit number of emails to process", type: :numeric
   option :offset, desc: "Offset for pagination", type: :numeric
   option :ollama_host, desc: "Ollama base URL for embeddings (e.g., http://localhost:11434)", type: :string
-  option :model, desc: "Embedding model name (defaults to EMBEDDING_MODEL or mxbai-embed-large)", type: :string
+  option :model, desc: "Embedding model name (defaults to EMBEDDING_MODEL or bge-m3)", type: :string
   option :dimension, desc: "Embedding dimension (defaults to SQLITE_VEC_DIMENSION or 1024)", type: :numeric
   option :threads, aliases: "-t", desc: "Number of embedding worker threads (default from THREADS or 2)", type: :numeric
   option :retry_attempts, aliases: "-R", desc: "Max embedding retry attempts (-1 = retry indefinitely, 0 = no retries)", type: :numeric
@@ -156,7 +156,7 @@ class NittyMailCLI < Thor
   def embed
     database_path = options[:database] || ENV["DATABASE"]
     ollama_host = options[:ollama_host] || ENV["OLLAMA_HOST"]
-    model = options[:model] || ENV["EMBEDDING_MODEL"] || "mxbai-embed-large"
+    model = options[:model] || ENV["EMBEDDING_MODEL"] || "bge-m3"
     dimension = (options[:dimension] || (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i).to_i
     item_types = (options[:item_types] || "subject,body").split(",").map { |s| s.strip.downcase }.uniq & %w[subject body]
     item_types = %w[subject body] if item_types.empty?

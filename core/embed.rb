@@ -33,7 +33,7 @@ module EmbedSettings
     REQUIRED = [:database_path, :ollama_host].freeze
 
     DEFAULTS = BASE_DEFAULTS.merge({
-      model: ENV["EMBEDDING_MODEL"] || "mxbai-embed-large",
+      model: ENV["EMBEDDING_MODEL"] || "bge-m3",
       dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i,
       item_types: %w[subject body],
       address_filter: nil,

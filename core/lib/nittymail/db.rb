@@ -218,11 +218,11 @@ module NittyMail
     # - email_id: Integer ID from the `email` table
     # - vector: Array(Float) embedding with exact length == dimension
     # - item_type: String describing the source (e.g., 'body', 'subject')
-    # - model: String model identifier (defaults to ENV['EMBEDDING_MODEL'] or 'mxbai-embed-large')
+    # - model: String model identifier (defaults to ENV['EMBEDDING_MODEL'] or 'bge-m3')
     # - dimension: Integer embedding dimension; defaults to ENV['SQLITE_VEC_DIMENSION'] or 1024
     #
     # Returns the rowid (Integer) in the vec virtual table for the inserted embedding.
-    def insert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
+    def insert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "bge-m3"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
       raise ArgumentError, "vector must be an Array of Floats" unless vector.is_a?(Array)
       raise ArgumentError, "vector length #{vector.length} does not match dimension #{dimension}" unless vector.length == dimension
 
@@ -245,7 +245,7 @@ module NittyMail
     # Upsert an embedding for a given (email_id, item_type, model).
     # If metadata exists, update the underlying vector in-place; otherwise insert new.
     # Returns the vec_rowid.
-    def upsert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "mxbai-embed-large"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
+    def upsert_email_embedding!(db, email_id:, vector:, item_type: "body", model: ENV.fetch("EMBEDDING_MODEL", "bge-m3"), dimension: (ENV["SQLITE_VEC_DIMENSION"] || "1024").to_i)
       raise ArgumentError, "vector must be an Array of Floats" unless vector.is_a?(Array)
       raise ArgumentError, "vector length #{vector.length} does not match dimension #{dimension}" unless vector.length == dimension
 
