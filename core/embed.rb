@@ -185,7 +185,7 @@ module NittyMail
 
           # Update progress bar format with queue sizes periodically
           if (Time.now - last_progress_update) >= 1.0
-            reporter.log("embed status: job=#{job_queue.size} write=#{write_queue.size}")
+            reporter.event(:embed_status, {job_queue: job_queue.size, write_queue: write_queue.size})
             reporter.event(:embed_status, {job_queue: job_queue.size, write_queue: write_queue.size})
             last_progress_update = Time.now
           end
@@ -225,7 +225,7 @@ module NittyMail
               )
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
-              reporter.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
               reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
               embedded_errors += 1
             end
@@ -302,7 +302,7 @@ module NittyMail
         sleep 0.5 while !stop_requested && (job_queue.size > 0 || write_queue.size > 0)
       rescue Interrupt
         stop_requested = true
-        reporter.log("Interrupt received, stopping...")
+        reporter.event(:embed_interrupted_log, {message: "Interrupt received, stopping..."})
       ensure
         # Clean shutdown of persistent threads
         settings.threads_count.to_i.times { job_queue << :__STOP__ }
@@ -389,7 +389,7 @@ module NittyMail
             update_vec_stmt = conn.prepare("UPDATE email_vec SET embedding = ? WHERE rowid = ?")
             insert_meta_stmt = conn.prepare("INSERT OR IGNORE INTO email_vec_meta(vec_rowid, email_id, item_type, model, dimension) VALUES (?, ?, ?, ?, ?)")
           rescue => e
-            reporter.log("db prepare error: #{e.class}: #{e.message}")
+            reporter.event(:embed_db_error, {context: "prepare", error: e.class.name, message: e.message})
             error_count += 1
           end
 
@@ -404,7 +404,7 @@ module NittyMail
             end
             processed_count += 1
           rescue => e
-            reporter.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+            reporter.event(:embed_db_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
             reporter.event(:embed_db_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
             error_count += 1
           end
@@ -414,7 +414,7 @@ module NittyMail
             update_vec_stmt&.close
             insert_meta_stmt&.close
           rescue => e
-            reporter.log("db finalize error: #{e.class}: #{e.message}")
+            reporter.event(:embed_db_error, {context: "finalize", error: e.class.name, message: e.message})
             error_count += 1
           end
         end

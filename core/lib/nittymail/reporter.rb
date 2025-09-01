@@ -88,7 +88,7 @@ module NittyMail
           create_bar(:embed, "embed", payload[:estimated_jobs])
         when :embed_batch_written
           tick(:embed, payload[:count].to_i)
-        when :embed_status, :embed_error, :embed_skipped, :embed_regenerate
+        when :embed_status, :embed_error, :embed_skipped, :embed_regenerate, :embed_db_error, :embed_interrupted_log
           log(:embed, format_payload(type, payload))
         when :embed_finished, :embed_interrupted
           finish(:embed)
