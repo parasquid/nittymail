@@ -608,6 +608,9 @@ docker compose run --rm \
   ruby ./cli.rb embed --regenerate
 ```
 
+Notes:
+- Body embeddings use the `plain_text` column populated by `enrich` when available (preferred over parsing raw HTML). Subject embeddings use the `subject` field.
+
 Performance tips:
 - Increase embedding workers: add `--threads 4` (or more) to keep the writer busy.
 - Batch DB writes: add `--write-batch-size 200` (or 500/1000) to reduce transaction overhead.
