@@ -137,6 +137,7 @@ module NittyMail
 
       # Start persistent writer thread
       writer = Thread.new do
+        reporter.event(:embed_writer_started, {thread: Thread.current.object_id})
         batch = []
         batch_size = [settings.write_batch_size.to_i, 1].max
         last_flush = Time.now
@@ -150,6 +151,7 @@ module NittyMail
           rescue ThreadError # empty queue
             if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
               processed = process_write_batch(db, batch, reporter, settings)
+              reporter.event(:embed_batch_written, {count: processed})
               embedded_done += processed
               batch.clear
               last_flush = Time.now
@@ -161,6 +163,7 @@ module NittyMail
 
           if batch.size >= batch_size
             processed = process_write_batch(db, batch, reporter, settings)
+            reporter.event(:embed_batch_written, {count: processed})
             embedded_done += processed
             batch.clear
             last_flush = Time.now
@@ -177,13 +180,16 @@ module NittyMail
         # Process final batch
         unless batch.empty?
           processed = process_write_batch(db, batch, reporter, settings)
+          reporter.event(:embed_batch_written, {count: processed})
           embedded_done += processed
         end
+        reporter.event(:embed_writer_stopped, {thread: Thread.current.object_id})
       end
 
       # Start persistent worker threads
       threads = Array.new([settings.threads_count.to_i, 1].max) do
         Thread.new do
+          reporter.event(:embed_worker_started, {thread: Thread.current.object_id})
           loop do
             break if stop_requested
             begin
@@ -209,6 +215,7 @@ module NittyMail
               reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
             end
           end
+          reporter.event(:embed_worker_stopped, {thread: Thread.current.object_id})
         end
       end
 
@@ -236,6 +243,7 @@ module NittyMail
           end
 
           # Queue jobs for this batch (workers process immediately)
+          enqueued = 0
           email_batch.each do |row|
             break if stop_requested
             email_id = row[:id]
@@ -245,6 +253,7 @@ module NittyMail
               subj = row[:subject].to_s
               if !subj.nil? && !subj.empty? && (settings.regenerate || !existing_for_email.key?("subject"))
                 job_queue << {email_id: email_id, item_type: :subject, text: subj, vec_rowid: existing_for_email["subject"]}
+                enqueued += 1
               end
             end
             if settings.item_types.include?("body")
@@ -257,6 +266,7 @@ module NittyMail
                 end
                 if body_text && !body_text.empty?
                   job_queue << {email_id: email_id, item_type: :body, text: body_text, vec_rowid: existing_for_email["body"]}
+                  enqueued += 1
                 end
               end
             end
@@ -269,6 +279,7 @@ module NittyMail
               end
             end
           end
+          reporter.event(:embed_jobs_enqueued, {count: enqueued}) if enqueued > 0
         end
 
         # Wait for all jobs to complete

@@ -310,6 +310,45 @@ Progress and logging are abstracted via a reporter interface:
 
 The CLI uses a progress-bar reporter; library usage stays silent unless you attach callbacks.
 
+Example reporters
+
+1) JSON lines reporter (stdout):
+```ruby
+class JsonReporter < NittyMail::Reporting::BaseReporter
+  def start(title:, total: 0)
+    @total = total; @current = 0
+    puts({event: "start", title:, total:}.to_json)
+  end
+  def increment(step = 1)
+    @current += step
+    puts({event: "progress", current: @current, total: @total}.to_json)
+  end
+  def event(type, payload = {})
+    puts({event: type, **payload}.to_json)
+  end
+end
+
+NittyMail::API.enrich(database_path: ENV["DATABASE"], reporter: JsonReporter.new)
+```
+
+2) In-memory collector:
+```ruby
+class MemoryReporter < NittyMail::Reporting::BaseReporter
+  attr_reader :events
+  def initialize(*)
+    super
+    @events = []
+  end
+  def event(type, payload = {})
+    @events << [type, payload]
+  end
+end
+
+r = MemoryReporter.new
+NittyMail::API.sync(imap_address: ..., imap_password: ..., database_path: ..., reporter: r)
+pp r.events.take(5)
+```
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.

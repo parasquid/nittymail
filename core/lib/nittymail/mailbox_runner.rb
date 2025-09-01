@@ -20,6 +20,7 @@ module NittyMail
       # Embeddings are disabled in sync; no embed progress or counts here
 
       writer = Thread.new do
+        progress&.event(:sync_writer_started, {mailbox: mbox_name, thread: Thread.current.object_id})
         loop do
           rec = write_queue.pop
           break if rec == :__DONE__
@@ -43,6 +44,7 @@ module NittyMail
           end
           # Embeddings disabled in sync: no-op after insert
         end
+        progress&.event(:sync_writer_stopped, {mailbox: mbox_name, thread: Thread.current.object_id})
       rescue => e
         # Catch any unhandled exceptions in writer thread to prevent silent exits
         progress&.log("FATAL: Writer thread crashed: #{e.class}: #{e.message}")
@@ -53,6 +55,7 @@ module NittyMail
 
       workers = Array.new(threads_count) do
         Thread.new do
+          progress&.event(:sync_worker_started, {mailbox: mbox_name, thread: Thread.current.object_id})
           client = NittyMail::IMAPClient.new(address: settings.imap_address, password: settings.imap_password)
           client.reconnect_and_select(mbox_name, uidvalidity)
           loop do
@@ -66,7 +69,9 @@ module NittyMail
 
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID", "INTERNALDATE"]
             begin
+              progress&.event(:sync_fetch_started, {mailbox: mbox_name, batch_size: batch.size})
               fetched = client.fetch_with_retry(batch, fetch_items, mailbox_name: mbox_name, expected_uidvalidity: uidvalidity, retry_attempts: settings.retry_attempts, progress: progress)
+              progress&.event(:sync_fetch_finished, {mailbox: mbox_name, count: fetched.size})
             rescue => e
               mailbox_abort = true
               progress&.log("Aborting mailbox '#{mbox_name}' after #{settings.retry_attempts} failed attempt(s) due to #{e.class}: #{e.message}; proceeding to next mailbox")
@@ -83,6 +88,7 @@ module NittyMail
               unless settings.quiet
                 log_processing(mbox_name: mbox_name, uid: uid, mail: mail, flags_json: flags_json, raw: raw, progress: progress, strict_errors: settings.strict_errors)
               end
+              progress&.event(:sync_message_processed, {mailbox: mbox_name, uid: uid})
               rec = build_record(
                 imap_address: settings.imap_address,
                 mbox_name:,
@@ -101,6 +107,7 @@ module NittyMail
             end
           end
           client.close
+          progress&.event(:sync_worker_stopped, {mailbox: mbox_name, thread: Thread.current.object_id})
         rescue => e
           # Catch any unhandled exceptions in worker threads to prevent silent exits
           mailbox_abort = true
