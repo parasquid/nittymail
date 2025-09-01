@@ -18,7 +18,8 @@ module NittyMail
 
     def save!
       dir = File.dirname(path)
-      Dir.mkdir(dir) unless Dir.exist?(dir)
+      require "fileutils"
+      FileUtils.mkdir_p(dir) unless Dir.exist?(dir)
       File.write(path, JSON.pretty_generate(@data))
     end
 
@@ -29,20 +30,36 @@ module NittyMail
     end
 
     def replay_preflight(mailbox)
-      @data.fetch("preflight").fetch(mailbox.to_s)
+      h = @data.fetch("preflight").fetch(mailbox.to_s)
+      symbolize_keys(h)
     end
 
     # Fetch
     # uids_key can be like "1,2,3" or a range joined with '-'
     def record_fetch(mailbox, uids, attrs_list)
       @data["fetch"][mailbox.to_s] ||= {}
-      @data["fetch"][mailbox.to_s][uids_key(uids)] = attrs_list
+      safe_list = attrs_list.map do |item|
+        raw = item["attr"] || {}
+        encoded = {}
+        raw.each do |k, v|
+          encoded[k] = v.is_a?(String) ? {"__b64__" => [v].pack("m0")} : v
+        end
+        {"attr" => encoded}
+      end
+      @data["fetch"][mailbox.to_s][uids_key(uids)] = safe_list
       save!
     end
 
     def replay_fetch(mailbox, uids)
       list = @data.fetch("fetch").fetch(mailbox.to_s).fetch(uids_key(uids))
-      list.map { |h| OpenStruct.new(attr: symbolize_keys(h["attr"])) }
+      list.map do |h|
+        raw = h["attr"] || {}
+        decoded = {}
+        raw.each do |k, v|
+          decoded[k] = (v.is_a?(Hash) && v.key?("__b64__")) ? v["__b64__"].unpack1("m0") : v
+        end
+        OpenStruct.new(attr: decoded)
+      end
     end
 
     private
@@ -56,8 +73,18 @@ module NittyMail
       end
     end
 
-    def symbolize_keys(h)
-      h.each_with_object({}) { |(k, v), acc| acc[k.is_a?(String) ? k.to_s : k] = v }
+    def symbolize_keys(obj)
+      case obj
+      when Array
+        obj.map { |v| symbolize_keys(v) }
+      when Hash
+        obj.each_with_object({}) do |(k, v), acc|
+          key = k.is_a?(String) ? k.to_sym : k
+          acc[key] = symbolize_keys(v)
+        end
+      else
+        obj
+      end
     end
   end
 end
