@@ -210,45 +210,18 @@ module NittyMail
       end
 
       # Start persistent worker threads
+      get_stop = -> { stop_requested }
+      request_stop = -> { stop_requested = true }
       threads = Array.new([settings.threads_count.to_i, 1].max) do
-        Thread.new do
-          reporter.event(:embed_worker_started, {thread: Thread.current.object_id})
-          until stop_requested
-            begin
-              job = job_queue.pop(true) # non-blocking
-            rescue ThreadError # empty queue
-              sleep 0.1
-              next
-            end
-            break if job == :__STOP__
-            begin
-              # Use search prompt optimization based on settings (enabled by default)
-              vector = fetch_with_retry(
-                ollama_host: settings.ollama_host,
-                model: settings.model,
-                text: job[:text],
-                retry_attempts: settings.retry_attempts,
-                stop_requested: -> { stop_requested },
-                use_search_prompt: settings.use_search_prompt
-              )
-              write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
-            rescue => e
-              msg = e.message.to_s
-              fatal_model_missing = (msg =~ /ollama embeddings HTTP 404/i) || (msg =~ /model\s+\"?.+\"?\s+not\s+found/i)
-              if fatal_model_missing
-                reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message, fatal: true})
-                warn "Embedding model '#{settings.model}' not found at #{settings.ollama_host}. Aborting embed."
-                warn "Hint: pull it with: ollama pull #{settings.model} (or set EMBEDDING_MODEL/--model)."
-                stop_requested = true
-                break
-              else
-                reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
-                embedded_errors += 1
-              end
-            end
-          end
-          reporter.event(:embed_worker_stopped, {thread: Thread.current.object_id})
-        end
+        self.start_worker_thread(
+          job_queue,
+          write_queue,
+          settings,
+          reporter,
+          get_stop: get_stop,
+          request_stop: request_stop,
+          on_error: -> { embedded_errors += 1 }
+        )
       end
 
       # Stream emails and queue jobs continuously
@@ -380,6 +353,47 @@ module NittyMail
         rescue => e
           warn "Warning: Database disconnect failed: #{e.class}: #{e.message}"
         end
+      end
+    end
+
+    # Start a worker thread that consumes embedding jobs and enqueues DB writes
+    def self.start_worker_thread(job_queue, write_queue, settings, reporter, get_stop:, request_stop:, on_error: nil)
+      Thread.new do
+        reporter.event(:embed_worker_started, {thread: Thread.current.object_id})
+        until get_stop&.call
+          begin
+            job = job_queue.pop(true) # non-blocking
+          rescue ThreadError # empty queue
+            sleep 0.1
+            next
+          end
+          break if job == :__STOP__
+          begin
+            vector = fetch_with_retry(
+              ollama_host: settings.ollama_host,
+              model: settings.model,
+              text: job[:text],
+              retry_attempts: settings.retry_attempts,
+              stop_requested: get_stop,
+              use_search_prompt: settings.use_search_prompt
+            )
+            write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
+          rescue => e
+            msg = e.message.to_s
+            fatal_model_missing = (msg =~ /ollama embeddings HTTP 404/i) || (msg =~ /model\s+\"?.+\"?\s+not\s+found/i)
+            if fatal_model_missing
+              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message, fatal: true})
+              warn "Embedding model '#{settings.model}' not found at #{settings.ollama_host}. Aborting embed."
+              warn "Hint: pull it with: ollama pull #{settings.model} (or set EMBEDDING_MODEL/--model)."
+              request_stop&.call
+              break
+            else
+              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
+              on_error&.call
+            end
+          end
+        end
+        reporter.event(:embed_worker_stopped, {thread: Thread.current.object_id})
       end
     end
 
