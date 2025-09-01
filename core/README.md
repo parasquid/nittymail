@@ -1,6 +1,8 @@
 # NittyMail Core
 
-This folder contains some common functionality, among which is a simple syncing script that will download all messages in a Gmail account to an sqlite3 database.
+This folder contains the core library and CLI for syncing Gmail to SQLite and querying it locally.
+
+See CHANGELOG for recent changes: core/CHANGELOG.md
 
 ## Usage
 
@@ -245,6 +247,7 @@ Notes:
 - Enrich reads from the `encoded` raw message to populate: `rfc822_size`, `envelope_to`, `envelope_cc`, `envelope_bcc`, `envelope_reply_to`, `envelope_in_reply_to`, `envelope_references`.
 - `internaldate` is captured during sync from IMAP and not modified by enrich.
  - By default, enrich only processes rows that have not yet been enriched (it filters where `rfc822_size IS NULL`). Use `--regenerate` to re-enrich all matching rows regardless of prior enrichment.
+ - Performance: NittyMail creates a partial index (`email_idx_rfc822_size_null`) to speed scanning rows where `rfc822_size IS NULL`.
 
 **SQLite performance (WAL journaling):**
 ```bash
@@ -263,6 +266,149 @@ Rationale:
 Notes:
 - WAL creates `-wal` and `-shm` sidecar files next to your `.sqlite3` file.
 - Some networked filesystems don’t like WAL; if you see file locking issues, try `--no-sqlite-wal`.
+
+### Library Usage
+
+NittyMail can be used programmatically without the CLI. Require the library entrypoint and call the API methods:
+
+```ruby
+require_relative "core/lib/nittymail"
+
+# Sync (silent by default); progress via callback
+NittyMail::API.sync(
+  imap_address: ENV["ADDRESS"],
+  imap_password: ENV["PASSWORD"],
+  database_path: ENV["DATABASE"],
+  only_mailboxes: ["INBOX"],
+  quiet: true,
+  on_progress: ->(done, total) { puts "sync: #{done}/#{total}" }
+)
+
+# Enrich (no stdout by default)
+NittyMail::API.enrich(
+  database_path: ENV["DATABASE"],
+  address_filter: ENV["ADDRESS"],
+  on_progress: ->(done, total) { puts "enrich: #{done}/#{total}" }
+)
+
+# Embed with settings object
+settings = EmbedSettings::Settings.new(
+  database_path: ENV["DATABASE"],
+  ollama_host: ENV["OLLAMA_HOST"],
+  model: "mxbai-embed-large",
+  on_progress: ->(done, total) { puts "embed: #{done}/#{total}" }
+)
+NittyMail::API.embed(settings)
+```
+
+Progress and logging are abstracted via a reporter interface:
+- Default for library calls is a no-op reporter (no stdout). Provide `on_progress` for simple progress callbacks.
+- For more control, pass a custom reporter object responding to `event(type, payload)`. Emitted events include:
+  - Sync: `:preflight_started`, `:preflight_mailbox`, `:preflight_finished`, `:mailbox_started`, `:mailbox_finished`, `:mailbox_skipped`, `:mailbox_summary`
+    - `:mailbox_summary` includes `{ total, prune_candidates, pruned, purged, processed, errors, result }`
+  - Enrich: `:enrich_started`, `:enrich_progress`, `:enrich_finished`, `:enrich_interrupted`, `:enrich_error`, `:enrich_field_error`
+    - `:enrich_finished`/`:enrich_interrupted` include `{ processed, total, errors }`
+  - Embed: `:embed_scan_started`, `:embed_started`, `:embed_status`, `:embed_finished`, `:embed_interrupted`, `:embed_error`, `:embed_db_error`, `:embed_skipped`, `:embed_regenerate`, `:embed_jobs_enqueued`, `:embed_batch_written`, `:embed_worker_started/stopped`, `:embed_writer_started/stopped`
+    - `:embed_finished`/`:embed_interrupted` include `{ processed, total, errors }`
+
+The CLI uses a progress-bar reporter; library usage stays silent unless you attach callbacks.
+
+### Event Schema (Reference)
+
+| Event | Purpose | Key payload keys |
+|---|---|---|
+| preflight_started | Sync preflight begins | total_mailboxes, threads |
+| preflight_mailbox | Per-mailbox preflight result | mailbox, uidvalidity, to_fetch, to_prune, server_size, db_size, uids_preview |
+| preflight_finished | Preflight complete | mailboxes |
+| mailbox_started | A mailbox starts processing | mailbox, uidvalidity, total, threads, thread_word |
+| mailbox_skipped | Mailbox skipped | mailbox, reason |
+| sync_worker_started/stopped | Worker lifecycle | mailbox, thread |
+| sync_writer_started/stopped | Writer lifecycle | mailbox, thread |
+| sync_fetch_started/finished | IMAP fetch batch | mailbox, batch_size / count |
+| sync_message_processed | Per-message processed | mailbox, uid |
+| prune_candidates_present | Candidates detected but pruning disabled | mailbox, uidvalidity, candidates |
+| pruned_missing | Rows pruned | mailbox, uidvalidity, pruned |
+| purge_old_validity | Old UIDVALIDITY rows purged | mailbox, uidvalidity, purged |
+| purge_skipped | Purge declined/skipped | mailbox, uidvalidity |
+| mailbox_summary | Per-mailbox summary | mailbox, uidvalidity, total, prune_candidates, pruned, purged, processed, errors, result |
+| mailbox_finished | A mailbox finished | mailbox, uidvalidity, processed, result |
+| enrich_started | Enrich begins | total, address |
+| enrich_field_error | Field-specific error (in_reply_to, etc.) | id, field, error, message |
+| enrich_error | Per-row error | id, error, message |
+| enrich_progress | Progress tick | current, total, delta |
+| enrich_interrupted | Enrich interrupted | processed, total, errors |
+| enrich_finished | Enrich finished | processed, total, errors |
+| embed_scan_started | Embed scan setup | total_emails, address, model, dimension, host |
+| embed_started | Embedding begins | estimated_jobs |
+| embed_jobs_enqueued | Batch enqueue count | count |
+| embed_worker_started/stopped | Worker lifecycle | thread |
+| embed_writer_started/stopped | Writer lifecycle | thread |
+| embed_status | Periodic status | job_queue, write_queue |
+| embed_error | Fetch error | email_id, error, message |
+| embed_db_error | DB write error | email_id, error, message |
+| embed_batch_written | DB batch written | count |
+| embed_interrupted | Embedding interrupted | processed, total, errors, job_queue, write_queue |
+| embed_finished | Embedding finished | processed, total, errors |
+| db_checkpoint_complete | WAL checkpoint complete | mode |
+
+Example reporters
+
+1) JSON lines reporter (stdout):
+```ruby
+class JsonReporter < NittyMail::Reporting::BaseReporter
+  def start(title:, total: 0)
+    @total = total; @current = 0
+    puts({event: "start", title:, total:}.to_json)
+  end
+  def increment(step = 1)
+    @current += step
+    puts({event: "progress", current: @current, total: @total}.to_json)
+  end
+  def event(type, payload = {})
+    puts({event: type, **payload}.to_json)
+  end
+end
+
+NittyMail::API.enrich(database_path: ENV["DATABASE"], reporter: JsonReporter.new)
+```
+
+2) In-memory collector:
+```ruby
+class MemoryReporter < NittyMail::Reporting::BaseReporter
+  attr_reader :events
+  def initialize(*)
+    super
+    @events = []
+  end
+  def event(type, payload = {})
+    @events << [type, payload]
+  end
+end
+
+r = MemoryReporter.new
+NittyMail::API.sync(imap_address: ..., imap_password: ..., database_path: ..., reporter: r)
+pp r.events.take(5)
+```
+
+### Integration Cassettes
+
+Record and replay real IMAP interactions as JSON cassettes to run integration tests offline.
+
+- Record (requires ADDRESS, PASSWORD, DATABASE):
+  - docker compose run --rm ruby bundle exec rake 'cassette:record[INBOX]'
+  - Multiple mailboxes: docker compose run --rm ruby bundle exec rake 'cassette:record[INBOX,[Gmail]/All Mail]'
+  - Writes cassette to core/spec/cassettes/imap_sync.json
+
+- Replay (offline):
+  - docker compose run --rm ruby bundle exec rake cassette:replay
+
+Notes:
+- Recording stores full message bodies by default.
+- Replay mode stubs Preflight and IMAP fetch using the cassette; no network is used.
+- Integration specs live in spec/integration_sync_spec.rb and will be pending unless a cassette exists or recording is enabled.
+- On first run, the replay example will fail if no cassette exists; this is expected. Use `INTEGRATION_RECORD=1` to record, then rerun replay.
+- During recording, you will see messages like `including 1 mailbox(es) via --only: INBOX (was 8)` and `skipping 7 mailbox(es) due to --only` — these are normal and indicate the include filter is applied before processing.
+- Gmail requirements: IMAP must be enabled and, if 2FA is on, you must use an App Password for `PASSWORD` (not your account password).
 
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.

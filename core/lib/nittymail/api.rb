@@ -15,28 +15,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+require_relative "../sync"
+require_relative "../embed"
+require_relative "../enrich"
+
 module NittyMail
-  module Preflight
+  # Thin convenience wrapper for library consumers
+  module API
     module_function
 
-    def compute(imap, email_dataset, mailbox_name, db_mutex)
-      imap.examine(mailbox_name)
-      uidvalidity = imap.responses["UIDVALIDITY"]&.first
-      raise "UIDVALIDITY missing for mailbox #{mailbox_name}" if uidvalidity.nil?
+    def sync(settings_or_options)
+      NittyMail::Sync.perform(settings_or_options)
+    end
 
-      server_uids = imap.uid_search("UID 1:*")
-      db_uids = db_mutex.synchronize do
-        email_dataset.where(mailbox: mailbox_name, uidvalidity: uidvalidity).select_map(:uid)
-      end
-      to_fetch = server_uids - db_uids
-      db_only = db_uids - server_uids
-      {
-        uidvalidity: uidvalidity,
-        to_fetch: to_fetch,
-        db_only: db_only,
-        server_size: server_uids.size,
-        db_size: db_uids.size
-      }
+    def embed(settings)
+      NittyMail::Embed.perform(settings)
+    end
+
+    def enrich(**kwargs)
+      NittyMail::Enrich.perform(**kwargs)
     end
   end
 end

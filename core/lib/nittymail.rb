@@ -15,18 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-module NittyMail
-  module Logging
-    module_function
+# NittyMail public library entrypoint
+#
+# Require this file from external applications to use NittyMail programmatically.
+# It exposes the primary modules and convenience API methods to run sync, embed,
+# and enrich outside the CLI.
 
-    # Format a concise preview of UIDs slated for syncing
-    def format_uids_preview(uids)
-      return "uids to be synced: []" if uids.nil? || uids.empty?
-      preview_count = [uids.size, 5].min
-      preview = uids.first(preview_count).join(", ")
-      more = uids.size - preview_count
-      suffix = (more > 0) ? ", ... (#{more} more uids)" : ""
-      "uids to be synced: [#{preview}#{suffix}]"
-    end
-  end
-end
+require_relative "nittymail/db"
+require_relative "nittymail/util"
+require_relative "nittymail/embeddings"
+require_relative "nittymail/settings"
+
+# High-level operations and CLI entrypoints
+require_relative "nittymail/api"
+require_relative "../query"

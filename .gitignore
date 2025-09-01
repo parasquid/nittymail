@@ -1,3 +1,6 @@
 # Local temporary patch scratch directory for codex tooling
 .git-tmp-patches/
 .gemini
+
+# Test cassettes can be large and should not be committed
+core/spec/cassettes/

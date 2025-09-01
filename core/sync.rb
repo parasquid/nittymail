@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Copyright 2023 parasquid
+# Copyright 2025 parasquid
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -33,12 +33,14 @@ require_relative "lib/nittymail/preflight"
 require_relative "lib/nittymail/imap_client"
 require_relative "lib/nittymail/mailbox_runner"
 require_relative "lib/nittymail/settings"
+require_relative "lib/nittymail/reporter"
+require_relative "lib/nittymail/sync_utils"
 
 module SyncSettings
   class Settings < NittyMail::BaseSettings
     attr_accessor :imap_address, :imap_password, :mailbox_threads, :purge_old_validity,
       :auto_confirm, :fetch_batch_size, :ignore_mailboxes, :only_mailboxes,
-      :strict_errors, :prune_missing, :sqlite_wal
+      :strict_errors, :prune_missing, :sqlite_wal, :reporter, :on_progress
 
     REQUIRED = [:imap_address, :imap_password, :database_path].freeze
 
@@ -51,7 +53,9 @@ module SyncSettings
       only_mailboxes: [],
       strict_errors: false,
       prune_missing: false,
-      sqlite_wal: true
+      sqlite_wal: true,
+      reporter: nil,
+      on_progress: nil
     }).freeze
   end
 end
@@ -151,6 +155,8 @@ module NittyMail
       email = NittyMail::DB.ensure_schema!(@db)
       NittyMail::DB.ensure_query_indexes!(@db)
 
+      reporter = settings.reporter || NittyMail::Reporting::NullReporter.new(quiet: settings.quiet, on_progress: settings.on_progress)
+
       # get all mailboxes
       mailboxes = Mail.connection { |imap| imap.list "", "*" }
       selectable_mailboxes = mailboxes.reject { |mb| mb.attr.include?(:Noselect) }
@@ -159,8 +165,8 @@ module NittyMail
       only_mailboxes = (settings.only_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
       ignore_mailboxes = (settings.ignore_mailboxes || []).compact.map(&:to_s).map(&:strip).reject(&:empty?)
 
-      selectable_mailboxes = filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
-      selectable_mailboxes = filter_mailboxes_by_ignore_list(selectable_mailboxes, ignore_mailboxes)
+      selectable_mailboxes = NittyMail::SyncUtils.filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
+      selectable_mailboxes = NittyMail::SyncUtils.filter_mailboxes_by_ignore_list(selectable_mailboxes, ignore_mailboxes)
 
       # Preflight mailbox checks (uidvalidity and UID diff) in parallel
       mailbox_threads = settings.mailbox_threads.to_i
@@ -174,26 +180,20 @@ module NittyMail
       mbox_queue = Queue.new
       selectable_mailboxes.each { |mb| mbox_queue << mb }
 
-      thread_word = (mailbox_threads == 1) ? "thread" : "threads"
-      puts "preflighting #{selectable_mailboxes.size} mailboxes with #{mailbox_threads} #{thread_word}"
-      preflight_progress = ProgressBar.create(
-        title: "preflight",
-        total: selectable_mailboxes.size,
-        format: "%t: |%B| %p%% (%c/%C) [%e]"
-      )
+      # emit preflight start event (thread count included)
+      reporter.event(:preflight_started, {total_mailboxes: selectable_mailboxes.size, threads: mailbox_threads})
 
       preflight_workers = Array.new([mailbox_threads, selectable_mailboxes.size].min) do
         Thread.new do
-          run_preflight_worker(settings.imap_address, settings.imap_password, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
+          run_preflight_worker(settings.imap_address, settings.imap_password, email, mbox_queue, preflight_results, preflight_mutex, reporter, db_mutex)
         end
       end
       preflight_workers.each(&:join)
-
-      puts
+      reporter.event(:preflight_finished, {mailboxes: selectable_mailboxes.size})
 
       # Process each mailbox (sequentially) using preflight results
       preflight_results.each do |preflight_result|
-        process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size)
+        process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size, reporter)
       end
     end
 
@@ -203,167 +203,17 @@ module NittyMail
       # Each preflight thread uses its own IMAP connection
       imap = Net::IMAP.new("imap.gmail.com", port: 993, ssl: true)
       imap.login(imap_address, imap_password)
-      loop do
-        mailbox = begin
-          mbox_queue.pop(true)
-        rescue ThreadError
-          nil
-        end
-        break unless mailbox
-
-        mbox_name = mailbox.name
-        pfcalc = NittyMail::Preflight.compute(imap, email, mbox_name, db_mutex)
-        uidvalidity = pfcalc[:uidvalidity]
-        uids = pfcalc[:to_fetch]
-        db_only = pfcalc[:db_only]
-        server_size = pfcalc[:server_size]
-        db_size = pfcalc[:db_size]
-
-        preflight_mutex.synchronize do
-          preflight_results << {name: mbox_name, uidvalidity:, uids:, db_only:}
-          # Log counts
-          preflight_progress.log("#{mbox_name}: uidvalidity=#{uidvalidity}, to_fetch=#{uids.size}, to_prune=#{db_only.size} (server=#{server_size}, db=#{db_size})")
-          # Log preview of UIDs to be synced (first 5, then summary)
-          preflight_progress.log(NittyMail::Logging.format_uids_preview(uids))
-          # If pruning is disabled but we detected candidates, inform the user upfront
-          if !@prune_missing && db_only.any?
-            preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
-          end
-          preflight_progress.increment
-        end
-      end
+      NittyMail::SyncUtils.preflight_worker_with_imap(imap, email, mbox_queue, preflight_results, preflight_mutex, preflight_progress, db_mutex)
       imap.logout
       imap.disconnect
     end
 
-    def process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size)
-      mbox_name = preflight_result[:name]
-      uidvalidity = preflight_result[:uidvalidity]
-      uids = preflight_result[:uids]
-
-      # Skip mailboxes with nothing to fetch
-      if uids.nil? || uids.empty?
-        puts "skipping mailbox #{mbox_name} (nothing to fetch)"
-        puts
-        return
-      end
-
-      puts "processing mailbox #{mbox_name}"
-      puts "uidvalidity is #{uidvalidity}"
-      thread_word = (threads_count == 1) ? "thread" : "threads"
-      puts "processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}"
-
-      progress = ProgressBar.create(
-        title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})",
-        total: uids.size,
-        format: "%t: |%B| %p%% (%c/%C) [%e]"
-      )
-
-      result = NittyMail::MailboxRunner.run(
-        settings:,
-        email_ds: email,
-        mbox_name:,
-        uidvalidity:,
-        uids:,
-        threads_count:,
-        fetch_batch_size:,
-        progress:
-      )
-
-      # Handle pruning and purging operations
-      db_only = preflight_result[:db_only] || []
-      handle_prune_missing(mbox_name, uidvalidity, db_only, result)
-      handle_purge_old_validity(email, settings, mbox_name, uidvalidity)
-      puts
+    def process_mailbox(preflight_result, settings, email, threads_count, fetch_batch_size, reporter)
+      NittyMail::SyncUtils.process_mailbox(email_ds: email, settings:, preflight_result:, threads_count:, fetch_batch_size:, reporter:, db: @db)
     end
 
     private
 
-    def handle_prune_missing(mbox_name, uidvalidity, db_only, result)
-      if @prune_missing && result != :aborted
-        if db_only.any?
-          count = @db.transaction do
-            NittyMail::DB.prune_missing!(@db, mbox_name, uidvalidity, db_only)
-          end
-          puts "Pruned #{count} row(s) missing on server from '#{mbox_name}' (UIDVALIDITY=#{uidvalidity})"
-        else
-          puts "No rows to prune for '#{mbox_name}'"
-        end
-      elsif @prune_missing && result == :aborted
-        puts "Skipped pruning for '#{mbox_name}' due to mailbox abort"
-      elsif !@prune_missing && db_only.any?
-        puts "Detected #{db_only.size} prune candidate(s) for '#{mbox_name}', but --prune-missing is disabled; no pruning performed"
-      end
-    end
-
-    def handle_purge_old_validity(email, settings, mbox_name, uidvalidity)
-      other_validities = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).distinct.select_map(:uidvalidity)
-      return if other_validities.empty?
-
-      do_purge = false
-      if settings.purge_old_validity
-        do_purge = true
-      elsif $stdin.tty? && !settings.auto_confirm
-        print "Detected old UIDVALIDITY data for '#{mbox_name}' (#{other_validities.join(", ")}). Purge now? [y/N]: "
-        ans = $stdin.gets&.strip&.downcase
-        do_purge = %w[y yes].include?(ans)
-      end
-
-      if do_purge
-        count = email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).count
-        @db.transaction do
-          email.where(mailbox: mbox_name).exclude(uidvalidity: uidvalidity).delete
-        end
-        puts "Purged #{count} rows from mailbox '#{mbox_name}' with old UIDVALIDITY values"
-      else
-        puts "Skipped purging old UIDVALIDITY rows for '#{mbox_name}'"
-      end
-    end
-
-    def filter_mailboxes_by_only_list(selectable_mailboxes, only_mailboxes)
-      return selectable_mailboxes if only_mailboxes.empty?
-
-      include_regexes = only_mailboxes.map do |pat|
-        escaped = Regexp.escape(pat)
-        escaped = escaped.gsub(/\\\*/m, ".*")
-        escaped = escaped.gsub(/\\\?/m, ".")
-        Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
-      end
-
-      before = selectable_mailboxes.size
-      kept = selectable_mailboxes.select { |mb| include_regexes.any? { |rx| rx.match?(mb.name) } }
-      dropped = selectable_mailboxes - kept
-
-      if kept.any?
-        puts "including #{kept.size} mailbox(es) via --only: #{kept.map(&:name).join(", ")} (was #{before})"
-      else
-        puts "--only matched 0 mailboxes; nothing to process"
-      end
-      puts "skipping #{dropped.size} mailbox(es) due to --only" if dropped.any?
-
-      kept
-    end
-
-    def filter_mailboxes_by_ignore_list(selectable_mailboxes, ignore_mailboxes)
-      return selectable_mailboxes if ignore_mailboxes.empty?
-
-      regexes = ignore_mailboxes.map do |pat|
-        escaped = Regexp.escape(pat)
-        escaped = escaped.gsub(/\\\*/m, ".*")
-        escaped = escaped.gsub(/\\\?/m, ".")
-        Regexp.new("^#{escaped}$", Regexp::IGNORECASE)
-      end
-
-      before = selectable_mailboxes.size
-      ignored, kept = selectable_mailboxes.partition { |mb| regexes.any? { |rx| rx.match?(mb.name) } }
-
-      if ignored.any?
-        ignored_names = ignored.map(&:name)
-        puts "ignoring #{ignored_names.size} mailbox(es): #{ignored_names.join(", ")}"
-      end
-      puts "will consider #{kept.size} selectable mailbox(es) after ignore filter (was #{before})"
-
-      kept
-    end
+    # extracted helpers now live in NittyMail::SyncUtils
   end
 end

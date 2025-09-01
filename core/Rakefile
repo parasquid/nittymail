@@ -1,0 +1,25 @@
+require "rake"
+
+namespace :cassette do
+  desc 'Record IMAP integration cassette. Usage: rake cassette:record["INBOX,[Gmail]/All Mail"]'
+  task :record, [:mailboxes] do |t, args|
+    mailboxes = args[:mailboxes] || ENV["ONLY_MAILBOXES"] || "INBOX"
+    env = {
+      "INTEGRATION_RECORD" => "1",
+      "ONLY_MAILBOXES" => mailboxes.to_s,
+      # Enable extra cassette and event logging during recording
+      "INTEGRATION_VERBOSE" => ENV["INTEGRATION_VERBOSE"] || "1",
+      "INTEGRATION_LOG" => ENV["INTEGRATION_LOG"] || "1"
+    }
+    cmd = ["bundle", "exec", "rspec", "-fd", "-b", "spec/integration_sync_spec.rb"]
+    puts "Recording cassette for mailboxes: #{mailboxes}"
+    system(env, *cmd) || abort("Recording failed")
+  end
+
+  desc "Replay IMAP integration cassette"
+  task :replay do
+    cmd = ["bundle", "exec", "rspec", "-fd", "-b", "spec/integration_sync_spec.rb"]
+    puts "Replaying cassette (no network)"
+    system(*cmd) || abort("Replay failed")
+  end
+end

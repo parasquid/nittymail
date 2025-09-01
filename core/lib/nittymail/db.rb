@@ -1,5 +1,20 @@
 # frozen_string_literal: true
 
+# Copyright 2025 parasquid
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 require "sqlite3"
 require "sequel"
 require "sqlite_vec"
@@ -94,6 +109,14 @@ module NittyMail
       db.run("CREATE INDEX IF NOT EXISTS email_idx_mailbox_date ON email(mailbox, date)")
       db.run("CREATE INDEX IF NOT EXISTS email_idx_x_gm_thrid_date ON email(x_gm_thrid, date)")
       db.run("CREATE INDEX IF NOT EXISTS email_idx_has_attachments_date ON email(has_attachments, date)")
+      db
+    end
+
+    # Indexes that speed up enrichment passes.
+    # The enrich task primarily scans for rows where rfc822_size IS NULL.
+    # A partial index on that predicate dramatically reduces scan cost.
+    def ensure_enrich_indexes!(db)
+      db.run("CREATE INDEX IF NOT EXISTS email_idx_rfc822_size_null ON email(rfc822_size) WHERE rfc822_size IS NULL")
       db
     end
 
