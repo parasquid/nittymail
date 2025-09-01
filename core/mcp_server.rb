@@ -408,6 +408,14 @@ class NittyMailMCPServer
           sql_query: arguments["sql_query"],
           limit: arguments["limit"] || 1000
         )
+      when "db.get_semantic_themes"
+        NittyMail::QueryTools.get_semantic_themes(
+          db: db,
+          address: @address,
+          sample_size: arguments["sample_size"],
+          num_themes: arguments["num_themes"],
+          ollama_host: arguments["ollama_host"] || ENV["OLLAMA_HOST"]
+        )
       else
         {error: "Unknown tool: #{tool_name}"}
       end

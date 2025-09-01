@@ -230,7 +230,7 @@ module NittyMail
             elsif name == "db.get_mailbox_stats"
               result = NittyMail::QueryTools.get_mailbox_stats(
                 db: db,
-                address: address
+                address: settings.address
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
             elsif name == "db.get_emails_by_date_range"
@@ -333,6 +333,15 @@ module NittyMail
                 limit: args["limit"] || 1000
               )
               messages << {role: "tool", name: name, content: JSON.generate(result)}
+            elsif name == "db.get_semantic_themes"
+              result = NittyMail::QueryTools.get_semantic_themes(
+                db: db,
+                address: settings.address,
+                sample_size: args["sample_size"],
+                num_themes: args["num_themes"],
+                ollama_host: args["ollama_host"] || settings.ollama_host
+              )
+              messages << {role: "tool", name: name, content: JSON.generate(result)}
             else
               messages << {role: "tool", name: name.to_s, content: JSON.generate({error: "unknown tool"})}
             end
@@ -358,7 +367,7 @@ module NittyMail
       body[:tools] = tools if tools && !tools.empty?
 
       # Debug logging for request
-      if settings.debug
+      if debug
         puts "=== DEBUG: Ollama Request ==="
         puts "URL: #{uri}"
         puts "Model: #{model}"
@@ -391,7 +400,7 @@ module NittyMail
       # Make request and log response
       res = http.request(req)
 
-      if settings.debug
+      if debug
         puts "=== DEBUG: Ollama Response ==="
         puts "HTTP Status: #{res.code} #{res.message}"
         puts "Response size: #{res.body.length} bytes"

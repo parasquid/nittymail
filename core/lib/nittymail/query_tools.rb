@@ -374,6 +374,22 @@ module NittyMail
               "required" => ["sql_query"]
             }
           }
+        },
+        {
+          "type" => "function",
+          "function" => {
+            "name" => "db.get_semantic_themes",
+            "description" => "Analyze semantic themes in the mailbox using vector clustering. Returns percentage breakdown of dominant themes, top senders per theme, and date ranges.",
+            "parameters" => {
+              "type" => "object",
+              "properties" => {
+                "sample_size" => {"type" => "integer", "description" => "Number of emails to sample for clustering; default 1000"},
+                "num_themes" => {"type" => "integer", "description" => "Number of themes to identify; default 8"},
+                "ollama_host" => {"type" => "string", "description" => "Ollama host URL for theme description generation"}
+              },
+              "required" => []
+            }
+          }
         }
       ]
     end
@@ -1041,6 +1057,243 @@ module NittyMail
       # Sort by match score
       result.sort_by! { |email| -email[:keyword_match_score] }
       safe_encode_result(result)
+    end
+
+    def get_semantic_themes(db:, address: nil, sample_size: 1000, num_themes: 8, ollama_host: nil)
+      # Analyze semantic themes in mailbox using vector embeddings clustering
+      return safe_encode_result({error: "Ollama host required for theme analysis"}) unless ollama_host
+      
+      begin
+        # Get a representative sample of emails with embeddings
+        email_query = db[:email].select(
+          Sequel.qualify(:email, :id).as(:email_id),
+          Sequel.qualify(:email, :subject),
+          Sequel.qualify(:email, :date),
+          Sequel.qualify(:email, :from)
+        )
+        email_query = email_query.where(Sequel.qualify(:email, :address) => address) if address && !address.to_s.strip.empty?
+        
+        # Join with embeddings to only get emails that have been embedded
+        emails_with_embeddings = email_query.join(:email_vec_meta, email_id: :id)
+          .join(:email_vec, rowid: :vec_rowid)
+          .where(Sequel.qualify(:email_vec_meta, :item_type) => 'subject')  # Use subject embeddings as they're more thematic
+          .select_append(Sequel.qualify(:email_vec, :embedding))
+          .order(Sequel.function(:random))
+          .limit(sample_size)
+          .all
+        
+        return safe_encode_result({error: "No embedded emails found. Run 'embed' command first."}) if emails_with_embeddings.empty?
+        
+        # Extract embeddings and prepare for clustering
+        emails = emails_with_embeddings.map do |row|
+          {
+            id: row[:email_id],
+            subject: row[:subject].to_s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?"),
+            from: row[:from].to_s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?"),
+            date: row[:date],
+            embedding: row[:embedding].unpack("f*")  # Unpack binary embedding
+          }
+        end
+        
+        # Simple k-means-like clustering using cosine similarity
+        clusters = cluster_emails_by_similarity(emails, num_themes)
+        
+        # Generate theme descriptions for each cluster
+        model = ENV["EMBEDDING_MODEL"] || "mxbai-embed-large"
+        themes = []
+        total_emails = emails.length
+        
+        clusters.each_with_index do |cluster, index|
+          next if cluster[:emails].empty?
+          
+          # Sample representative subjects for theme identification
+          sample_subjects = cluster[:emails].sample([cluster[:emails].length, 10].min).map { |e| e[:subject] }
+          theme_description = generate_theme_description(sample_subjects, ollama_host)
+          
+          percentage = (cluster[:emails].length.to_f / total_emails * 100).round(1)
+          
+          # Get top senders in this theme
+          sender_counts = cluster[:emails].group_by { |e| e[:from] }.transform_values(&:count)
+          top_senders = sender_counts.sort_by { |_, count| -count }.first(3).map { |sender, count| {sender: sender, count: count} }
+          
+          # Date range for this theme
+          dates = cluster[:emails].map { |e| e[:date] }.compact.sort
+          date_range = dates.empty? ? nil : {from: dates.first, to: dates.last}
+          
+          themes << {
+            theme_name: theme_description,
+            percentage: percentage,
+            email_count: cluster[:emails].length,
+            top_senders: top_senders,
+            date_range: date_range,
+            sample_subjects: sample_subjects.first(5)  # Show first 5 as examples
+          }
+        end
+        
+        # Sort by percentage descending
+        themes.sort_by! { |theme| -theme[:percentage] }
+        
+        safe_encode_result({
+          total_analyzed: total_emails,
+          themes: themes,
+          analysis_date: Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+          model_used: model
+        })
+        
+      rescue => e
+        safe_encode_result({
+          error: "Theme analysis failed: #{e.message}",
+          hint: "Ensure emails have been embedded with the 'embed' command and Ollama is running"
+        })
+      end
+    end
+
+    # Helper method for email clustering
+    def cluster_emails_by_similarity(emails, num_clusters)
+      return [] if emails.empty?
+      
+      # Simple k-means clustering using cosine similarity
+      clusters = Array.new(num_clusters) { {center: nil, emails: []} }
+      
+      # Initialize cluster centers with random emails
+      sample_emails = emails.sample(num_clusters)
+      sample_emails.each_with_index do |email, i|
+        clusters[i][:center] = email[:embedding] if i < clusters.length
+      end
+      
+      # Assign emails to closest cluster (5 iterations max for performance)
+      5.times do
+        # Reset clusters
+        clusters.each { |cluster| cluster[:emails] = [] }
+        
+        # Assign each email to the closest cluster center
+        emails.each do |email|
+          best_cluster = 0
+          best_similarity = -1
+          
+          clusters.each_with_index do |cluster, i|
+            next unless cluster[:center]
+            similarity = cosine_similarity(email[:embedding], cluster[:center])
+            if similarity > best_similarity
+              best_similarity = similarity
+              best_cluster = i
+            end
+          end
+          
+          clusters[best_cluster][:emails] << email
+        end
+        
+        # Update cluster centers (average of all emails in cluster)
+        clusters.each do |cluster|
+          next if cluster[:emails].empty?
+          
+          # Calculate centroid
+          dimension = cluster[:emails].first[:embedding].length
+          centroid = Array.new(dimension, 0.0)
+          
+          cluster[:emails].each do |email|
+            email[:embedding].each_with_index do |value, i|
+              centroid[i] += value
+            end
+          end
+          
+          # Average and normalize
+          centroid.map! { |sum| sum / cluster[:emails].length }
+          norm = Math.sqrt(centroid.map { |x| x * x }.sum)
+          centroid.map! { |x| norm > 0 ? x / norm : 0 } if norm > 0
+          
+          cluster[:center] = centroid
+        end
+      end
+      
+      # Filter out empty clusters
+      clusters.select { |cluster| !cluster[:emails].empty? }
+    end
+
+    # Helper method to calculate cosine similarity
+    def cosine_similarity(vec1, vec2)
+      return 0 if vec1.length != vec2.length
+      
+      dot_product = vec1.zip(vec2).map { |a, b| a * b }.sum
+      norm1 = Math.sqrt(vec1.map { |x| x * x }.sum)
+      norm2 = Math.sqrt(vec2.map { |x| x * x }.sum)
+      
+      return 0 if norm1 == 0 || norm2 == 0
+      dot_product / (norm1 * norm2)
+    end
+
+    # Helper method to generate theme descriptions using LLM
+    def generate_theme_description(subjects, ollama_host)
+      return "Unknown Theme" if subjects.empty?
+      
+      # Use the chat model to analyze the subjects and generate a theme name
+      model = ENV["CHAT_MODEL"] || "qwen2.5:7b-instruct"
+      
+      prompt = <<~PROMPT
+        Analyze these email subjects and identify the main theme in 2-4 words:
+
+        #{subjects.join("\n")}
+
+        Respond with only a short descriptive theme name (e.g., "Project Management", "Travel Bookings", "Newsletter Updates", "Work Meetings", "Financial Services").
+      PROMPT
+      
+      begin
+        uri = URI("#{ollama_host}/api/generate")
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = (uri.scheme == 'https')
+        
+        request = Net::HTTP::Post.new(uri)
+        request['Content-Type'] = 'application/json'
+        request.body = {
+          model: model,
+          prompt: prompt,
+          stream: false,
+          options: {
+            temperature: 0.3,
+            top_p: 0.9,
+            max_tokens: 20
+          }
+        }.to_json
+        
+        response = http.request(request)
+        
+        if response.code == '200'
+          result = JSON.parse(response.body)
+          theme_name = result['response']&.strip
+          return theme_name if theme_name && !theme_name.empty?
+        end
+      rescue => e
+        # Fallback to simple keyword analysis if LLM fails
+      end
+      
+      # Fallback: simple keyword-based theme detection
+      all_text = subjects.join(" ").downcase
+      
+      # Common theme patterns
+      theme_patterns = {
+        "Work & Meetings" => %w[meeting agenda project deadline work team call conference],
+        "Financial Services" => %w[bank payment invoice bill account credit card financial],
+        "Travel & Transportation" => %w[flight hotel booking reservation travel trip uber lyft],
+        "Shopping & E-commerce" => %w[order shipped delivery amazon purchase buy sale discount],
+        "Social Media & News" => %w[facebook twitter linkedin newsletter update notification],
+        "Health & Fitness" => %w[health doctor appointment fitness gym workout medical],
+        "Education & Learning" => %w[course class school university learn training education],
+        "Entertainment" => %w[movie music show event ticket concert game video]
+      }
+      
+      # Find the theme with the most keyword matches
+      best_theme = "General Communication"
+      best_score = 0
+      
+      theme_patterns.each do |theme, keywords|
+        score = keywords.count { |keyword| all_text.include?(keyword) }
+        if score > best_score
+          best_score = score
+          best_theme = theme
+        end
+      end
+      
+      best_theme
     end
 
     # SQL Query Tool (Read-only)
