@@ -304,19 +304,13 @@ module NittyMail
             end
 
             # Apply backpressure if job queue gets too large
-            if settings.batch_size.to_i > 0
-              while job_queue.size >= settings.batch_size.to_i
-                break if stop_requested
-                sleep 0.05
-              end
-            end
+            backpressure_if_needed(job_queue, settings.batch_size, -> { stop_requested })
           end
           reporter.event(:embed_jobs_enqueued, {count: enqueued}) if enqueued > 0
         end
 
         # Wait for all jobs to complete
-        reporter.event(:embed_waiting_for_completion, {job_queue: job_queue.size, write_queue: write_queue.size})
-        sleep 0.5 while !stop_requested && (job_queue.size > 0 || write_queue.size > 0)
+        wait_for_queues_to_drain(job_queue, write_queue, reporter, -> { stop_requested })
       rescue Interrupt
         stop_requested = true
         reporter.event(:embed_interrupted_log, {message: "Interrupt received, stopping..."})
@@ -438,6 +432,25 @@ module NittyMail
       end
 
       [processed_count, error_count]
+    end
+
+    # Helper: Backpressure when job_queue grows beyond max_size
+    def self.backpressure_if_needed(job_queue, max_size, stop_check, sleep_interval: 0.05)
+      return if max_size.to_i <= 0
+      while job_queue.size >= max_size.to_i
+        break if stop_check&.call
+        sleep sleep_interval
+      end
+    end
+
+    # Helper: Wait for job and write queues to drain before shutdown
+    def self.wait_for_queues_to_drain(job_queue, write_queue, reporter, stop_check, poll_interval: 0.5)
+      reporter.event(:embed_waiting_for_completion, {job_queue: job_queue.size, write_queue: write_queue.size})
+      loop do
+        break if stop_check&.call
+        break if job_queue.size == 0 && write_queue.size == 0
+        sleep poll_interval
+      end
     end
 
     def self.missing_embedding?(db, email_id, item_type, model)
