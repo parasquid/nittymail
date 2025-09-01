@@ -77,5 +77,25 @@ module NittyMail
         yield(item_type) if block_given?
       end
     end
+
+    # Check if a given model exists on the Ollama host without performing an embedding.
+    # Uses /api/show which returns 200 when the model is present.
+    def model_available?(ollama_host:, model:)
+      raise ArgumentError, "ollama_host is required" if ollama_host.nil? || ollama_host.strip.empty?
+      base = URI.parse(ollama_host.strip)
+      unless base.is_a?(URI::HTTP) && base.host
+        raise ArgumentError, "ollama_host must start with http:// or https:// and include a host (e.g., http://localhost:11434)"
+      end
+      uri = URI.join(base.to_s, "/api/show")
+      req = Net::HTTP::Post.new(uri)
+      req["Content-Type"] = "application/json"
+      req.body = {name: model}.to_json
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      res = http.request(req)
+      res.is_a?(Net::HTTPSuccess)
+    rescue StandardError
+      false
+    end
   end
 end

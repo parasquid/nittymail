@@ -64,12 +64,20 @@ module NittyMail
         raise ArgumentError, "ollama_host is not a valid URL (e.g., http://localhost:11434)"
       end
 
+      reporter = settings.reporter || NittyMail::Reporting::NullReporter.new(quiet: settings.quiet, on_progress: settings.on_progress)
+
+      # Upfront check: ensure the requested model is available on Ollama
+      unless NittyMail::Embeddings.model_available?(ollama_host: settings.ollama_host, model: settings.model)
+        reporter.event(:embed_error, {error: "ModelUnavailable", message: "Embedding model '#{settings.model}' not found at #{settings.ollama_host}", fatal: true})
+        puts "Embedding model '#{settings.model}' not found at #{settings.ollama_host}."
+        puts "Hint: pull it with: ollama pull #{settings.model} (or set EMBEDDING_MODEL/--model)."
+        return
+      end
+
       db = NittyMail::DB.connect(settings.database_path, wal: true, load_vec: true)
       email_ds = NittyMail::DB.ensure_schema!(db)
       # Ensure helpful general indexes (address/date, etc.) exist on existing DBs
       NittyMail::DB.ensure_query_indexes!(db)
-
-      reporter = settings.reporter || NittyMail::Reporting::NullReporter.new(quiet: settings.quiet, on_progress: settings.on_progress)
 
       # Handle regenerate option by dropping existing vector data for this model
       if settings.regenerate
