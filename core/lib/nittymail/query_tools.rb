@@ -1087,6 +1087,12 @@ module NittyMail
       return safe_encode_result({error: "Ollama host required for theme analysis"}) unless ollama_host
       
       begin
+        # Normalize inputs (handle nils from tool callers)
+        sample_size = sample_size.to_i
+        sample_size = 1000 if sample_size <= 0
+        num_themes = num_themes.to_i
+        num_themes = 8 if num_themes <= 0
+
         # Get a representative sample of emails with embeddings
         email_query = db[:email].select(
           Sequel.qualify(:email, :id).as(:email_id),
@@ -1174,6 +1180,9 @@ module NittyMail
     # Helper method for email clustering
     def cluster_emails_by_similarity(emails, num_clusters)
       return [] if emails.empty?
+      num_clusters = num_clusters.to_i
+      num_clusters = 8 if num_clusters <= 0
+      num_clusters = [num_clusters, emails.length].min
       
       # Simple k-means clustering using cosine similarity
       clusters = Array.new(num_clusters) { {center: nil, emails: []} }
