@@ -388,6 +388,23 @@ NittyMail::API.sync(imap_address: ..., imap_password: ..., database_path: ..., r
 pp r.events.take(5)
 ```
 
+### Integration Cassettes
+
+Record and replay real IMAP interactions as JSON cassettes to run integration tests offline.
+
+- Record (requires ADDRESS, PASSWORD, DATABASE):
+  - docker compose run --rm ruby bundle exec rake 'cassette:record[INBOX]'
+  - Multiple mailboxes: docker compose run --rm ruby bundle exec rake 'cassette:record[INBOX,[Gmail]/All Mail]'
+  - Writes cassette to core/spec/cassettes/imap_sync.json
+
+- Replay (offline):
+  - docker compose run --rm ruby bundle exec rake cassette:replay
+
+Notes:
+- Recording stores full message bodies by default.
+- Replay mode stubs Preflight and IMAP fetch using the cassette; no network is used.
+- Integration specs live in spec/integration_sync_spec.rb and will be pending unless a cassette exists or recording is enabled.
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.
