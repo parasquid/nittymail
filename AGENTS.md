@@ -91,6 +91,28 @@ Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
     - Require `rspec/given` via `spec_helper` (already configured).
     - Existing non-Given specs may remain as-is; do not rewrite unless necessary.
 
+#### Stubbing reporter events in tests
+
+Use a simple collecting reporter that records every `event(type, payload)` call. Example:
+
+```ruby
+class CollectingReporter < NittyMail::Reporting::BaseReporter
+  attr_reader :events
+  def initialize(*)
+    super
+    @events = []
+  end
+  def event(type, payload = {})
+    @events << [type.to_sym, payload]
+    super
+  end
+end
+
+Given(:rep) { CollectingReporter.new }
+When  { NittyMail::Enrich.perform(database_path: db_path, quiet: true, reporter: rep) }
+Then  { rep.events.map(&:first).include?(:enrich_finished) }
+```
+
 ### Committing
 
 1.  **Format**: Use Conventional Commits (`type(scope): subject`).

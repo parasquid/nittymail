@@ -1,6 +1,21 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# Copyright 2025 parasquid
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 require "sequel"
 require "ruby-progressbar"
 require_relative "lib/nittymail/util"
@@ -285,7 +300,7 @@ module NittyMail
         end
 
         # Wait for all jobs to complete
-        reporter.info("Email scanning complete, waiting for embedding work to finish...")
+        reporter.event(:embed_waiting_for_completion, {job_queue: job_queue.size, write_queue: write_queue.size})
         sleep 0.5 while !stop_requested && (job_queue.size > 0 || write_queue.size > 0)
       rescue Interrupt
         stop_requested = true
@@ -310,7 +325,7 @@ module NittyMail
           writer.join
         end
 
-        reporter.finish
+        # no-op for event reporters
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
@@ -322,15 +337,10 @@ module NittyMail
         writer.join
 
         # Ensure progress bar finishes cleanly
-        begin
-          reporter.finish
-        rescue => e
-          warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
-        end
+        # no-op for event reporters
 
         if stop_requested
-          reporter.info("Interrupted: embedded #{embedded_done}/#{reporter.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size}).")
-          reporter.event(:embed_interrupted, {processed: embedded_done, total: reporter.total, errors: embedded_errors})
+          reporter.event(:embed_interrupted, {processed: embedded_done, total: estimated_total_jobs, errors: embedded_errors, job_queue: job_queue.size, write_queue: write_queue.size})
           # Check if there's significant WAL data to drain
           begin
             wal_info = db.fetch("PRAGMA wal_checkpoint").first
@@ -345,15 +355,14 @@ module NittyMail
             end
           end
         else
-          reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
-          reporter.event(:embed_finished, {processed: embedded_done, total: reporter.total, errors: embedded_errors})
+          reporter.event(:embed_finished, {processed: embedded_done, total: estimated_total_jobs, errors: embedded_errors})
         end
       end
     ensure
       # Force WAL checkpoint and disconnect
       begin
         db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
-        reporter.info("Database finalization complete.")
+        reporter.event(:db_checkpoint_complete, {mode: "TRUNCATE"})
       rescue => e
         warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
       ensure

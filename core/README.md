@@ -311,6 +311,44 @@ Progress and logging are abstracted via a reporter interface:
 
 The CLI uses a progress-bar reporter; library usage stays silent unless you attach callbacks.
 
+### Event Schema (Reference)
+
+| Event | Purpose | Key payload keys |
+|---|---|---|
+| preflight_started | Sync preflight begins | total_mailboxes, threads |
+| preflight_mailbox | Per-mailbox preflight result | mailbox, uidvalidity, to_fetch, to_prune, server_size, db_size, uids_preview |
+| preflight_finished | Preflight complete | mailboxes |
+| mailbox_started | A mailbox starts processing | mailbox, uidvalidity, total, threads, thread_word |
+| mailbox_skipped | Mailbox skipped | mailbox, reason |
+| sync_worker_started/stopped | Worker lifecycle | mailbox, thread |
+| sync_writer_started/stopped | Writer lifecycle | mailbox, thread |
+| sync_fetch_started/finished | IMAP fetch batch | mailbox, batch_size / count |
+| sync_message_processed | Per-message processed | mailbox, uid |
+| prune_candidates_present | Candidates detected but pruning disabled | mailbox, uidvalidity, candidates |
+| pruned_missing | Rows pruned | mailbox, uidvalidity, pruned |
+| purge_old_validity | Old UIDVALIDITY rows purged | mailbox, uidvalidity, purged |
+| purge_skipped | Purge declined/skipped | mailbox, uidvalidity |
+| mailbox_summary | Per-mailbox summary | mailbox, uidvalidity, total, prune_candidates, pruned, purged, processed, errors, result |
+| mailbox_finished | A mailbox finished | mailbox, uidvalidity, processed, result |
+| enrich_started | Enrich begins | total, address |
+| enrich_field_error | Field-specific error (in_reply_to, etc.) | id, field, error, message |
+| enrich_error | Per-row error | id, error, message |
+| enrich_progress | Progress tick | current, total, delta |
+| enrich_interrupted | Enrich interrupted | processed, total, errors |
+| enrich_finished | Enrich finished | processed, total, errors |
+| embed_scan_started | Embed scan setup | total_emails, address, model, dimension, host |
+| embed_started | Embedding begins | estimated_jobs |
+| embed_jobs_enqueued | Batch enqueue count | count |
+| embed_worker_started/stopped | Worker lifecycle | thread |
+| embed_writer_started/stopped | Writer lifecycle | thread |
+| embed_status | Periodic status | job_queue, write_queue |
+| embed_error | Fetch error | email_id, error, message |
+| embed_db_error | DB write error | email_id, error, message |
+| embed_batch_written | DB batch written | count |
+| embed_interrupted | Embedding interrupted | processed, total, errors, job_queue, write_queue |
+| embed_finished | Embedding finished | processed, total, errors |
+| db_checkpoint_complete | WAL checkpoint complete | mode |
+
 Example reporters
 
 1) JSON lines reporter (stdout):

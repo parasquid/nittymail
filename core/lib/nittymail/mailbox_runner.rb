@@ -1,5 +1,20 @@
 # frozen_string_literal: true
 
+# Copyright 2025 parasquid
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 require_relative "util"
 require_relative "db"
 require_relative "imap_client"
@@ -61,14 +76,11 @@ module NittyMail
           progress&.event(:sync_worker_started, {mailbox: mbox_name, thread: Thread.current.object_id})
           client = NittyMail::IMAPClient.new(address: settings.imap_address, password: settings.imap_password)
           client.reconnect_and_select(mbox_name, uidvalidity)
-          loop do
-            break if mailbox_abort
-            batch = begin
-              batch_queue.pop(true)
-            rescue ThreadError
-              nil
-            end
-            break unless batch
+          while !mailbox_abort && (batch = begin
+            batch_queue.pop(true)
+          rescue
+            nil
+          end)
 
             fetch_items = ["BODY.PEEK[]", "X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID", "FLAGS", "UID", "INTERNALDATE"]
             begin
