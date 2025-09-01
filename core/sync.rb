@@ -229,6 +229,7 @@ module NittyMail
           if !@prune_missing && db_only.any?
             preflight_progress.log("prune candidates present: #{db_only.size} (prune disabled; no pruning will be performed)")
           end
+          preflight_progress.event(:preflight_mailbox, {mailbox: mbox_name, uidvalidity: uidvalidity, to_fetch: uids.size, to_prune: db_only.size, server_size:, db_size:})
           preflight_progress.increment
         end
       end
@@ -252,6 +253,7 @@ module NittyMail
       reporter.info("uidvalidity is #{uidvalidity}")
       thread_word = (threads_count == 1) ? "thread" : "threads"
       reporter.info("processing #{uids.size} uids in #{mbox_name} with #{threads_count} #{thread_word}")
+      reporter.event(:mailbox_started, {mailbox: mbox_name, uidvalidity: uidvalidity, total: uids.size})
       reporter.start(title: "#{mbox_name} (UIDVALIDITY=#{uidvalidity})", total: uids.size)
 
       result = NittyMail::MailboxRunner.run(
@@ -269,6 +271,7 @@ module NittyMail
       db_only = preflight_result[:db_only] || []
       handle_prune_missing(mbox_name, uidvalidity, db_only, result, reporter)
       handle_purge_old_validity(email, settings, mbox_name, uidvalidity, reporter)
+      reporter.event(:mailbox_finished, {mailbox: mbox_name, uidvalidity: uidvalidity, processed: uids.size, result: result})
       reporter.finish
       reporter.info("")
     end

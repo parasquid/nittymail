@@ -265,6 +265,51 @@ Notes:
 - WAL creates `-wal` and `-shm` sidecar files next to your `.sqlite3` file.
 - Some networked filesystems don’t like WAL; if you see file locking issues, try `--no-sqlite-wal`.
 
+### Library Usage
+
+NittyMail can be used programmatically without the CLI. Require the library entrypoint and call the API methods:
+
+```ruby
+require_relative "core/lib/nittymail"
+
+# Sync (silent by default); progress via callback
+NittyMail::API.sync(
+  imap_address: ENV["ADDRESS"],
+  imap_password: ENV["PASSWORD"],
+  database_path: ENV["DATABASE"],
+  only_mailboxes: ["INBOX"],
+  quiet: true,
+  on_progress: ->(done, total) { puts "sync: #{done}/#{total}" }
+)
+
+# Enrich (no stdout by default)
+NittyMail::API.enrich(
+  database_path: ENV["DATABASE"],
+  address_filter: ENV["ADDRESS"],
+  on_progress: ->(done, total) { puts "enrich: #{done}/#{total}" }
+)
+
+# Embed with settings object
+settings = EmbedSettings::Settings.new(
+  database_path: ENV["DATABASE"],
+  ollama_host: ENV["OLLAMA_HOST"],
+  model: "mxbai-embed-large",
+  on_progress: ->(done, total) { puts "embed: #{done}/#{total}" }
+)
+NittyMail::API.embed(settings)
+```
+
+Progress and logging are abstracted via a reporter interface:
+- Default for library calls is a no-op reporter (no stdout). Provide `on_progress` for simple progress callbacks.
+- For more control, pass a custom reporter object responding to:
+  - `start(title:, total:)`, `increment`, `log(message)`, `info(message)`, `warn(message)`, `finish`
+  - Optional structured events via `event(type, payload)`. Emitted events include:
+    - `:preflight_mailbox` (sync), `:mailbox_started`, `:mailbox_finished`
+    - `:enrich_started`, `:enrich_finished`, `:enrich_interrupted`, `:enrich_error`
+    - `:embed_started`, `:embed_status`, `:embed_finished`, `:embed_interrupted`, `:embed_error`, `:embed_skipped`, `:embed_regenerate`
+
+The CLI uses a progress-bar reporter; library usage stays silent unless you attach callbacks.
+
 Notes:
 - CLI flags override environment variables when provided; if neither is set, defaults are 1 for both `--threads` and `--mailbox-threads`.
 - Preflight opens up to `MAILBOX_THREADS` IMAP connections and performs a server‑diff: it queries the server for all UIDs in each mailbox and computes the set difference vs the local DB. Only missing UIDs are fetched.

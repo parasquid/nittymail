@@ -35,6 +35,7 @@ module NittyMail
 
       total = ds.count
       reporter.info("Enriching #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} from stored raw messages")
+      reporter.event(:enrich_started, {total: total, address: address_filter})
 
       # Add interrupt handling
       stop_requested = false
@@ -60,7 +61,7 @@ module NittyMail
           in_reply_to = begin
             NittyMail::Util.safe_utf8(mail&.in_reply_to)
           rescue => e
-            progress.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
+            reporter.log("enrich in_reply_to field error id=#{row[:id]}: #{e.class}: #{e.message}")
             ""
           end
 
@@ -115,8 +116,10 @@ module NittyMail
 
         if stop_requested
           reporter.info("Interrupted: processed #{reporter.current}/#{reporter.total} emails.")
+          reporter.event(:enrich_interrupted, {processed: reporter.current, total: reporter.total})
         else
           reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
+          reporter.event(:enrich_finished, {processed: reporter.current, total: reporter.total})
         end
       end
     ensure

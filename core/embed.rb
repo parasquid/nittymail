@@ -100,6 +100,7 @@ module NittyMail
         # When regenerating, process all emails since we cleared existing embeddings
         total_emails_without_embeddings = total_emails
         reporter.info("Regenerating embeddings for all #{total_emails} emails")
+        reporter.event(:embed_regenerate, {total_emails: total_emails})
       else
         # Find emails that don't have ANY of the requested embedding types
         total_emails_without_embeddings = ds.where(
@@ -112,6 +113,7 @@ module NittyMail
 
         if total_emails_without_embeddings == 0
           reporter.info("No embedding jobs needed - all emails already have embeddings for requested item types.")
+          reporter.event(:embed_skipped, {reason: :already_embedded})
           # Clean up database connection on early return
           begin
             db&.disconnect
@@ -125,6 +127,7 @@ module NittyMail
       # Continuous processing: persistent workers with streaming job queue
       estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
       reporter.start(title: "embed", total: estimated_total_jobs)
+      reporter.event(:embed_started, {estimated_jobs: estimated_total_jobs})
 
       # Global queues for continuous processing
       job_queue = Queue.new
@@ -166,6 +169,7 @@ module NittyMail
           # Update progress bar format with queue sizes periodically
           if (Time.now - last_progress_update) >= 1.0
             reporter.log("embed status: job=#{job_queue.size} write=#{write_queue.size}")
+            reporter.event(:embed_status, {job_queue: job_queue.size, write_queue: write_queue.size})
             last_progress_update = Time.now
           end
         end
@@ -202,6 +206,7 @@ module NittyMail
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
               reporter.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+              reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message})
             end
           end
         end
@@ -316,6 +321,7 @@ module NittyMail
 
         if stop_requested
           reporter.info("Interrupted: embedded #{embedded_done}/#{reporter.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size}).")
+          reporter.event(:embed_interrupted, {processed: embedded_done, total: reporter.total})
           # Check if there's significant WAL data to drain
           begin
             wal_info = db.fetch("PRAGMA wal_checkpoint").first
@@ -331,6 +337,7 @@ module NittyMail
           end
         else
           reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
+          reporter.event(:embed_finished, {processed: embedded_done, total: reporter.total})
         end
       end
     ensure

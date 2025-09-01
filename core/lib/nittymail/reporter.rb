@@ -35,6 +35,11 @@ module NittyMail
 
       def finish
       end
+
+      # Optional structured event hook for library consumers.
+      # type (Symbol), payload (Hash)
+      def event(type, payload = {})
+      end
     end
 
     # No-op reporter suitable for library usage (no stdout by default)
@@ -71,6 +76,16 @@ module NittyMail
 
       def finish
         @bar&.finish
+      end
+
+      def event(type, payload = {})
+        # Basic pretty log for structured events
+        label = type.to_s.tr("_", " ")
+        if @bar
+          @bar.log("#{label}: #{payload.map { |k, v| "#{k}=#{v}" }.join(" ")}")
+        else
+          info("#{label}: #{payload.inspect}")
+        end
       end
     end
   end
