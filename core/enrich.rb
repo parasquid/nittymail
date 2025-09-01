@@ -5,16 +5,20 @@ require "sequel"
 require "ruby-progressbar"
 require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/db"
+require_relative "lib/nittymail/reporter"
 
 module NittyMail
   class Enrich
-    def self.perform(database_path:, address_filter: nil, limit: nil, offset: nil, quiet: false, regenerate: false)
+    def self.perform(database_path:, address_filter: nil, limit: nil, offset: nil, quiet: false, regenerate: false, reporter: nil, on_progress: nil)
       raise ArgumentError, "database_path is required" if database_path.to_s.strip.empty?
 
       db = NittyMail::DB.connect(database_path, wal: true, load_vec: false)
       email_ds = NittyMail::DB.ensure_schema!(db)
       NittyMail::DB.ensure_enrichment_columns!(db)
       NittyMail::DB.ensure_enrich_indexes!(db)
+
+      # Build reporter (default to no-op for library usage)
+      reporter ||= NittyMail::Reporting::NullReporter.new(quiet: quiet, on_progress: on_progress)
 
       ds = email_ds
       ds = ds.where(address: address_filter) if address_filter && !address_filter.to_s.strip.empty?
@@ -30,14 +34,14 @@ module NittyMail
       ds = ds.limit(limit.to_i) if limit && limit.to_i > 0
 
       total = ds.count
-      puts "Enriching #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} from stored raw messages" unless quiet
+      reporter.info("Enriching #{total} email(s)#{address_filter ? " for #{address_filter}" : ""} from stored raw messages")
 
       # Add interrupt handling
       stop_requested = false
       original_int_handler = trap("INT") { stop_requested = true }
       original_term_handler = trap("TERM") { stop_requested = true }
 
-      progress = ProgressBar.create(title: "enrich", total: total, format: "%t: |%B| %p%% (%c/%C) [%e]")
+      reporter.start(title: "enrich", total: total)
       begin
         ds.each do |row|
           break if stop_requested
@@ -89,14 +93,14 @@ module NittyMail
             end
           end
         rescue Mail::Field::NilParseError, ArgumentError => e
-          progress.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
+          reporter.log("enrich parse error id=#{row[:id]}: #{e.class}: #{e.message}")
         rescue => e
-          progress.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
+          reporter.log("enrich error id=#{row[:id]}: #{e.class}: #{e.message}")
         end
-        progress.increment
+        reporter.increment
       rescue Interrupt
         stop_requested = true
-        progress.log("Interrupt received, stopping...")
+        reporter.log("Interrupt received, stopping...")
       ensure
         # Restore original signal handlers
         trap("INT", original_int_handler)
@@ -104,22 +108,22 @@ module NittyMail
 
         # Ensure progress bar finishes cleanly
         begin
-          progress&.finish
+          reporter.finish
         rescue => e
           warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
         end
 
         if stop_requested
-          puts "Interrupted: processed #{progress.progress}/#{progress.total} emails."
+          reporter.info("Interrupted: processed #{reporter.current}/#{reporter.total} emails.")
         else
-          puts "Processing complete. Finalizing database writes (WAL checkpoint)..." unless quiet
+          reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
         end
       end
     ensure
       # Force WAL checkpoint and disconnect
       begin
         db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
-        puts "Database finalization complete." unless quiet
+        reporter.info("Database finalization complete.")
       rescue => e
         warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
       ensure

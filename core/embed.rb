@@ -7,11 +7,13 @@ require_relative "lib/nittymail/util"
 require_relative "lib/nittymail/db"
 require_relative "lib/nittymail/embeddings"
 require_relative "lib/nittymail/settings"
+require_relative "lib/nittymail/reporter"
 
 module EmbedSettings
   class Settings < NittyMail::BaseSettings
     attr_accessor :ollama_host, :model, :dimension, :item_types, :address_filter,
-      :limit, :offset, :batch_size, :regenerate, :use_search_prompt, :write_batch_size
+      :limit, :offset, :batch_size, :regenerate, :use_search_prompt, :write_batch_size,
+      :reporter, :on_progress
 
     REQUIRED = [:database_path, :ollama_host].freeze
 
@@ -25,7 +27,9 @@ module EmbedSettings
       batch_size: 1000,
       write_batch_size: (ENV["EMBED_WRITE_BATCH_SIZE"] || "200").to_i,
       regenerate: false,
-      use_search_prompt: true
+      use_search_prompt: true,
+      reporter: nil,
+      on_progress: nil
     }).freeze
   end
 end
@@ -49,6 +53,8 @@ module NittyMail
       email_ds = NittyMail::DB.ensure_schema!(db)
       # Ensure helpful general indexes (address/date, etc.) exist on existing DBs
       NittyMail::DB.ensure_query_indexes!(db)
+
+      reporter = settings.reporter || NittyMail::Reporting::NullReporter.new(quiet: settings.quiet, on_progress: settings.on_progress)
 
       # Handle regenerate option by dropping existing vector data for this model
       if settings.regenerate
@@ -83,7 +89,7 @@ module NittyMail
       ds = ds.limit(settings.limit.to_i) if settings.limit && settings.limit.to_i > 0
 
       total_emails = ds.count
-      puts "Checking #{total_emails} email(s)#{settings.address_filter ? " for #{settings.address_filter}" : ""} using model=#{settings.model} dim=#{settings.dimension} at #{settings.ollama_host}"
+      reporter.info("Checking #{total_emails} email(s)#{settings.address_filter ? " for #{settings.address_filter}" : ""} using model=#{settings.model} dim=#{settings.dimension} at #{settings.ollama_host}")
 
       # Stream jobs with bounded queue instead of pre-planning entire dataset
       stop_requested = false
@@ -93,7 +99,7 @@ module NittyMail
       if settings.regenerate
         # When regenerating, process all emails since we cleared existing embeddings
         total_emails_without_embeddings = total_emails
-        puts "Regenerating embeddings for all #{total_emails} emails"
+        reporter.info("Regenerating embeddings for all #{total_emails} emails")
       else
         # Find emails that don't have ANY of the requested embedding types
         total_emails_without_embeddings = ds.where(
@@ -105,7 +111,7 @@ module NittyMail
         ).count
 
         if total_emails_without_embeddings == 0
-          puts "No embedding jobs needed - all emails already have embeddings for requested item types."
+          reporter.info("No embedding jobs needed - all emails already have embeddings for requested item types.")
           # Clean up database connection on early return
           begin
             db&.disconnect
@@ -118,11 +124,7 @@ module NittyMail
 
       # Continuous processing: persistent workers with streaming job queue
       estimated_total_jobs = total_emails_without_embeddings * settings.item_types.length
-      overall_progress = ProgressBar.create(
-        title: "embed",
-        total: estimated_total_jobs,
-        format: "%t: |%B| %p%% (%c/%C) job=0 write=0 [%e]"
-      )
+      reporter.start(title: "embed", total: estimated_total_jobs)
 
       # Global queues for continuous processing
       job_queue = Queue.new
@@ -144,7 +146,8 @@ module NittyMail
             batch << job
           rescue ThreadError # empty queue
             if !batch.empty? && (batch.size >= batch_size || (Time.now - last_flush) >= 1.0)
-              process_write_batch(db, batch, overall_progress, settings)
+              processed = process_write_batch(db, batch, reporter, settings)
+              embedded_done += processed
               batch.clear
               last_flush = Time.now
             else
@@ -154,20 +157,24 @@ module NittyMail
           end
 
           if batch.size >= batch_size
-            process_write_batch(db, batch, overall_progress, settings)
+            processed = process_write_batch(db, batch, reporter, settings)
+            embedded_done += processed
             batch.clear
             last_flush = Time.now
           end
 
           # Update progress bar format with queue sizes periodically
           if (Time.now - last_progress_update) >= 1.0
-            overall_progress.format = "embed: |%B| %p%% (%c/%C) job=#{job_queue.size} write=#{write_queue.size} [%e]"
+            reporter.log("embed status: job=#{job_queue.size} write=#{write_queue.size}")
             last_progress_update = Time.now
           end
         end
 
         # Process final batch
-        process_write_batch(db, batch, overall_progress, settings) unless batch.empty?
+        unless batch.empty?
+          processed = process_write_batch(db, batch, reporter, settings)
+          embedded_done += processed
+        end
       end
 
       # Start persistent worker threads
@@ -194,7 +201,7 @@ module NittyMail
               )
               write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
             rescue => e
-              overall_progress.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+              reporter.log("embed fetch error id=#{job[:email_id]}: #{e.class}: #{e.message}")
             end
           end
         end
@@ -260,7 +267,7 @@ module NittyMail
         end
 
         # Wait for all jobs to complete
-        puts "Email scanning complete, waiting for embedding work to finish..." unless settings.quiet
+        reporter.info("Email scanning complete, waiting for embedding work to finish...")
         loop do
           break if stop_requested
           break if job_queue.size == 0 && write_queue.size == 0
@@ -268,7 +275,7 @@ module NittyMail
         end
       rescue Interrupt
         stop_requested = true
-        overall_progress&.log("Interrupt received, stopping...")
+        reporter.log("Interrupt received, stopping...")
       ensure
         # Clean shutdown of persistent threads
         settings.threads_count.to_i.times { job_queue << :__STOP__ }
@@ -289,7 +296,7 @@ module NittyMail
           writer.join
         end
 
-        overall_progress&.finish
+        reporter.finish
         # Restore original signal handlers
         trap("INT", original_int_handler)
         trap("TERM", original_term_handler)
@@ -302,13 +309,13 @@ module NittyMail
 
         # Ensure progress bar finishes cleanly
         begin
-          overall_progress&.finish
+          reporter.finish
         rescue => e
           warn "Warning: Progress bar finish failed: #{e.class}: #{e.message}"
         end
 
         if stop_requested
-          puts "Interrupted: embedded #{embedded_done}/#{overall_progress.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size})."
+          reporter.info("Interrupted: embedded #{embedded_done}/#{reporter.total} jobs processed (job_queue=#{job_queue.size}, write_queue=#{write_queue.size}).")
           # Check if there's significant WAL data to drain
           begin
             wal_info = db.fetch("PRAGMA wal_checkpoint").first
@@ -323,14 +330,14 @@ module NittyMail
             end
           end
         else
-          puts "Processing complete. Finalizing database writes (WAL checkpoint)..." unless settings.quiet
+          reporter.info("Processing complete. Finalizing database writes (WAL checkpoint)...")
         end
       end
     ensure
       # Force WAL checkpoint and disconnect
       begin
         db&.run("PRAGMA wal_checkpoint(TRUNCATE)")
-        puts "Database finalization complete." unless settings.quiet
+        reporter.info("Database finalization complete.")
       rescue => e
         warn "Warning: WAL checkpoint failed: #{e.class}: #{e.message}"
       ensure
@@ -343,7 +350,7 @@ module NittyMail
     end
 
     # Process a batch of embeddings in a single transaction using prepared statements
-    def self.process_write_batch(db, batch, progress, settings)
+    def self.process_write_batch(db, batch, reporter, settings)
       return 0 if batch.empty?
 
       processed_count = 0
@@ -358,7 +365,7 @@ module NittyMail
             update_vec_stmt = conn.prepare("UPDATE email_vec SET embedding = ? WHERE rowid = ?")
             insert_meta_stmt = conn.prepare("INSERT OR IGNORE INTO email_vec_meta(vec_rowid, email_id, item_type, model, dimension) VALUES (?, ?, ?, ?, ?)")
           rescue => e
-            progress.log("db prepare error: #{e.class}: #{e.message}")
+            reporter.log("db prepare error: #{e.class}: #{e.message}")
           end
 
           batch.each do |job|
@@ -370,10 +377,10 @@ module NittyMail
               new_rowid = conn.last_insert_row_id
               insert_meta_stmt.execute(new_rowid, job[:email_id], job[:item_type].to_s, settings.model, settings.dimension)
             end
-            progress.increment
+            reporter.increment
             processed_count += 1
           rescue => e
-            progress.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
+            reporter.log("db upsert error id=#{job[:email_id]}: #{e.class}: #{e.message}")
           end
 
           begin
@@ -381,7 +388,7 @@ module NittyMail
             update_vec_stmt&.close
             insert_meta_stmt&.close
           rescue => e
-            progress.log("db finalize error: #{e.class}: #{e.message}")
+            reporter.log("db finalize error: #{e.class}: #{e.message}")
           end
         end
       end

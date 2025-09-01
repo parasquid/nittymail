@@ -25,6 +25,7 @@ require_relative "embed"
 require_relative "enrich"
 require_relative "query"
 require_relative "lib/nittymail/settings"
+require_relative "lib/nittymail/reporter"
 
 # NittyMail CLI application
 class NittyMailCLI < Thor
@@ -108,6 +109,7 @@ class NittyMailCLI < Thor
     end
 
     # Perform the sync using the library
+    reporter = NittyMail::Reporting::CLIReporter.new(quiet: quiet)
     settings = SyncSettings::Settings.new(
       imap_address:,
       imap_password:,
@@ -123,7 +125,8 @@ class NittyMailCLI < Thor
       retry_attempts:,
       prune_missing:,
       quiet:,
-      sqlite_wal:
+      sqlite_wal:,
+      reporter:
     )
     NittyMail::Sync.perform(settings)
   end
@@ -191,10 +194,11 @@ class NittyMailCLI < Thor
       end
     end
 
+    reporter = NittyMail::Reporting::CLIReporter.new(quiet: quiet)
     settings = EmbedSettings::Settings.new(
       database_path:, ollama_host:, model:, dimension:, item_types:,
       address_filter:, limit:, offset:, quiet:, threads_count:,
-      retry_attempts:, batch_size:, regenerate:, use_search_prompt:, write_batch_size:
+      retry_attempts:, batch_size:, regenerate:, use_search_prompt:, write_batch_size:, reporter:
     )
     NittyMail::Embed.perform(settings)
   end
@@ -219,13 +223,15 @@ class NittyMailCLI < Thor
       exit 1
     end
 
+    reporter = NittyMail::Reporting::CLIReporter.new(quiet: quiet)
     NittyMail::Enrich.perform(
       database_path: database_path,
       address_filter: address_filter,
       limit: limit,
       offset: offset,
       quiet: quiet,
-      regenerate: regenerate
+      regenerate: regenerate,
+      reporter: reporter
     )
   end
 
