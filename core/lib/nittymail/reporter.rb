@@ -37,6 +37,11 @@ module NittyMail
           end
         end
       end
+
+      # Back-compat shim for callers still using log(message)
+      def log(message)
+        event(:log, {message: message.to_s})
+      end
     end
 
     # No-op reporter suitable for library usage (no stdout by default)
@@ -126,6 +131,36 @@ module NittyMail
         bar = @bars[key]
         bar ? bar.log(msg.to_s) : say(msg)
       end
+
+      def say(msg)
+        puts(msg) unless @quiet
+      end
+
+      def format_payload(type, payload)
+        label = type.to_s.tr("_", " ")
+        attrs = payload.map { |k, v| "#{k}=#{v}" }.join(" ")
+        "#{label}: #{attrs}"
+      end
+    end
+
+    # Text reporter: prints one-line messages, no progress bars
+    class TextReporter < BaseReporter
+      def initialize(**kwargs)
+        super
+      end
+
+      def event(type, payload = {})
+        case type.to_sym
+        when :enrich_progress
+          say("enrich progress: current=#{payload[:current]} total=#{payload[:total]} delta=#{payload[:delta]}")
+        when :embed_batch_written
+          say("embed batch written: count=#{payload[:count]}")
+        else
+          say(format_payload(type, payload))
+        end
+      end
+
+      private
 
       def say(msg)
         puts(msg) unless @quiet
