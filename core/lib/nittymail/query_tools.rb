@@ -1259,7 +1259,7 @@ module NittyMail
       return "Unknown Theme" if subjects.empty?
       
       # Use the chat model to analyze the subjects and generate a theme name
-      model = ENV["CHAT_MODEL"] || "qwen2.5:7b-instruct"
+      model = ENV["CHAT_MODEL"] || "gemma3"
       
       prompt = <<~PROMPT
         Analyze these email subjects and identify the main theme in 2-4 words:

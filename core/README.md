@@ -114,7 +114,7 @@ Notes:
 **Filtering & Search:**
 - `db.filter_emails(...)` – simple filters: from/subject contains, mailbox, date range
 - `db.search_emails(query, item_types, limit)` – semantic search (requires embeddings)
-- `db.get_semantic_themes(sample_size, num_themes, ollama_host)` – analyze semantic themes with clustering; returns percentage breakdowns
+- `db.get_semantic_themes(sample_size, num_themes, ollama_host)` – analyze semantic themes with clustering; returns percentage breakdowns. Theme names are generated via a chat model (`CHAT_MODEL`, default: `gemma3`). Set `OLLAMA_HOST` and optionally override with `CHAT_MODEL`.
 - `db.get_emails_by_keywords(keywords, match_mode, limit)` – keyword search with scoring; `match_mode` = any|all
 - `db.get_emails_by_size_range(size_category, limit)` – filter by size: small|medium|large|huge
 
