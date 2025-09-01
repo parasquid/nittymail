@@ -88,7 +88,12 @@ module NittyMail
           create_bar(:embed, "embed", payload[:estimated_jobs])
         when :embed_batch_written
           tick(:embed, payload[:count].to_i)
-        when :embed_status, :embed_error, :embed_skipped, :embed_regenerate, :embed_db_error, :embed_interrupted_log
+        when :embed_status
+          # Update progress bar format with queue sizes
+          job_queue = payload[:job_queue] || 0
+          write_queue = payload[:write_queue] || 0
+          update_bar_format(:embed, "embed: |%B| %p%% (%c/%C) job=#{job_queue} write=#{write_queue} [%e]")
+        when :embed_error, :embed_skipped, :embed_regenerate, :embed_db_error, :embed_interrupted_log
           log(:embed, format_payload(type, payload))
         when :embed_finished, :embed_interrupted
           finish(:embed)
@@ -125,6 +130,11 @@ module NittyMail
       def finish(key)
         bar = @bars.delete(key)
         bar&.finish
+      end
+
+      def update_bar_format(key, format)
+        bar = @bars[key]
+        bar&.format = format if bar
       end
 
       def log(key, msg)
