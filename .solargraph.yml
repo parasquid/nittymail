@@ -17,3 +17,4 @@ reporters:
 domains: []
 require: []
 plugins: []
+max_files: 10000
