@@ -66,12 +66,10 @@ module NittyMail
 
       reporter = settings.reporter || NittyMail::Reporting::NullReporter.new(quiet: settings.quiet, on_progress: settings.on_progress)
 
-      # Upfront check: ensure the requested model is available on Ollama
+      # Upfront check: ensure the requested model is available on Ollama.
+      # Do not abort here; workers already detect missing models and stop gracefully.
       unless NittyMail::Embeddings.model_available?(ollama_host: settings.ollama_host, model: settings.model)
-        reporter.event(:embed_error, {error: "ModelUnavailable", message: "Embedding model '#{settings.model}' not found at #{settings.ollama_host}", fatal: true})
-        puts "Embedding model '#{settings.model}' not found at #{settings.ollama_host}."
-        puts "Hint: pull it with: ollama pull #{settings.model} (or set EMBEDDING_MODEL/--model)."
-        return
+        reporter.event(:embed_error, {error: "ModelUnavailable", message: "Embedding model '#{settings.model}' not found at #{settings.ollama_host}", fatal: false})
       end
 
       db = NittyMail::DB.connect(settings.database_path, wal: true, load_vec: true)
@@ -213,7 +211,7 @@ module NittyMail
       get_stop = -> { stop_requested }
       request_stop = -> { stop_requested = true }
       threads = Array.new([settings.threads_count.to_i, 1].max) do
-        self.start_worker_thread(
+        start_worker_thread(
           job_queue,
           write_queue,
           settings,
@@ -329,7 +327,7 @@ module NittyMail
             if wal_info && wal_info[:pages_walted] && wal_info[:pages_walted] > 100
               puts "Draining write-ahead log (#{wal_info[:pages_walted]} pages)..."
             end
-          rescue => e
+          rescue
             # Fallback: check if WAL file exists and is substantial
             wal_path = "#{settings.database_path}-wal"
             if File.exist?(wal_path) && File.size(wal_path) > 1_000_000  # > 1MB
@@ -380,7 +378,7 @@ module NittyMail
             write_queue << {email_id: job[:email_id], item_type: job[:item_type], vector: vector} if vector && vector.length == settings.dimension
           rescue => e
             msg = e.message.to_s
-            fatal_model_missing = (msg =~ /ollama embeddings HTTP 404/i) || (msg =~ /model\s+\"?.+\"?\s+not\s+found/i)
+            fatal_model_missing = (msg =~ /ollama embeddings HTTP 404/i) || (msg =~ /model\s+"?.+"?\s+not\s+found/i)
             if fatal_model_missing
               reporter.event(:embed_error, {email_id: job[:email_id], error: e.class.name, message: e.message, fatal: true})
               warn "Embedding model '#{settings.model}' not found at #{settings.ollama_host}. Aborting embed."
