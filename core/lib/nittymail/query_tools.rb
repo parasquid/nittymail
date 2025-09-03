@@ -519,7 +519,7 @@ module NittyMail
           results = []
           stmt.execute do |result_set|
             result_set.each do |row|
-              results << Hash[result_set.columns.zip(row)]
+              results << result_set.columns.zip(row).to_h
             end
           end
           stmt.close
@@ -1085,7 +1085,7 @@ module NittyMail
     def get_semantic_themes(db:, address: nil, sample_size: 1000, num_themes: 8, ollama_host: nil)
       # Analyze semantic themes in mailbox using vector embeddings clustering
       return safe_encode_result({error: "Ollama host required for theme analysis"}) unless ollama_host
-      
+
       begin
         # Normalize inputs (handle nils from tool callers)
         sample_size = sample_size.to_i
@@ -1101,18 +1101,18 @@ module NittyMail
           Sequel.qualify(:email, :from)
         )
         email_query = email_query.where(Sequel.qualify(:email, :address) => address) if address && !address.to_s.strip.empty?
-        
+
         # Join with embeddings to only get emails that have been embedded
         emails_with_embeddings = email_query.join(:email_vec_meta, email_id: :id)
           .join(:email_vec, rowid: :vec_rowid)
-          .where(Sequel.qualify(:email_vec_meta, :item_type) => 'subject')  # Use subject embeddings as they're more thematic
+          .where(Sequel.qualify(:email_vec_meta, :item_type) => "subject")  # Use subject embeddings as they're more thematic
           .select_append(Sequel.qualify(:email_vec, :embedding))
           .order(Sequel.function(:random))
           .limit(sample_size)
           .all
-        
+
         return safe_encode_result({error: "No embedded emails found. Run 'embed' command first."}) if emails_with_embeddings.empty?
-        
+
         # Extract embeddings and prepare for clustering
         emails = emails_with_embeddings.map do |row|
           {
@@ -1123,32 +1123,32 @@ module NittyMail
             embedding: row[:embedding].unpack("f*")  # Unpack binary embedding
           }
         end
-        
+
         # Simple k-means-like clustering using cosine similarity
         clusters = cluster_emails_by_similarity(emails, num_themes)
-        
+
         # Generate theme descriptions for each cluster
         model = ENV["EMBEDDING_MODEL"] || "bge-m3"
         themes = []
         total_emails = emails.length
-        
+
         clusters.each_with_index do |cluster, index|
           next if cluster[:emails].empty?
-          
+
           # Sample representative subjects for theme identification
           sample_subjects = cluster[:emails].sample([cluster[:emails].length, 10].min).map { |e| e[:subject] }
           theme_description = generate_theme_description(sample_subjects, ollama_host)
-          
+
           percentage = (cluster[:emails].length.to_f / total_emails * 100).round(1)
-          
+
           # Get top senders in this theme
           sender_counts = cluster[:emails].group_by { |e| e[:from] }.transform_values(&:count)
           top_senders = sender_counts.sort_by { |_, count| -count }.first(3).map { |sender, count| {sender: sender, count: count} }
-          
+
           # Date range for this theme
           dates = cluster[:emails].map { |e| e[:date] }.compact.sort
           date_range = dates.empty? ? nil : {from: dates.first, to: dates.last}
-          
+
           themes << {
             theme_name: theme_description,
             percentage: percentage,
@@ -1158,17 +1158,16 @@ module NittyMail
             sample_subjects: sample_subjects.first(5)  # Show first 5 as examples
           }
         end
-        
+
         # Sort by percentage descending
         themes.sort_by! { |theme| -theme[:percentage] }
-        
+
         safe_encode_result({
           total_analyzed: total_emails,
           themes: themes,
           analysis_date: Time.now.strftime("%Y-%m-%d %H:%M:%S"),
           model_used: model
         })
-        
       rescue => e
         safe_encode_result({
           error: "Theme analysis failed: #{e.message}",
@@ -1183,26 +1182,26 @@ module NittyMail
       num_clusters = num_clusters.to_i
       num_clusters = 8 if num_clusters <= 0
       num_clusters = [num_clusters, emails.length].min
-      
+
       # Simple k-means clustering using cosine similarity
       clusters = Array.new(num_clusters) { {center: nil, emails: []} }
-      
+
       # Initialize cluster centers with random emails
       sample_emails = emails.sample(num_clusters)
       sample_emails.each_with_index do |email, i|
         clusters[i][:center] = email[:embedding] if i < clusters.length
       end
-      
+
       # Assign emails to closest cluster (5 iterations max for performance)
       5.times do
         # Reset clusters
         clusters.each { |cluster| cluster[:emails] = [] }
-        
+
         # Assign each email to the closest cluster center
         emails.each do |email|
           best_cluster = 0
           best_similarity = -1
-          
+
           clusters.each_with_index do |cluster, i|
             next unless cluster[:center]
             similarity = cosine_similarity(email[:embedding], cluster[:center])
@@ -1211,33 +1210,33 @@ module NittyMail
               best_cluster = i
             end
           end
-          
+
           clusters[best_cluster][:emails] << email
         end
-        
+
         # Update cluster centers (average of all emails in cluster)
         clusters.each do |cluster|
           next if cluster[:emails].empty?
-          
+
           # Calculate centroid
           dimension = cluster[:emails].first[:embedding].length
           centroid = Array.new(dimension, 0.0)
-          
+
           cluster[:emails].each do |email|
             email[:embedding].each_with_index do |value, i|
               centroid[i] += value
             end
           end
-          
+
           # Average and normalize
           centroid.map! { |sum| sum / cluster[:emails].length }
           norm = Math.sqrt(centroid.map { |x| x * x }.sum)
-          centroid.map! { |x| norm > 0 ? x / norm : 0 } if norm > 0
-          
+          centroid.map! { |x| (norm > 0) ? x / norm : 0 } if norm > 0
+
           cluster[:center] = centroid
         end
       end
-      
+
       # Filter out empty clusters
       clusters.select { |cluster| !cluster[:emails].empty? }
     end
@@ -1245,11 +1244,11 @@ module NittyMail
     # Helper method to calculate cosine similarity
     def cosine_similarity(vec1, vec2)
       return 0 if vec1.length != vec2.length
-      
+
       dot_product = vec1.zip(vec2).map { |a, b| a * b }.sum
       norm1 = Math.sqrt(vec1.map { |x| x * x }.sum)
       norm2 = Math.sqrt(vec2.map { |x| x * x }.sum)
-      
+
       return 0 if norm1 == 0 || norm2 == 0
       dot_product / (norm1 * norm2)
     end
@@ -1257,10 +1256,10 @@ module NittyMail
     # Helper method to generate theme descriptions using LLM
     def generate_theme_description(subjects, ollama_host)
       return "Unknown Theme" if subjects.empty?
-      
+
       # Use the chat model to analyze the subjects and generate a theme name
       model = ENV["CHAT_MODEL"] || "gemma3"
-      
+
       prompt = <<~PROMPT
         Analyze these email subjects and identify the main theme in 2-4 words:
 
@@ -1268,14 +1267,14 @@ module NittyMail
 
         Respond with only a short descriptive theme name (e.g., "Project Management", "Travel Bookings", "Newsletter Updates", "Work Meetings", "Financial Services").
       PROMPT
-      
+
       begin
         uri = URI("#{ollama_host}/api/generate")
         http = Net::HTTP.new(uri.host, uri.port)
-        http.use_ssl = (uri.scheme == 'https')
-        
+        http.use_ssl = (uri.scheme == "https")
+
         request = Net::HTTP::Post.new(uri)
-        request['Content-Type'] = 'application/json'
+        request["Content-Type"] = "application/json"
         request.body = {
           model: model,
           prompt: prompt,
@@ -1286,21 +1285,21 @@ module NittyMail
             max_tokens: 20
           }
         }.to_json
-        
+
         response = http.request(request)
-        
-        if response.code == '200'
+
+        if response.code == "200"
           result = JSON.parse(response.body)
-          theme_name = result['response']&.strip
+          theme_name = result["response"]&.strip
           return theme_name if theme_name && !theme_name.empty?
         end
-      rescue => e
+      rescue
         # Fallback to simple keyword analysis if LLM fails
       end
-      
+
       # Fallback: simple keyword-based theme detection
       all_text = subjects.join(" ").downcase
-      
+
       # Common theme patterns
       theme_patterns = {
         "Work & Meetings" => %w[meeting agenda project deadline work team call conference],
@@ -1312,11 +1311,11 @@ module NittyMail
         "Education & Learning" => %w[course class school university learn training education],
         "Entertainment" => %w[movie music show event ticket concert game video]
       }
-      
+
       # Find the theme with the most keyword matches
       best_theme = "General Communication"
       best_score = 0
-      
+
       theme_patterns.each do |theme, keywords|
         score = keywords.count { |keyword| all_text.include?(keyword) }
         if score > best_score
@@ -1324,7 +1323,7 @@ module NittyMail
           best_theme = theme
         end
       end
-      
+
       best_theme
     end
 
@@ -1373,13 +1372,11 @@ module NittyMail
         end
       end
 
-      # Add LIMIT clause if not present to prevent runaway queries for wide/row-returning queries.
-      # Heuristic: don't append for obvious aggregate/summary queries or when GROUP BY is used.
+      # Add LIMIT clause if not present to prevent runaway queries.
+      # Spec expects LIMIT to be appended even for aggregates.
       unless normalized_query.include?("limit")
-        is_aggregate = ["sum(", "count(", "avg(", "min(", "max(", "total("]
-          .any? { |kw| normalized_query.include?(kw) }
-        uses_group_by = normalized_query.include?("group by")
-        sql_query += " LIMIT #{limit}" unless is_aggregate || uses_group_by
+        sql_query = sql_query.sub(/;\s*\z/, "")
+        sql_query += " LIMIT #{limit}"
       end
 
       begin

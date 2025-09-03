@@ -47,6 +47,9 @@ module NittyMail
               to_bind.delete(:__embed_fields__)
             end
             insert_stmt.call(to_bind)
+            # Advance progress only from the single writer thread to avoid
+            # concurrency issues in progressbar rendering.
+            progress&.event(:sync_message_processed, {mailbox: mbox_name, uid: rec[:uid]})
           rescue Sequel::UniqueConstraintViolation => e
             raise e if settings.strict_errors
             progress&.event(:sync_log, {message: "#{rec[:mailbox]} #{rec[:uid]} #{rec[:uidvalidity]} already exists, skipping ..."})
@@ -117,7 +120,6 @@ module NittyMail
                 end
                 progress&.event(:sync_log, {message: line})
               end
-              progress&.event(:sync_message_processed, {mailbox: mbox_name, uid: uid})
               rec = build_record(
                 imap_address: settings.imap_address,
                 mbox_name:,

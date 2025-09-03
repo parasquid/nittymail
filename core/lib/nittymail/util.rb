@@ -16,6 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 require "nokogiri"
+require "cgi"
 require "reverse_markdown"
 
 module NittyMail
@@ -37,10 +38,24 @@ module NittyMail
         doc.css("script,style").remove
         cleaned = doc.to_html
         md = ReverseMarkdown.convert(cleaned, unknown_tags: :drop)
-        md.strip
+        # Normalize entities and whitespace: convert &nbsp; to space, collapse runs of spaces/tabs
+        # Some libraries leave non-breaking spaces as literal entities; normalize both forms.
+        s = md.gsub(/&nbsp;/i, " ")
+        s = CGI.unescapeHTML(s)
+        s = s.gsub("\u00A0", " ")
+        s = s.gsub(/[ \t]+/, " ")
+        # Remove simple Markdown emphasis markers introduced by ReverseMarkdown
+        s = s.gsub(/\*\*(.+?)\*\*/, "\\1").gsub(/\*(.+?)\*/, "\\1").gsub(/__(.+?)__/, "\\1")
+        s.strip
       rescue => _
         # Fallback: plain text if conversion fails
-        h.gsub(/<[^>]+>/, " ").gsub(/\s+/, " ").strip
+        s = h.gsub(/<[^>]+>/, " ")
+        s = s.gsub(/&nbsp;/i, " ")
+        s = CGI.unescapeHTML(s)
+        s = s.gsub("\u00A0", " ")
+        s = s.gsub(/[ \t]+/, " ")
+        s = s.gsub(/\*\*(.+?)\*\*/, "\\1").gsub(/\*(.+?)\*/, "\\1").gsub(/__(.+?)__/, "\\1")
+        s.strip
       end
     end
 
@@ -76,7 +91,7 @@ module NittyMail
     # - Collapse 3+ blank lines to 2
     def normalize_text_plain(text)
       s = safe_utf8(text.to_s)
-      s = s.gsub("\r\n", "\n").gsub("\r", "\n")
+      s = s.gsub("\r\n", "\n").tr("\r", "\n")
       s = s.lines.map { |ln| ln.rstrip }.join("\n")
       s = s.gsub(/\n{3,}/, "\n\n")
       s.strip
