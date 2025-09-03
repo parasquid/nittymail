@@ -94,7 +94,7 @@ module NittyMail
       http.use_ssl = (uri.scheme == "https")
       res = http.request(req)
       res.is_a?(Net::HTTPSuccess)
-    rescue StandardError
+    rescue
       false
     end
   end

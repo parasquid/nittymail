@@ -10,7 +10,7 @@ RSpec.describe NittyMail::Util do
     When(:text) { described_class.html_to_markdown(html) }
     Then { text.include?("Hello") }
     Then { text.downcase.include?("world") }
-    Then { text.gsub("\n", " ").include?("Line 2") }
+    Then { text.tr("\n", " ").include?("Line 2") }
 
     context "with script and style tags" do
       Given(:html) do
