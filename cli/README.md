@@ -49,6 +49,21 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     --collection my-mails
   ```
 
+### DB utilities
+
+- Show a specific email by UID (provide uidvalidity or the command will list options):
+  ```bash
+  docker compose run --rm cli db show --uid 177077 --uidvalidity 2
+  ```
+
+- Show the latest email (by INTERNALDATE):
+  ```bash
+  docker compose run --rm cli db latest
+  # or constrain to a specific generation
+  docker compose run --rm cli db latest --uidvalidity 2
+  ```
+
+
 - Performance tuning (flags):
   - `--upload-batch-size 200` (upload chunk size)
   - `--upload-threads 4` (concurrent upload workers)

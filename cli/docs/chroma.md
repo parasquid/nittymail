@@ -64,8 +64,8 @@ existing_uids = existing.map { |id| id.split(":", 2)[1].to_i }
 to_add_ids = ["2:123", "2:124"]
 to_add_docs = ["raw email 1...", "raw email 2..."]
 to_add_meta = [
-  {address: address, mailbox: mailbox, uidvalidity: 2, uid: 123},
-  {address: address, mailbox: mailbox, uidvalidity: 2, uid: 124}
+  {address: address, mailbox: mailbox, uidvalidity: 2, uid: 123, internaldate_epoch: 1_724_000_000},
+  {address: address, mailbox: mailbox, uidvalidity: 2, uid: 124, internaldate_epoch: 1_724_000_123}
 ]
 
 batch_size = 100
@@ -120,4 +120,9 @@ From inside the CLI container:
   - Reads `NITTYMAIL_CHROMA_HOST` (and optional `NITTYMAIL_CHROMA_API_BASE`/`NITTYMAIL_CHROMA_API_VERSION`).
   - Creates/loads a collection per mailbox and uploads new emails in batches.
   - Uses `"#{uidvalidity}:#{uid}"` IDs for dedup.
+  - Stores `internaldate_epoch` (IMAP INTERNALDATE) for fast latest queries.
+
+- CLI command `db latest`:
+  - Finds the newest email using `internaldate_epoch` via binary search + tight fetch.
+  - Provide `--uidvalidity` or it will attempt to infer and list options when ambiguous.
 
