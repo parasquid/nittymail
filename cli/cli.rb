@@ -93,35 +93,40 @@ module NittyMail
         # Configure Chroma via NittyMail::DB helper and get or create collection
         collection = NittyMail::DB.chroma_collection(collection_name)
 
-        # Discover existing docs in Chroma for this generation by paging through IDs
-        id_prefix = "#{uidvalidity}:"
-        existing_uids = []
-        page = 1
-        page_size = 1000
-        begin
-          # Prefer server-side filtering by uidvalidity when available
-          loop do
-            embeddings = collection.get(page:, page_size:, where: {uidvalidity: uidvalidity})
-            ids = embeddings.map(&:id)
-            break if ids.empty?
-            matches = ids.map { |id| id.split(":", 2)[1].to_i }
-            existing_uids.concat(matches)
-            break if ids.size < page_size
-            page += 1
-          end
-        rescue Chroma::APIError, NoMethodError
-          # Fallback: client-side filter by ID prefix
-          page = 1
-          loop do
-            embeddings = collection.get(page:, page_size:)
-            ids = embeddings.map(&:id)
-            break if ids.empty?
-            matches = ids.grep(/^#{Regexp.escape(id_prefix)}/).map { |id| id.split(":", 2)[1].to_i }
-            existing_uids.concat(matches)
-            break if ids.size < page_size
-            page += 1
+        # Fast discovery: batched id lookups (avoid full scans)
+        candidate_ids = server_uids.map { |u| "#{uidvalidity}:#{u}" }
+        id_queue = Queue.new
+        candidate_ids.each_slice(1000) { |slice| id_queue << slice }
+        existing_ids = Set.new
+        existing_mutex = Mutex.new
+        exist_threads = (ENV["NITTYMAIL_EXIST_THREADS"] || 4).to_i
+        exist_threads = 1 if exist_threads < 1
+        exist_workers = Array.new(exist_threads) do
+          Thread.new do
+            until id_queue.empty?
+              id_batch = begin
+                id_queue.pop(true)
+              rescue ThreadError
+                break
+              end
+              begin
+                embeddings = begin
+                  collection.get(ids: id_batch, include: [])
+                rescue ArgumentError, NoMethodError
+                  collection.get(ids: id_batch)
+                end
+                ids = embeddings.map(&:id)
+                existing_mutex.synchronize { ids.each { |i| existing_ids << i } }
+              rescue Chroma::ChromaError => e
+                warn "chroma lookup error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
+              rescue => e
+                warn "unexpected lookup error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
+              end
+            end
           end
         end
+        exist_workers.each(&:join)
+        existing_uids = existing_ids.map { |id| id.split(":", 2)[1].to_i }
 
         # Compute missing uids relative to Chroma
         to_fetch = server_uids - existing_uids
