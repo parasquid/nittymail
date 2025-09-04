@@ -25,7 +25,6 @@ module NittyMail
           Thread.new do
             mailbox_client = NittyMail::Mailbox.new(settings: @settings, mailbox_name: @mailbox_name)
             loop do
-              break if @interrupted.call
               uid_batch = @fetch_queue.pop
               break if uid_batch.equal?(:__END__)
 
