@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module NittyMail
   class Settings
     attr_reader :imap_url,
@@ -13,7 +15,18 @@ module NittyMail
       imap_port: 993,
       imap_ssl: true,
       max_fetch_size: 1000,
-      fetch_items: ["UID", "BODY.PEEK[]", "BODYSTRUCTURE", "ENVELOPE", "INTERNALDATE", "RFC822.SIZE", "FLAGS"]
+      fetch_items: [
+        "UID",
+        "BODY.PEEK[]",
+        "BODYSTRUCTURE",
+        "ENVELOPE",
+        "INTERNALDATE",
+        "RFC822.SIZE",
+        "FLAGS",
+        "X-GM-LABELS",
+        "X-GM-MSGID",
+        "X-GM-THRID",
+      ]
     }.freeze
 
     REQUIRED = [
