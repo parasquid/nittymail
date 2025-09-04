@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-require_relative "lib/NittyMail/version"
+require_relative "lib/nitty_mail/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "NittyMail"
+  spec.name = "nitty_mail"
   spec.version = NittyMail::VERSION
   spec.authors = ["parasquid"]
   spec.email = ["git@parasquid.com"]
