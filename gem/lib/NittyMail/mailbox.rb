@@ -24,11 +24,11 @@ module NittyMail
       end
     end
 
-    def retrieve(uids:)
+    def retrieve(uids:, extra_fetch_items: ["X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID"])
       raise NittyMail::MaxFetchSizeError.new(uids.size, @settings.max_fetch_size) if uids.size > @settings.max_fetch_size
 
       with_imap do |imap|
-        imap.uid_fetch(uids, @settings.fetch_items + ["X-GM-LABELS", "X-GM-MSGID", "X-GM-THRID"])
+        imap.uid_fetch(uids, @settings.fetch_items + extra_fetch_items)
       end
     end
 
