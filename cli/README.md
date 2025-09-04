@@ -52,6 +52,7 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
 - Performance tuning (flags):
   - `--upload-batch-size 200` (upload chunk size)
   - `--upload-threads 4` (concurrent upload workers)
+  - `--fetch-threads 2` (concurrent IMAP fetchers)
   - `--max-fetch-size 50` (IMAP fetch slice size)
 
 - Troubleshooting tips:
