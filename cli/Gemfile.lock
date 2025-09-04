@@ -29,11 +29,21 @@ GEM
     language_server-protocol (3.17.0.5)
     lint_roller (1.1.0)
     logger (1.7.0)
+    mail (2.8.1)
+      mini_mime (>= 0.1.1)
+      net-imap
+      net-pop
+      net-smtp
+    mini_mime (1.1.5)
     net-imap (0.5.10)
       date
       net-protocol
+    net-pop (0.1.2)
+      net-protocol
     net-protocol (0.2.2)
       timeout
+    net-smtp (0.5.1)
+      net-protocol
     nokogiri (1.18.9-x86_64-linux-gnu)
       racc (~> 1.4)
     paco (0.2.3)
@@ -120,6 +130,7 @@ PLATFORMS
 
 DEPENDENCIES
   chroma-db
+  mail
   nitty_mail!
   reverse_markdown
   rspec

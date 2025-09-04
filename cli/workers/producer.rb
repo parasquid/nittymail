@@ -1,6 +1,5 @@
 require "time"
-require "mail"
-require "reverse_markdown"
+require_relative "../utils/enricher"
 
 # frozen_string_literal: true
 
@@ -83,52 +82,18 @@ module NittyMail
                   }
                   metadata_list << base_meta
 
-                  # Parse email for subject/body
-                  mail = begin
-                    ::Mail.read_from_string(safe)
-                  rescue
-                    nil
-                  end
-                  if mail
-                    subject = mail.subject.to_s
-                    # Prefer text part; fallback to decoded body
-                    text_part = mail.text_part&.decoded
-                    html_part = mail.html_part&.decoded
-                    plain_text = (text_part && text_part.to_s.strip != "") ? text_part.to_s : mail.body.to_s
-                    markdown = if html_part && html_part.to_s.strip != ""
-                      ::ReverseMarkdown.convert(html_part.to_s)
-                    else
-                      ::ReverseMarkdown.convert(plain_text.to_s)
-                    end
-
-                    # Subject embedding
-                    unless subject.to_s.strip.empty?
-                      doc_ids << "#{@uidvalidity}:#{uid}:subject"
-                      documents << subject.to_s
-                      metadata_list << base_meta.merge(item_type: "subject")
-                    end
-
-                    # Plain text embedding
-                    unless plain_text.to_s.strip.empty?
-                      doc_ids << "#{@uidvalidity}:#{uid}:text"
-                      documents << plain_text.to_s
-                      metadata_list << base_meta.merge(item_type: "plain_text")
-                    end
-
-                    # Markdown embedding
-                    unless markdown.to_s.strip.empty?
-                      doc_ids << "#{@uidvalidity}:#{uid}:markdown"
-                      documents << markdown.to_s
-                      metadata_list << base_meta.merge(item_type: "markdown")
-                    end
-                  end
+                  # Generate additional embeddings via Enricher
+                  v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(raw: safe, base_meta: base_meta, uidvalidity: @uidvalidity, uid: uid)
+                  doc_ids.concat(v_ids)
+                  documents.concat(v_docs)
+                  metadata_list.concat(v_metas)
                 end
 
                 Array(doc_ids).each_slice(@upload_batch_size)
                   .zip(Array(documents).each_slice(@upload_batch_size), Array(metadata_list).each_slice(@upload_batch_size))
                   .each do |id_batch, doc_batch, meta_batch|
-                    @job_queue << [id_batch, doc_batch, meta_batch]
-                  end
+                  @job_queue << [id_batch, doc_batch, meta_batch]
+                end
               rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
                 @on_error&.call(:imap, e, uid_batch)
               rescue => e

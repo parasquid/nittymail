@@ -4,6 +4,7 @@ require "thor"
 require "time"
 require_relative "../utils/utils"
 require_relative "../utils/db"
+require_relative "../utils/enricher"
 
 module NittyMail
   module Commands
@@ -181,6 +182,64 @@ module NittyMail
         end
       end
 
+      desc "backfill", "Backfill subject/plain/markdown embeddings for existing raw documents"
+      method_option :uidvalidity, type: :numeric, required: false, desc: "Process only this UIDVALIDITY"
+      method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name (for default collection)"
+      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :page_size, type: :numeric, default: 200, desc: "Page size for scanning"
+      method_option :batch_size, type: :numeric, default: 100, desc: "Upload batch size"
+      def backfill
+        mailbox = options[:mailbox] || "INBOX"
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        page_size = Integer(options[:page_size])
+        batch_size = Integer(options[:batch_size])
+        if address.to_s.empty?
+          raise ArgumentError, "missing account: pass --address or set NITTYMAIL_IMAP_ADDRESS"
+        end
+        collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
+        uv = options[:uidvalidity] && Integer(options[:uidvalidity])
+
+        processed = 0
+        added = 0
+        page = 1
+        loop do
+          embeddings = if uv
+            collection.get(page: page, page_size: page_size, where: {'$and': [{uidvalidity: uv}, {item_type: "raw"}]})
+          else
+            collection.get(page: page, page_size: page_size)
+          end
+          break if embeddings.empty?
+          raw_docs = embeddings.select do |e|
+            md = e.respond_to?(:metadata) ? e.metadata : {}
+            item_type = md[:item_type] || md["item_type"]
+            item_type == "raw" || e.id.to_s.split(":").length == 2
+          end
+          ids, docs, metas = backfill_variants(collection, raw_docs)
+          existing = NittyMail::Workers::Chroma.existing_ids(collection: collection, candidate_ids: ids, threads: 4, batch_size: 1000)
+          to_add = []
+          ids.each_with_index do |idv, idx|
+            next if existing.include?(idv)
+            to_add << [idv, docs[idx], metas[idx]]
+          end
+          to_add.each_slice(batch_size) do |chunk|
+            embeddings_objs = chunk.map { |idv, doc, meta| ::Chroma::Resources::Embedding.new(id: idv, document: doc, metadata: meta) }
+            collection.add(embeddings_objs)
+            added += embeddings_objs.size
+          end
+          processed += raw_docs.size
+          break if embeddings.size < page_size
+          page += 1
+        end
+        puts "Backfill complete for '#{collection_name}': processed=#{processed}, added=#{added}"
+      rescue ::Chroma::ChromaError => e
+        warn "chroma error: #{e.class}: #{e.message}"
+        exit 4
+      rescue => e
+        warn "unexpected error: #{e.class}: #{e.message}"
+        exit 5
+      end
+
       desc "show", "Show a previously fetched email by UID"
       method_option :uid, type: :numeric, required: true, desc: "IMAP UID of the message"
       method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, show possible values from DB)"
@@ -261,6 +320,35 @@ module NittyMail
       end
 
       no_commands do
+        def backfill_variants(collection, entries)
+          ids = []
+          docs = []
+          metas = []
+          entries.each do |e|
+            raw = e.respond_to?(:document) ? e.document : nil
+            next if raw.to_s.empty?
+            md = e.respond_to?(:metadata) ? e.metadata : {}
+            uidvalidity = md[:uidvalidity] || md["uidvalidity"] || e.id.to_s.split(":", 2)[0].to_i
+            uid = e.id.to_s.split(":", 2)[1].to_i
+            base_meta = {
+              address: md[:address] || md["address"],
+              mailbox: md[:mailbox] || md["mailbox"],
+              uidvalidity: uidvalidity,
+              uid: uid,
+              internaldate_epoch: (md[:internaldate_epoch] || md["internaldate_epoch"]).to_i,
+              from_email: (md[:from_email] || md["from_email"]).to_s,
+              rfc822_size: (md[:rfc822_size] || md["rfc822_size"] || raw.to_s.bytesize).to_i,
+              labels: Array(md[:labels] || md["labels"] || []),
+              item_type: "raw"
+            }
+            v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(raw: raw, base_meta: base_meta, uidvalidity: uidvalidity, uid: uid)
+            ids.concat(v_ids)
+            docs.concat(v_docs)
+            metas.concat(v_metas)
+          end
+          [ids, docs, metas]
+        end
+
         def print_document(embedding)
           doc = embedding.respond_to?(:document) ? embedding.document : nil
           if doc.to_s.empty?

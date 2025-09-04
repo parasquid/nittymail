@@ -115,6 +115,18 @@ Example embedding metadata (JSON):
 }
 ```
 
+## Similarity Search Behavior
+
+- By default, similarity search over a collection queries all embeddings you’ve stored — raw, plain_text, markdown, and subject — because each is a separate embedding row.
+- To scope searches to specific representations, filter by `item_type` in `where`:
+  - Only markdown:
+    - `where: { '$and': [ { item_type: 'markdown' } ] }`
+  - Only plain text and subject:
+    - `where: { '$and': [ { item_type: { '$in': ['plain_text', 'subject'] } } ] }`
+  - Exclude raw:
+    - `where: { '$and': [ { item_type: { '$ne': 'raw' } } ] }`
+- Deduplication: Because a single message can have multiple embeddings, group result rows by the base id prefix `"#{uidvalidity}:#{uid}"` when presenting results, picking the best-scoring variant per message.
+
 
 ## Concurrency & Tuning
 
@@ -158,4 +170,3 @@ From inside the CLI container:
 - CLI command `db latest`:
   - Finds the newest email using `internaldate_epoch` via binary search + tight fetch.
   - Provide `--uidvalidity` or it will attempt to infer and list options when ambiguous.
-
