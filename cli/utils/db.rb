@@ -28,4 +28,3 @@ module NittyMail
     end
   end
 end
-

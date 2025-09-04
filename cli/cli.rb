@@ -6,12 +6,13 @@ require "thor"
 require "json"
 require "uri"
 require "net/http"
-require "thread"
 require "nitty_mail"
 require "chroma-db"
 require "ruby-progressbar"
 require_relative "utils/utils"
 require_relative "utils/db"
+require_relative "workers/producer"
+require_relative "workers/consumer"
 
 module NittyMail
   class CLI < Thor
@@ -46,7 +47,7 @@ module NittyMail
       rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
         warn "imap error: #{e.message}"
         exit 2
-      rescue StandardError => e
+      rescue => e
         warn "unexpected error: #{e.class}: #{e.message}"
         exit 3
       end
@@ -159,33 +160,21 @@ module NittyMail
         # Consumers: upload workers
         upload_threads = options[:upload_threads].to_i
         upload_threads = 1 if upload_threads < 1
-        upload_workers = Array.new(upload_threads) do
-          Thread.new do
-            until interrupted
-              upload_job = job_queue.pop
-              break if upload_job.equal?(:__END__)
-
-              id_batch, doc_batch, meta_batch = upload_job
-              begin
-                embeddings = id_batch.each_with_index.map do |idv, idx|
-                  Chroma::Resources::Embedding.new(id: idv, document: doc_batch[idx], metadata: meta_batch[idx])
-                end
-                collection.add(embeddings)
-                progress_mutex.synchronize do
-                  processed += embeddings.size
-                  progress.progress = [processed, total_to_process].min
-                end
-              rescue Chroma::ChromaError => e
-                errors_mutex.synchronize { upload_errors += id_batch.size }
-                warn "chroma upload error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
-              rescue => e
-                errors_mutex.synchronize { upload_errors += id_batch.size }
-                warn "unexpected upload error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
-              end
-
+        upload_workers = NittyMail::Workers::Consumer.new(
+          collection: collection,
+          job_queue: job_queue,
+          interrupted: -> { interrupted },
+          on_progress: ->(count) {
+            progress_mutex.synchronize do
+              processed += count
+              progress.progress = [processed, total_to_process].min
             end
-          end
-        end
+          },
+          on_error: ->(failed_count, ex, id_range) {
+            errors_mutex.synchronize { upload_errors += failed_count }
+            warn "upload error: #{ex.class}: #{ex.message} ids=#{id_range.first}..#{id_range.last}"
+          }
+        ).start(threads: upload_threads)
 
         # Build fetch queue of UID batches
         fetch_queue = Queue.new
@@ -194,48 +183,21 @@ module NittyMail
         # Producer workers: parallel IMAP fetchers
         fetch_threads = options[:fetch_threads].to_i
         fetch_threads = 1 if fetch_threads < 1
-        fetch_workers = Array.new(fetch_threads) do
-          Thread.new do
-            # One IMAP connection per fetch worker
-            thread_mailbox_client = NittyMail::Mailbox.new(settings: settings, mailbox_name: mailbox)
-            until interrupted
-              uid_batch = begin
-                fetch_queue.pop(true)
-              rescue ThreadError
-                break
-              end
-
-              begin
-                fetch_response = thread_mailbox_client.fetch(uids: uid_batch)
-                doc_ids = []
-                documents = []
-                metadata_list = []
-                fetch_response.each do |msg|
-                  uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-                  raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
-                  raw = raw.to_s.dup
-                  raw.force_encoding("BINARY")
-                  safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
-                  doc_ids << "#{uidvalidity}:#{uid}"
-                  documents << safe
-                  metadata_list << {address:, mailbox:, uidvalidity:, uid:}
-                end
-
-                Array(doc_ids).each_slice(upload_batch_size)
-                  .zip(Array(documents).each_slice(upload_batch_size), Array(metadata_list).each_slice(upload_batch_size))
-                  .each do |id_batch, doc_batch, meta_batch|
-                    job_queue << [id_batch, doc_batch, meta_batch]
-                  end
-              rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
-                errors_mutex.synchronize { fetch_errors += 1 }
-                warn "imap fetch error: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last}"
-              rescue => e
-                errors_mutex.synchronize { fetch_errors += 1 }
-                warn "unexpected fetch error: #{e.class}: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last}"
-              end
-            end
-          end
-        end
+        fetch_workers = NittyMail::Workers::Producer.new(
+          settings: settings,
+          mailbox_name: mailbox,
+          address: address,
+          uidvalidity: uidvalidity,
+          upload_batch_size: upload_batch_size,
+          fetch_queue: fetch_queue,
+          job_queue: job_queue,
+          interrupted: -> { interrupted },
+          on_error: ->(type, ex, uid_batch) {
+            errors_mutex.synchronize { fetch_errors += 1 }
+            range = uid_batch && [uid_batch.first, uid_batch.last]
+            warn "imap #{type} error: #{ex.class}: #{ex.message} batch=#{range&.first}..#{range&.last}"
+          }
+        ).start(threads: fetch_threads)
 
         # Wait for fetchers to finish, then signal consumers to stop
         fetch_workers.each(&:join)
@@ -261,9 +223,9 @@ module NittyMail
         details = []
         details << "status=#{e.status}" if e.respond_to?(:status)
         details << "body=#{e.body.inspect}" if e.respond_to?(:body)
-        warn "chroma error: #{e.class}: #{e.message} #{details.join(' ')}"
+        warn "chroma error: #{e.class}: #{e.message} #{details.join(" ")}"
         exit 4
-      rescue StandardError => e
+      rescue => e
         warn "unexpected error: #{e.class}: #{e.message}"
         exit 3
       end

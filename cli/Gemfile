@@ -4,3 +4,8 @@ gem "thor"
 gem "nitty_mail", path: "../gem"
 gem "chroma-db"
 gem "ruby-progressbar"
+
+group :development do
+  gem "standard", ">= 1.35.1", require: false
+  gem "rubocop", require: false
+end

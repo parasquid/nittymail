@@ -8,6 +8,8 @@ This guide covers how AI agents should work within the CLI folder: naming style,
 - Examples: `mailbox_client` (not `mb`), `fetch_response` (not `fr`), `doc_ids`/`documents`/`metadata_list` (not `ids`/`docs`/`metas`).
 - Use `until interrupted` instead of `loop do` + `break if interrupted` when expressing interrupt-aware loops.
 - Rescue specific exceptions; log actionable context; avoid swallowing errors unless explicitly justified.
+- **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
+
 
 ## Chroma Client (canonical helper)
 
@@ -41,3 +43,10 @@ collection = NittyMail::DB.chroma_collection(collection_name)
 - Data persists under `cli/chroma-data` bind-mounted into the container.
 - See `docs/chroma.md` for full Chroma details and troubleshooting.
 
+## Lint Before Committing
+
+- Run StandardRB auto-fix and RuboCop inside Docker from the `cli/` folder:
+  - `docker compose run --rm cli bundle install`
+  - `docker compose run --rm cli bundle exec standardrb --fix`
+  - `docker compose run --rm cli bundle exec rubocop -A`
+- Ensure no offenses remain before committing.

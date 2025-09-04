@@ -11,7 +11,7 @@ module NittyMail
     def sanitize_collection_name(name)
       s = name.to_s.downcase
       s = s.gsub(/[^a-z0-9_-]+/, "-")  # replace invalid with '-'
-      s = s.gsub(/-+/, "-")            # collapse dashes
+      s = s.squeeze("-")            # collapse dashes
       s = s.gsub(/^[-_]+|[-_]+$/, "")  # trim non-alnum at ends
       s = "nm" if s.length < 3
       s = s[0, 63]
@@ -22,4 +22,3 @@ module NittyMail
     end
   end
 end
-
