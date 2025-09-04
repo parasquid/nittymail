@@ -44,6 +44,7 @@ GEM
     ruby-next-core (1.1.2)
     ruby-next-parser (3.4.0.2)
       parser (>= 3.0.3.1)
+    ruby-progressbar (1.13.0)
     thor (1.4.0)
     timeout (0.4.3)
     unparser (0.6.15)
@@ -58,6 +59,7 @@ PLATFORMS
 DEPENDENCIES
   chroma-db
   nitty_mail!
+  ruby-progressbar
   thor
 
 BUNDLED WITH

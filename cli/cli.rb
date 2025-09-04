@@ -8,6 +8,7 @@ require "uri"
 require "net/http"
 require "nitty_mail"
 require "chroma-db"
+require "ruby-progressbar"
 
 module NittyMail
   class CLI < Thor
@@ -112,7 +113,27 @@ module NittyMail
           return
         end
 
-        puts "Fetching #{to_fetch.size} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
+        total_to_process = to_fetch.size
+        processed = 0
+        puts "Fetching #{total_to_process} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
+        progress = ProgressBar.create(
+          title: "Upload",
+          total: total_to_process,
+          progress_mark: "#",
+          remainder_mark: ".",
+          format: "%t %B %p%% %c/%C %e"
+        )
+
+        interrupted = false
+        Signal.trap("INT") do
+          if interrupted
+            puts "\nForce exiting..."
+            exit 130
+          else
+            interrupted = true
+            warn "\nInterrupt received. Will stop after current batch (Ctrl-C again to force)."
+          end
+        end
 
         # Fetch messages in chunks based on Settings#max_fetch_size
         max_batch = [settings.max_fetch_size, 1000].min
@@ -140,11 +161,19 @@ module NittyMail
                 Chroma::Resources::Embedding.new(id: idv, document: doc_chunk[idx], metadata: meta_chunk[idx])
               end
               collection.add(embeddings)
-              puts "Uploaded #{embeddings.size} message(s)"
+              processed += embeddings.size
+              progress.progress = [processed, total_to_process].min
+              break if interrupted
             end
+          break if interrupted
         end
-
-        puts "Download complete."
+        progress.finish unless progress.finished?
+        if interrupted
+          puts "Download interrupted. Processed #{processed}/#{total_to_process}."
+          exit 130
+        else
+          puts "Download complete."
+        end
       rescue ArgumentError => e
         warn "error: #{e.message}"
         exit 1
@@ -179,6 +208,8 @@ module NittyMail
           s = "nm" if s.empty?
           s
         end
+
+        # ruby-progressbar handles timing and ETA
       end
     end
 
