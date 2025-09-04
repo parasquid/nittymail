@@ -9,7 +9,7 @@ module NittyMail
   module Commands
     class DB < Thor
       desc "latest", "Show the latest (by INTERNALDATE) email in the collection"
-      method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, attempt to infer or list options)"
+      method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, attempt to infer || list options)"
       method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name (for default collection)"
       method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
       method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
@@ -22,7 +22,7 @@ module NittyMail
         page_size = Integer(options[:page_size])
 
         if address.to_s.empty?
-          raise ArgumentError, "missing account: pass --address or set NITTYMAIL_IMAP_ADDRESS"
+          raise ArgumentError, "missing account: pass --address || set NITTYMAIL_IMAP_ADDRESS"
         end
 
         collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
@@ -99,6 +99,67 @@ module NittyMail
         end
       end
 
+      desc "stats", "Show collection stats (per uidvalidity)"
+      method_option :uidvalidity, type: :string, required: false, desc: "Comma-separated uidvalidity values to include"
+      method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name (for default collection)"
+      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :page_size, type: :numeric, default: 500, desc: "Page size for scanning"
+      def stats
+        mailbox = options[:mailbox] || "INBOX"
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        page_size = Integer(options[:page_size])
+        if address.to_s.empty?
+          raise ArgumentError, "missing account: pass --address || set NITTYMAIL_IMAP_ADDRESS"
+        end
+        collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
+        gens_filter = options[:uidvalidity] && options[:uidvalidity].to_s.split(",").map { |v| v.strip.to_i }
+
+        stats = Hash.new { |h, k| h[k] = {count: 0, min_uid: nil, max_uid: nil, min_epoch: nil, max_epoch: nil} }
+        page = 1
+        begin
+          loop do
+            embeddings = collection.get(page: page, page_size: page_size)
+            break if embeddings.empty?
+            embeddings.each do |e|
+              md = e.respond_to?(:metadata) ? e.metadata : {}
+              gen = md[:uidvalidity] || md["uidvalidity"] || e.id.to_s.split(":", 2)[0].to_i
+              next if gens_filter && !gens_filter.include?(gen)
+              uid = e.id.to_s.split(":", 2)[1].to_i
+              epoch = (md && (md["internaldate_epoch"] || md[:internaldate_epoch]) || 0).to_i
+              st = stats[gen]
+              st[:count] += 1
+              st[:min_uid] = uid if st[:min_uid].nil? || uid < st[:min_uid]
+              st[:max_uid] = uid if st[:max_uid].nil? || uid > st[:max_uid]
+              st[:min_epoch] = epoch if st[:min_epoch].nil? || epoch < st[:min_epoch]
+              st[:max_epoch] = epoch if st[:max_epoch].nil? || epoch > st[:max_epoch]
+            end
+            break if embeddings.size < page_size
+            page += 1
+          end
+        rescue => e
+          warn "error scanning collection '#{collection_name}': #{e.class}: #{e.message}"
+          exit 4
+        end
+
+        if stats.empty?
+          puts "(no records)"
+          return
+        end
+
+        puts "Collection: #{collection_name}"
+        stats.keys.sort.each do |gen|
+          st = stats[gen]
+          puts "uidvalidity: #{gen}"
+          puts "  records: #{st[:count]}"
+          if st[:count] > 0
+            puts "  uid range: #{st[:min_uid]}..#{st[:max_uid]}"
+            puts "  internaldate_epoch max: #{st[:max_epoch]} (#{Time.at(st[:max_epoch]).utc})"
+            puts "  internaldate_epoch min: #{st[:min_epoch]} (#{Time.at(st[:min_epoch]).utc})"
+          end
+        end
+      end
+
       desc "show", "Show a previously fetched email by UID"
       method_option :uid, type: :numeric, required: true, desc: "IMAP UID of the message"
       method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, show possible values from DB)"
@@ -111,7 +172,7 @@ module NittyMail
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
 
         if address.to_s.empty?
-          raise ArgumentError, "missing account: pass --address or set NITTYMAIL_IMAP_ADDRESS"
+          raise ArgumentError, "missing account: pass --address || set NITTYMAIL_IMAP_ADDRESS"
         end
 
         collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
