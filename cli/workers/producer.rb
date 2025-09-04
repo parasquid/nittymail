@@ -24,12 +24,10 @@ module NittyMail
         Array.new(count) do
           Thread.new do
             mailbox_client = NittyMail::Mailbox.new(settings: @settings, mailbox_name: @mailbox_name)
-            until @interrupted.call
-              uid_batch = begin
-                @fetch_queue.pop(true)
-              rescue ThreadError
-                break
-              end
+            loop do
+              break if @interrupted.call
+              uid_batch = @fetch_queue.pop
+              break if uid_batch.equal?(:__END__)
 
               begin
                 fetch_response = mailbox_client.fetch(uids: uid_batch)

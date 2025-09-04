@@ -1,24 +1,24 @@
 # frozen_string_literal: true
 
-require 'thor'
-require_relative '../utils/utils'
-require_relative '../utils/db'
-require_relative '../workers/producer'
-require_relative '../workers/consumer'
-require_relative '../workers/chroma'
+require "thor"
+require_relative "../utils/utils"
+require_relative "../utils/db"
+require_relative "../workers/producer"
+require_relative "../workers/consumer"
+require_relative "../workers/chroma"
 
 module NittyMail
   module Commands
     class Mailbox < Thor
-      desc 'list', 'List all mailboxes for the account'
-      method_option :address, aliases: '-a', type: :string, required: false, desc: 'IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)'
-      method_option :password, aliases: '-p', type: :string, required: false, desc: 'IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)'
+      desc "list", "List all mailboxes for the account"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       def list
-        address = options[:address] || ENV['NITTYMAIL_IMAP_ADDRESS']
-        password = options[:password] || ENV['NITTYMAIL_IMAP_PASSWORD']
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
 
         if address.to_s.empty? || password.to_s.empty?
-          raise ArgumentError, 'missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD'
+          raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
 
         settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
@@ -28,7 +28,7 @@ module NittyMail
         names = mailboxes.map { |x| x.respond_to?(:name) ? x.name : x.to_s }
 
         if names.empty?
-          puts '(no mailboxes)'
+          puts "(no mailboxes)"
         else
           names.sort.each { |n| puts n }
         end
@@ -43,20 +43,20 @@ module NittyMail
         exit 3
       end
 
-      desc 'download', 'Download new emails into a Chroma collection'
-      method_option :mailbox, aliases: '-m', type: :string, default: 'INBOX', desc: 'Mailbox name'
-      method_option :collection, type: :string, required: false, desc: 'Chroma collection name (defaults to address+mailbox)'
-      method_option :upload_batch_size, type: :numeric, default: 100, desc: 'Upload batch size (env: NITTYMAIL_UPLOAD_BATCH_SIZE)'
-      method_option :upload_threads, type: :numeric, default: 2, desc: 'Concurrent upload workers (env: NITTYMAIL_UPLOAD_THREADS)'
-      method_option :max_fetch_size, type: :numeric, required: false, desc: 'IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)'
-      method_option :fetch_threads, type: :numeric, default: 2, desc: 'Concurrent IMAP fetch workers (env: NITTYMAIL_FETCH_THREADS)'
+      desc "download", "Download new emails into a Chroma collection"
+      method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name"
+      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
+      method_option :upload_batch_size, type: :numeric, default: 100, desc: "Upload batch size (env: NITTYMAIL_UPLOAD_BATCH_SIZE)"
+      method_option :upload_threads, type: :numeric, default: 2, desc: "Concurrent upload workers (env: NITTYMAIL_UPLOAD_THREADS)"
+      method_option :max_fetch_size, type: :numeric, required: false, desc: "IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)"
+      method_option :fetch_threads, type: :numeric, default: 2, desc: "Concurrent IMAP fetch workers (env: NITTYMAIL_FETCH_THREADS)"
       def download
-        address = ENV['NITTYMAIL_IMAP_ADDRESS']
-        password = ENV['NITTYMAIL_IMAP_PASSWORD']
-        mailbox = options[:mailbox] || 'INBOX'
+        address = ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = ENV["NITTYMAIL_IMAP_PASSWORD"]
+        mailbox = options[:mailbox] || "INBOX"
 
         if address.to_s.empty? || password.to_s.empty?
-          raise ArgumentError, 'missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD'
+          raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
 
         sanitized_mailbox_name = mailbox.to_s
@@ -80,28 +80,28 @@ module NittyMail
         collection = NittyMail::DB.chroma_collection(collection_name)
 
         candidate_ids = server_uids.map { |u| "#{uidvalidity}:#{u}" }
-        exist_threads = (ENV['NITTYMAIL_EXIST_THREADS'] || 4).to_i
+        exist_threads = (ENV["NITTYMAIL_EXIST_THREADS"] || 4).to_i
         existing_ids = NittyMail::Workers::Chroma.existing_ids(
           collection: collection,
           candidate_ids: candidate_ids,
           threads: exist_threads,
           batch_size: 1000
         )
-        existing_uids = existing_ids.map { |id| id.split(':', 2)[1].to_i }
+        existing_uids = existing_ids.map { |id| id.split(":", 2)[1].to_i }
 
         to_fetch = server_uids - existing_uids
         if to_fetch.empty?
-          puts 'Nothing to download; collection is up to date.'
+          puts "Nothing to download; collection is up to date."
           return
         end
 
         total_to_process = to_fetch.size
         processed = 0
         puts "Fetching #{total_to_process} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
-        progress = NittyMail::Utils.progress_bar(title: 'Upload', total: total_to_process)
+        progress = NittyMail::Utils.progress_bar(title: "Upload", total: total_to_process)
 
         interrupted = false
-        Signal.trap('INT') do
+        Signal.trap("INT") do
           if interrupted
             puts "
 Force exiting..."
@@ -113,14 +113,14 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
           end
         end
 
-        job_queue = Queue.new
+        upload_threads = options[:upload_threads].to_i
+        upload_threads = 1 if upload_threads < 1
+        job_queue = SizedQueue.new(upload_threads * 4)
         progress_mutex = Mutex.new
         errors_mutex = Mutex.new
         upload_errors = 0
         fetch_errors = 0
 
-        upload_threads = options[:upload_threads].to_i
-        upload_threads = 1 if upload_threads < 1
         upload_workers = NittyMail::Workers::Consumer.new(
           collection: collection,
           job_queue: job_queue,
@@ -137,11 +137,18 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
           }
         ).start(threads: upload_threads)
 
-        fetch_queue = Queue.new
-        to_fetch.each_slice(settings.max_fetch_size) { |uid_batch| fetch_queue << uid_batch }
-
         fetch_threads = options[:fetch_threads].to_i
         fetch_threads = 1 if fetch_threads < 1
+        fetch_queue = SizedQueue.new(fetch_threads * 4)
+        feeder = Thread.new do
+          to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
+            break if interrupted
+            fetch_queue.push(uid_batch)
+          end
+        ensure
+          fetch_threads.times { fetch_queue.push(:__END__) }
+        end
+
         fetch_workers = NittyMail::Workers::Producer.new(
           settings: settings,
           mailbox_name: mailbox,
@@ -171,6 +178,7 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
           end
         end
 
+        feeder.join
         fetch_workers.each(&:join)
         upload_workers.size.times { job_queue << :__END__ }
         upload_workers.each(&:join)
@@ -184,7 +192,7 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
           warn "Download finished with errors. Failed uploads: #{upload_errors}. Fetch errors: #{fetch_errors}."
           exit 4
         end
-        puts 'Download complete.'
+        puts "Download complete."
       rescue ArgumentError => e
         warn "error: #{e.message}"
         exit 1
@@ -195,7 +203,7 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
         details = []
         details << "status=#{e.status}" if e.respond_to?(:status)
         details << "body=#{e.body.inspect}" if e.respond_to?(:body)
-        warn "chroma error: #{e.class}: #{e.message} #{details.join(' ')}"
+        warn "chroma error: #{e.class}: #{e.message} #{details.join(" ")}"
         exit 4
       rescue => e
         warn "unexpected error: #{e.class}: #{e.message}"
