@@ -17,6 +17,5 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persist Chroma data on the host. The server writes under /chroma
-      # so bind-mount the directory root, not a subfolder.
-      - ./chroma-data:/chroma
+      # Persist Chroma data without overlaying the app code
+      - ./chroma-data:/chroma/chroma

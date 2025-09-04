@@ -4,3 +4,5 @@
 
 # Test cassettes can be large and should not be committed
 core/spec/cassettes/
+
+chroma-data

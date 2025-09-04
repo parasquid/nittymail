@@ -14,7 +14,7 @@ module NittyMail
       imap_url: "imap.gmail.com",
       imap_port: 993,
       imap_ssl: true,
-      max_fetch_size: 10,
+      max_fetch_size: 100,
       fetch_items: [
         "UID",
         "BODY.PEEK[]",

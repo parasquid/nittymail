@@ -119,9 +119,7 @@ module NittyMail
         progress = ProgressBar.create(
           title: "Upload",
           total: total_to_process,
-          progress_mark: "#",
-          remainder_mark: ".",
-          format: "%t %B %p%% %c/%C %e"
+          format: "%t: |%B| %p%% (%c/%C) [%e]"
         )
 
         interrupted = false

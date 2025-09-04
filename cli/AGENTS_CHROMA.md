@@ -19,25 +19,19 @@ This guide explains how AI agents should use the `chroma-db` Ruby client in this
   - Ruby: `Chroma.api_base = ""` and/or `Chroma.api_version = ""`
   - CLI flags: `--chroma_api_base`, `--chroma_api_version`
 
-## Configure Client
+## Configure Client (canonical helper)
+
+Use the shared helper to configure the client and get a collection:
 
 ```ruby
-require "chroma-db"
+require_relative "utils/db"
 
-# Minimum config
-Chroma.connect_host = ENV["NITTYMAIL_CHROMA_HOST"] || "http://chroma:8000"
+collection = NittyMail::DB.chroma_collection(collection_name)
 
-# Optional: logs for debugging (0=none, 1=info, 2=debug)
-Chroma.log_level = Chroma::LEVEL_ERROR
-
-# Optional: Hosted Chroma
-# Chroma.api_key = ENV["CHROMA_API_KEY"]
-# Chroma.tenant = "default_tenant"
-# Chroma.database = "default_database"
-
-# Optional overrides (if your server differs):
-# Chroma.api_base = "api"
-# Chroma.api_version = "v1"
+# Env defaults:
+# - NITTYMAIL_CHROMA_HOST (default http://chroma:8000)
+# - NITTYMAIL_CHROMA_API_BASE (optional)
+# - NITTYMAIL_CHROMA_API_VERSION (optional)
 ```
 
 ## Collections (naming constraints)
@@ -58,7 +52,7 @@ collection_name = collection_name.downcase
 collection_name = collection_name[0,63]
 collection_name = 'nm' if collection_name.nil? || collection_name.empty?
 
-collection = Chroma::Resources::Collection.get_or_create(collection_name)
+collection = NittyMail::DB.chroma_collection(collection_name)
 ```
 
 If you pass a custom name, ensure it meets these rules or Chroma raises `Chroma::InvalidRequestError`.
@@ -161,7 +155,6 @@ From inside the CLI container:
 ## Integration Points in this Repo
 
 - CLI command `mailbox download`:
-  - Reads `NITTYMAIL_CHROMA_HOST` or `--chroma_host`.
-  - Optional: `--chroma_api_base`, `--chroma_api_version`.
+  - Reads `NITTYMAIL_CHROMA_HOST` (and optional `NITTYMAIL_CHROMA_API_BASE`/`NITTYMAIL_CHROMA_API_VERSION`).
   - Creates/loads a collection per mailbox and uploads new emails in batches.
   - Uses `"#{uidvalidity}:#{uid}"` IDs for dedup.
