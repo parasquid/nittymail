@@ -3,10 +3,15 @@
 
 require "bundler/setup"
 require "thor"
+require "json"
+require "uri"
+require "net/http"
 require "nitty_mail"
+require "chroma-db"
 
 module NittyMail
   class CLI < Thor
+    # Removed custom Chroma client in favor of the official gem `chroma-db`.
     # Subcommand: mailbox
     class MailboxCmd < Thor
       desc "list", "List all mailboxes for the account"
@@ -40,6 +45,140 @@ module NittyMail
       rescue StandardError => e
         warn "unexpected error: #{e.class}: #{e.message}"
         exit 3
+      end
+
+      desc "download", "Download new emails into a Chroma collection"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
+      method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name"
+      method_option :chroma_host, type: :string, required: false, desc: "Chroma host URL (or env NITTYMAIL_CHROMA_HOST)"
+      method_option :chroma_api_base, type: :string, required: false, desc: "Chroma API base path (default: api)"
+      method_option :chroma_api_version, type: :string, required: false, desc: "Chroma API version (default: v1)"
+      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
+      method_option :batch_size, type: :numeric, default: 100, desc: "Upload batch size"
+      def download
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
+        mbox = options[:mailbox] || "INBOX"
+        chroma_host = options[:chroma_host] || ENV["NITTYMAIL_CHROMA_HOST"] || "http://localhost:8000"
+
+        if address.to_s.empty? || password.to_s.empty?
+          raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
+        end
+
+        safe_mbox = mbox.to_s
+        # Build a default collection name and sanitize to meet Chroma rules
+        default_collection = sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
+        collection_name = options[:collection] || default_collection
+
+        settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
+        mb = NittyMail::Mailbox.new(settings: settings, mailbox_name: mbox)
+
+        # Preflight 1: get current uidvalidity and server uids (to_fetch since existing_uids is empty)
+        puts "Preflighting mailbox '#{mbox}'..."
+        plan = mb.preflight(existing_uids: [])
+        uidvalidity = plan[:uidvalidity]
+        server_uids = Array(plan[:to_fetch])
+        puts "UIDVALIDITY=#{uidvalidity}, server_size=#{plan[:server_size]}"
+
+        # Configure Chroma gem and get or create collection
+        Chroma.connect_host = chroma_host
+        # Allow overriding API base and version for compatibility
+        api_base = options[:chroma_api_base] || ENV["NITTYMAIL_CHROMA_API_BASE"]
+        api_version = options[:chroma_api_version] || ENV["NITTYMAIL_CHROMA_API_VERSION"]
+        Chroma.api_base = api_base unless api_base.to_s.empty?
+        Chroma.api_version = api_version unless api_version.to_s.empty?
+        collection = Chroma::Resources::Collection.get_or_create(collection_name)
+
+        # Discover existing docs in Chroma for this generation by paging through IDs
+        prefix = "#{uidvalidity}:"
+        existing_uids = []
+        page = 1
+        page_size = 1000
+        loop do
+          embeddings = collection.get(page:, page_size:)
+          ids = embeddings.map(&:id)
+          break if ids.empty?
+          matches = ids.grep(/^#{Regexp.escape(prefix)}/).map { |id| id.split(":", 2)[1].to_i }
+          existing_uids.concat(matches)
+          break if ids.size < page_size
+          page += 1
+        end
+
+        # Compute missing uids relative to Chroma
+        to_fetch = server_uids - existing_uids
+        if to_fetch.empty?
+          puts "Nothing to download; collection is up to date."
+          return
+        end
+
+        puts "Fetching #{to_fetch.size} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
+
+        # Fetch messages in chunks based on Settings#max_fetch_size
+        max_batch = [settings.max_fetch_size, 1000].min
+        to_fetch.each_slice(max_batch) do |uid_batch|
+          fetch_res = mb.fetch(uids: uid_batch)
+          ids = []
+          docs = []
+          metas = []
+          fetch_res.each do |fd|
+            uid = fd.attr["UID"] || fd.attr[:UID] || fd.attr[:uid]
+            raw = fd.attr["BODY[]"] || fd.attr["BODY"] || fd.attr[:BODY] || fd.attr[:"BODY[]"]
+            raw = raw.to_s.dup
+            raw.force_encoding("BINARY")
+            safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+            ids << "#{uidvalidity}:#{uid}"
+            docs << safe
+            metas << {address:, mailbox: mbox, uidvalidity:, uid:}
+          end
+
+          # Upload to Chroma in sub-batches for stability using chroma-db gem
+          Array(ids).each_slice(options[:batch_size])
+            .zip(Array(docs).each_slice(options[:batch_size]), Array(metas).each_slice(options[:batch_size]))
+            .each do |id_chunk, doc_chunk, meta_chunk|
+              embeddings = id_chunk.each_with_index.map do |idv, idx|
+                Chroma::Resources::Embedding.new(id: idv, document: doc_chunk[idx], metadata: meta_chunk[idx])
+              end
+              collection.add(embeddings)
+              puts "Uploaded #{embeddings.size} message(s)"
+            end
+        end
+
+        puts "Download complete."
+      rescue ArgumentError => e
+        warn "error: #{e.message}"
+        exit 1
+      rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
+        warn "imap error: #{e.message}"
+        exit 2
+      rescue Chroma::ChromaError => e
+        details = []
+        details << "status=#{e.status}" if e.respond_to?(:status)
+        details << "body=#{e.body.inspect}" if e.respond_to?(:body)
+        warn "chroma error: #{e.class}: #{e.message} #{details.join(' ')}"
+        exit 4
+      rescue StandardError => e
+        warn "unexpected error: #{e.class}: #{e.message}"
+        exit 3
+      end
+
+      no_commands do
+        # Sanitize string into a valid Chroma collection name:
+        # - 3-63 chars, start/end alphanumeric
+        # - only [A-Za-z0-9_-]
+        # - no consecutive periods (we remove periods entirely)
+        def sanitize_collection_name(name)
+          s = name.to_s.downcase
+          s = s.gsub(/[^a-z0-9_-]+/, "-")  # replace invalid with '-'
+          s = s.gsub(/-+/, "-")            # collapse dashes
+          s = s.gsub(/^[-_]+|[-_]+$/, "")  # trim non-alnum at ends
+          s = "nm" if s.length < 3
+          s = s[0, 63]
+          # ensure ends with alnum after truncate
+          s = s.gsub(/[^a-z0-9]+\z/, "")
+          s = "nm" if s.empty?
+          s
+        end
       end
     end
 

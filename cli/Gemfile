@@ -2,3 +2,4 @@ source "https://rubygems.org"
 
 gem "thor"
 gem "nitty_mail", path: "../gem"
+gem "chroma-db"
