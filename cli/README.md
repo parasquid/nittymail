@@ -89,7 +89,8 @@ Persistence:
 - Avoid mounting `/chroma` root; it overlays the app code and breaks startup.
 - Verify persistence: `docker compose run --rm cli ls -la chroma-data`.
 
-Agent docs: See `AGENTS_CHROMA.md` for using the `chroma-db` gem in code (collections, paging, batching, and troubleshooting).
+Chroma docs: See `docs/chroma.md` for using the `chroma-db` gem in code (collections, paging, batching, and troubleshooting).
+Agent guide: See `AGENTS.md` for CLI agent conventions and style.
 
 - Open an interactive shell in the CLI container:
   ```bash
