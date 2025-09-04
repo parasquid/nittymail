@@ -46,8 +46,7 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   # or with options
   docker compose run --rm cli mailbox download \
     --mailbox INBOX \
-    --collection my-mails \
-    --chroma_host "$NITTYMAIL_CHROMA_HOST"
+    --collection my-mails
   ```
 
 - Troubleshooting tips:
@@ -70,10 +69,9 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   # Defaults: mailbox INBOX, collection name derived from address+mailbox, host from NITTYMAIL_CHROMA_HOST
   docker compose run --rm cli mailbox download
 
-  # Custom mailbox / host / collection
+  # Custom mailbox / collection
   docker compose run --rm cli mailbox download \
     --mailbox "[Gmail]/All Mail" \
-    --chroma_host "$NITTYMAIL_CHROMA_HOST" \
     --collection "custom-collection-name"
   ```
 

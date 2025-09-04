@@ -49,19 +49,14 @@ module NittyMail
       end
 
       desc "download", "Download new emails into a Chroma collection"
-      method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
-      method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name"
-      method_option :chroma_host, type: :string, required: false, desc: "Chroma host URL (or env NITTYMAIL_CHROMA_HOST)"
-      method_option :chroma_api_base, type: :string, required: false, desc: "Chroma API base path (default: api)"
-      method_option :chroma_api_version, type: :string, required: false, desc: "Chroma API version (default: v1)"
       method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
       method_option :batch_size, type: :numeric, default: 100, desc: "Upload batch size"
       def download
-        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
-        password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
+        address = ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = ENV["NITTYMAIL_IMAP_PASSWORD"]
         mbox = options[:mailbox] || "INBOX"
-        chroma_host = options[:chroma_host] || ENV["NITTYMAIL_CHROMA_HOST"] || "http://localhost:8000"
+        chroma_host = ENV["NITTYMAIL_CHROMA_HOST"] || "http://chroma:8000"
 
         if address.to_s.empty? || password.to_s.empty?
           raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
@@ -84,9 +79,9 @@ module NittyMail
 
         # Configure Chroma gem and get or create collection
         Chroma.connect_host = chroma_host
-        # Allow overriding API base and version for compatibility
-        api_base = options[:chroma_api_base] || ENV["NITTYMAIL_CHROMA_API_BASE"]
-        api_version = options[:chroma_api_version] || ENV["NITTYMAIL_CHROMA_API_VERSION"]
+        # Allow overriding API base and version for compatibility (env only)
+        api_base = ENV["NITTYMAIL_CHROMA_API_BASE"]
+        api_version = ENV["NITTYMAIL_CHROMA_API_VERSION"]
         Chroma.api_base = api_base unless api_base.to_s.empty?
         Chroma.api_version = api_version unless api_version.to_s.empty?
         collection = Chroma::Resources::Collection.get_or_create(collection_name)
