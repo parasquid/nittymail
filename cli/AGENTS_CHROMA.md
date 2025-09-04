@@ -8,6 +8,11 @@ This guide explains how AI agents should use the `chroma-db` Ruby client in this
 - Gem: `chroma-db` (works with Chroma 0.4.24+ APIs).
 - Service: Docker Compose service `chroma` on `http://chroma:8000`.
 
+## Agent Style Notes
+
+- Prefer concise but descriptive variable names; avoid cryptic one-letter names in non-trivial scopes.
+- Examples: `mailbox_client` (not `mb`), `fetch_response` (not `fr`), `doc_ids`/`documents`/`metadata_list` (not `ids`/`docs`/`metas`) when clarity helps.
+
 ## Setup & Compatibility
 
 - Start the DB: `docker compose up -d chroma`.

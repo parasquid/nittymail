@@ -30,10 +30,10 @@ module NittyMail
         end
 
         settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
-        mb = NittyMail::Mailbox.new(settings: settings)
-        list = Array(mb.list)
+        mailbox_client = NittyMail::Mailbox.new(settings: settings)
+        mailboxes = Array(mailbox_client.list)
 
-        names = list.map { |x| x.respond_to?(:name) ? x.name : x.to_s }
+        names = mailboxes.map { |x| x.respond_to?(:name) ? x.name : x.to_s }
 
         if names.empty?
           puts "(no mailboxes)"
@@ -61,39 +61,39 @@ module NittyMail
       def download
         address = ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = ENV["NITTYMAIL_IMAP_PASSWORD"]
-        mbox = options[:mailbox] || "INBOX"
+        mailbox = options[:mailbox] || "INBOX"
 
         if address.to_s.empty? || password.to_s.empty?
           raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
 
-        safe_mbox = mbox.to_s
+        sanitized_mailbox_name = mailbox.to_s
         # Build a default collection name and sanitize to meet Chroma rules
-        default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
+        default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{sanitized_mailbox_name}")
         collection_name = options[:collection] || default_collection
 
         # Tunables from flags
-        fetch_override = options[:max_fetch_size]
+        max_fetch_override = options[:max_fetch_size]
         upload_batch_size = options[:upload_batch_size]
 
         # Initialize settings, honoring fetch override via Settings#max_fetch_size
-        settings_kwargs = {imap_address: address, imap_password: password}
-        settings_kwargs[:max_fetch_size] = fetch_override if fetch_override && fetch_override > 0
-        settings = NittyMail::Settings.new(**settings_kwargs)
-        mb = NittyMail::Mailbox.new(settings: settings, mailbox_name: mbox)
+        settings_args = {imap_address: address, imap_password: password}
+        settings_args[:max_fetch_size] = max_fetch_override if max_fetch_override && max_fetch_override > 0
+        settings = NittyMail::Settings.new(**settings_args)
+        mailbox_client = NittyMail::Mailbox.new(settings: settings, mailbox_name: mailbox)
 
         # Preflight 1: get current uidvalidity and server uids (to_fetch since existing_uids is empty)
-        puts "Preflighting mailbox '#{mbox}'..."
-        plan = mb.preflight(existing_uids: [])
-        uidvalidity = plan[:uidvalidity]
-        server_uids = Array(plan[:to_fetch])
-        puts "UIDVALIDITY=#{uidvalidity}, server_size=#{plan[:server_size]}"
+        puts "Preflighting mailbox '#{mailbox}'..."
+        preflight = mailbox_client.preflight(existing_uids: [])
+        uidvalidity = preflight[:uidvalidity]
+        server_uids = Array(preflight[:to_fetch])
+        puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
 
         # Configure Chroma via NittyMail::DB helper and get or create collection
         collection = NittyMail::DB.chroma_collection(collection_name)
 
         # Discover existing docs in Chroma for this generation by paging through IDs
-        prefix = "#{uidvalidity}:"
+        id_prefix = "#{uidvalidity}:"
         existing_uids = []
         page = 1
         page_size = 1000
@@ -115,7 +115,7 @@ module NittyMail
             embeddings = collection.get(page:, page_size:)
             ids = embeddings.map(&:id)
             break if ids.empty?
-            matches = ids.grep(/^#{Regexp.escape(prefix)}/).map { |id| id.split(":", 2)[1].to_i }
+            matches = ids.grep(/^#{Regexp.escape(id_prefix)}/).map { |id| id.split(":", 2)[1].to_i }
             existing_uids.concat(matches)
             break if ids.size < page_size
             page += 1
@@ -159,16 +159,16 @@ module NittyMail
         # Consumers: upload workers
         upload_threads = options[:upload_threads].to_i
         upload_threads = 1 if upload_threads < 1
-        workers = Array.new(upload_threads) do
+        upload_workers = Array.new(upload_threads) do
           Thread.new do
             until interrupted
-              job = job_queue.pop
-              break if job.equal?(:__END__)
+              upload_job = job_queue.pop
+              break if upload_job.equal?(:__END__)
 
-              id_chunk, doc_chunk, meta_chunk = job
+              id_batch, doc_batch, meta_batch = upload_job
               begin
-                embeddings = id_chunk.each_with_index.map do |idv, idx|
-                  Chroma::Resources::Embedding.new(id: idv, document: doc_chunk[idx], metadata: meta_chunk[idx])
+                embeddings = id_batch.each_with_index.map do |idv, idx|
+                  Chroma::Resources::Embedding.new(id: idv, document: doc_batch[idx], metadata: meta_batch[idx])
                 end
                 collection.add(embeddings)
                 progress_mutex.synchronize do
@@ -176,11 +176,11 @@ module NittyMail
                   progress.progress = [processed, total_to_process].min
                 end
               rescue Chroma::ChromaError => e
-                errors_mutex.synchronize { upload_errors += id_chunk.size }
-                warn "chroma upload error: #{e.class}: #{e.message} ids=#{id_chunk.first}..#{id_chunk.last}"
+                errors_mutex.synchronize { upload_errors += id_batch.size }
+                warn "chroma upload error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
               rescue => e
-                errors_mutex.synchronize { upload_errors += id_chunk.size }
-                warn "unexpected upload error: #{e.class}: #{e.message} ids=#{id_chunk.first}..#{id_chunk.last}"
+                errors_mutex.synchronize { upload_errors += id_batch.size }
+                warn "unexpected upload error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
               end
 
             end
@@ -197,7 +197,7 @@ module NittyMail
         fetch_workers = Array.new(fetch_threads) do
           Thread.new do
             # One IMAP connection per fetch worker
-            t_mb = NittyMail::Mailbox.new(settings: settings, mailbox_name: mbox)
+            thread_mailbox_client = NittyMail::Mailbox.new(settings: settings, mailbox_name: mailbox)
             until interrupted
               uid_batch = begin
                 fetch_queue.pop(true)
@@ -206,25 +206,25 @@ module NittyMail
               end
 
               begin
-                fetch_res = t_mb.fetch(uids: uid_batch)
-                ids = []
-                docs = []
-                metas = []
-                fetch_res.each do |fd|
-                  uid = fd.attr["UID"] || fd.attr[:UID] || fd.attr[:uid]
-                  raw = fd.attr["BODY[]"] || fd.attr["BODY"] || fd.attr[:BODY] || fd.attr[:"BODY[]"]
+                fetch_response = thread_mailbox_client.fetch(uids: uid_batch)
+                doc_ids = []
+                documents = []
+                metadata_list = []
+                fetch_response.each do |msg|
+                  uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
+                  raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
                   raw = raw.to_s.dup
                   raw.force_encoding("BINARY")
                   safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
-                  ids << "#{uidvalidity}:#{uid}"
-                  docs << safe
-                  metas << {address:, mailbox: mbox, uidvalidity:, uid:}
+                  doc_ids << "#{uidvalidity}:#{uid}"
+                  documents << safe
+                  metadata_list << {address:, mailbox:, uidvalidity:, uid:}
                 end
 
-                Array(ids).each_slice(upload_batch_size)
-                  .zip(Array(docs).each_slice(upload_batch_size), Array(metas).each_slice(upload_batch_size))
-                  .each do |id_chunk, doc_chunk, meta_chunk|
-                    job_queue << [id_chunk, doc_chunk, meta_chunk]
+                Array(doc_ids).each_slice(upload_batch_size)
+                  .zip(Array(documents).each_slice(upload_batch_size), Array(metadata_list).each_slice(upload_batch_size))
+                  .each do |id_batch, doc_batch, meta_batch|
+                    job_queue << [id_batch, doc_batch, meta_batch]
                   end
               rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
                 errors_mutex.synchronize { fetch_errors += 1 }
@@ -239,8 +239,8 @@ module NittyMail
 
         # Wait for fetchers to finish, then signal consumers to stop
         fetch_workers.each(&:join)
-        workers.size.times { job_queue << :__END__ }
-        workers.each(&:join)
+        upload_workers.size.times { job_queue << :__END__ }
+        upload_workers.each(&:join)
         progress.finish unless progress.finished?
         if interrupted
           puts "Download interrupted. Processed #{processed}/#{total_to_process}. Upload errors: #{upload_errors}. Fetch errors: #{fetch_errors}."
