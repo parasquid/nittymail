@@ -1,12 +1,99 @@
 # frozen_string_literal: true
 
 require "thor"
+require "time"
 require_relative "../utils/utils"
 require_relative "../utils/db"
 
 module NittyMail
   module Commands
     class DB < Thor
+      desc "latest", "Show the latest (by Date header) email in the collection"
+      method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, attempt to infer or list options)"
+      method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name (for default collection)"
+      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :limit, type: :numeric, default: 2000, desc: "Max rows to scan when inferring latest"
+      method_option :page_size, type: :numeric, default: 200, desc: "Page size for scanning"
+      def latest
+        mailbox = options[:mailbox] || "INBOX"
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        limit = Integer(options[:limit])
+        page_size = Integer(options[:page_size])
+
+        if address.to_s.empty?
+          raise ArgumentError, "missing account: pass --address or set NITTYMAIL_IMAP_ADDRESS"
+        end
+
+        collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
+
+        uidvalidity = options[:uidvalidity] && Integer(options[:uidvalidity])
+        if uidvalidity.nil?
+          gens = []
+          page = 1
+          sampled = 0
+          begin
+            loop do
+              embeddings = collection.get(page: page, page_size: page_size)
+              break if embeddings.empty?
+              gens.concat(
+                embeddings.map do |e|
+                  md = e.respond_to?(:metadata) ? e.metadata : nil
+                  md && (md[:uidvalidity] || md["uidvalidity"]) || e.id.to_s.split(":", 2)[0].to_i
+                end
+              )
+              sampled += embeddings.size
+              page += 1
+              break if sampled >= [limit, page_size * 5].max
+              break if embeddings.size < page_size
+            end
+          rescue
+            gens = []
+          end
+          gens = gens.compact.uniq.sort
+          if gens.size == 1
+            uidvalidity = gens.first
+          else
+            warn "Cannot determine a single UIDVALIDITY for collection '#{collection_name}'."
+            puts "Possible UIDVALIDITY values: #{gens.join(", ")}" unless gens.empty?
+            puts "Re-run with: --uidvalidity <n>"
+            exit 3
+          end
+        end
+
+        newest = nil
+        newest_time = Time.at(0)
+        scanned = 0
+        page = 1
+        begin
+          loop do
+            embeddings = collection.get(page: page, page_size: page_size, where: {uidvalidity: uidvalidity})
+            break if embeddings.empty?
+            embeddings.each do |e|
+              t = parse_date_header(e.respond_to?(:document) ? e.document : nil)
+              if t && t > newest_time
+                newest_time = t
+                newest = e
+              end
+            end
+            scanned += embeddings.size
+            break if scanned >= limit
+            break if embeddings.size < page_size
+            page += 1
+          end
+        rescue
+          warn "failed to scan collection '#{collection_name}' for latest; try lowering --page_size or increasing --limit"
+          exit 4
+        end
+
+        if newest.nil?
+          warn "no documents found for uidvalidity=#{uidvalidity} in collection '#{collection_name}'"
+          exit 2
+        end
+
+        print_document(newest)
+      end
+
       desc "show", "Show a previously fetched email by UID"
       method_option :uid, type: :numeric, required: true, desc: "IMAP UID of the message"
       method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, show possible values from DB)"
@@ -22,11 +109,7 @@ module NittyMail
           raise ArgumentError, "missing account: pass --address or set NITTYMAIL_IMAP_ADDRESS"
         end
 
-        safe_mbox = mailbox.to_s
-        default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
-        collection_name = options[:collection] || default_collection
-
-        collection = NittyMail::DB.chroma_collection(collection_name)
+        collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
 
         if options[:uidvalidity]
           uidvalidity = Integer(options[:uidvalidity])
@@ -77,7 +160,7 @@ module NittyMail
           return
         end
 
-        puts "Multiple UIDVALIDITY generations found for uid: #{uid}: #{gens.join(", ")}"
+        puts "Multiple UIDVALIDITY generations found for uid=#{uid}: #{gens.join(", ")}"
         puts "Re-run with: --uidvalidity <one of: #{gens.join(", ")}>"
       rescue ArgumentError => e
         warn "error: #{e.message}"
@@ -98,6 +181,21 @@ module NittyMail
             exit 6
           end
           puts doc
+        end
+
+        def collection_for(address:, mailbox:, override: nil)
+          safe_mbox = mailbox.to_s
+          default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
+          name = override || default_collection
+          [NittyMail::DB.chroma_collection(name), name]
+        end
+
+        def parse_date_header(rfc822)
+          line = rfc822.to_s.each_line.find { |l| l.start_with?("Date:") }
+          return Time.at(0) unless line
+          Time.parse(line.sub(/^Date:\s*/i, "").strip)
+        rescue
+          Time.at(0)
         end
 
         def suggest_neighbor_uids(collection, uidvalidity:, uid:, window: 10)
