@@ -8,13 +8,13 @@ require_relative "../utils/db"
 module NittyMail
   module Commands
     class DB < Thor
-      desc "latest", "Show the latest (by Date header) email in the collection"
+      desc "latest", "Show the latest (by INTERNALDATE) email in the collection"
       method_option :uidvalidity, type: :numeric, required: false, desc: "UIDVALIDITY generation (if omitted, attempt to infer or list options)"
       method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name (for default collection)"
       method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
       method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
-      method_option :limit, type: :numeric, default: 2000, desc: "Max rows to scan when inferring latest"
-      method_option :page_size, type: :numeric, default: 200, desc: "Page size for scanning"
+      method_option :limit, type: :numeric, default: 2000, desc: "Max rows to scan when inferring uidvalidity"
+      method_option :page_size, type: :numeric, default: 200, desc: "Page size for sampling"
       def latest
         mailbox = options[:mailbox] || "INBOX"
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
@@ -61,37 +61,42 @@ module NittyMail
           end
         end
 
-        newest = nil
-        newest_time = Time.at(0)
-        scanned = 0
-        page = 1
-        begin
-          loop do
-            embeddings = collection.get(page: page, page_size: page_size, where: {uidvalidity: uidvalidity})
-            break if embeddings.empty?
-            embeddings.each do |e|
-              t = parse_date_header(e.respond_to?(:document) ? e.document : nil)
-              if t && t > newest_time
-                newest_time = t
-                newest = e
-              end
-            end
-            scanned += embeddings.size
-            break if scanned >= limit
-            break if embeddings.size < page_size
-            page += 1
-          end
-        rescue
-          warn "failed to scan collection '#{collection_name}' for latest; try lowering --page_size or increasing --limit"
-          exit 4
-        end
-
-        if newest.nil?
-          warn "no documents found for uidvalidity=#{uidvalidity} in collection '#{collection_name}'"
+        max_epoch = find_max_internaldate_epoch(collection, uidvalidity: uidvalidity)
+        if !max_epoch || max_epoch <= 0
+          warn "no documents with internaldate_epoch found for uidvalidity=#{uidvalidity} in collection '#{collection_name}'"
           exit 2
         end
 
-        print_document(newest)
+        candidates = collection.get(
+          page: 1,
+          page_size: 10,
+          where: {'$and': [
+            {uidvalidity: uidvalidity},
+            {internaldate_epoch: max_epoch}
+          ]}
+        )
+        if candidates.empty?
+          window = 86_400
+          near = collection.get(
+            page: 1,
+            page_size: 200,
+            where: {'$and': [
+              {uidvalidity: uidvalidity},
+              {internaldate_epoch: {'$gt': max_epoch - window, '$lte': max_epoch}}
+            ]}
+          )
+          if near.empty?
+            warn "no document found at computed max internaldate_epoch=#{max_epoch}"
+            exit 2
+          end
+          best = near.max_by do |e|
+            md = e.respond_to?(:metadata) ? e.metadata : nil
+            (md && (md["internaldate_epoch"] || md[:internaldate_epoch]) || 0).to_i
+          end
+          print_document(best)
+        else
+          print_document(candidates.first)
+        end
       end
 
       desc "show", "Show a previously fetched email by UID"
@@ -196,6 +201,34 @@ module NittyMail
           Time.parse(line.sub(/^Date:\s*/i, "").strip)
         rescue
           Time.at(0)
+        end
+
+        def find_max_internaldate_epoch(collection, uidvalidity:)
+          low = 0
+          high = Time.now.to_i + 31_556_952
+          exists = lambda do |ts|
+            res = collection.get(
+              page: 1,
+              page_size: 1,
+              where: {'$and': [
+                {uidvalidity: uidvalidity},
+                {internaldate_epoch: {'$gte': ts}}
+              ]}
+            )
+            !res.empty?
+          rescue
+            false
+          end
+          return nil unless exists.call(0)
+          while low < high
+            mid = (low + high + 1) / 2
+            if exists.call(mid)
+              low = mid
+            else
+              high = mid - 1
+            end
+          end
+          low
         end
 
         def suggest_neighbor_uids(collection, uidvalidity:, uid:, window: 10)

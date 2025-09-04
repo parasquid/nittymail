@@ -1,3 +1,5 @@
+require "time"
+
 # frozen_string_literal: true
 
 module NittyMail
@@ -39,9 +41,16 @@ module NittyMail
                   raw = raw.to_s.dup
                   raw.force_encoding("BINARY")
                   safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+                  internal = msg.attr["INTERNALDATE"] || msg.attr[:INTERNALDATE] || msg.attr[:internaldate]
+                  internal_epoch = (internal.is_a?(Time) ? internal.to_i : (begin
+                    require "time"
+                    Time.parse(internal.to_s).to_i
+                  rescue ArgumentError
+                    0
+                  end))
                   doc_ids << "#{@uidvalidity}:#{uid}"
                   documents << safe
-                  metadata_list << {address: @address, mailbox: @mailbox_name, uidvalidity: @uidvalidity, uid: uid}
+                  metadata_list << {address: @address, mailbox: @mailbox_name, uidvalidity: @uidvalidity, uid: uid, internaldate_epoch: internal_epoch}
                 end
 
                 Array(doc_ids).each_slice(@upload_batch_size)
@@ -58,6 +67,18 @@ module NittyMail
           end
         end
       end
+    end
+
+    private
+
+    def extract_date_epoch(rfc822)
+      line = rfc822.to_s.each_line.find { |l| l.start_with?("Date:") }
+      return 0 unless line
+      Time.parse(line.sub(/^Date:\s*/i, "").strip).to_i
+    rescue ArgumentError
+      0
+    rescue
+      0
     end
   end
 end
