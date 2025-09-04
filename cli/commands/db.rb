@@ -34,6 +34,10 @@ module NittyMail
           embeddings = collection.get(ids: [id])
           if embeddings.empty?
             warn "not found: id=#{id} in collection '#{collection_name}'"
+            suggestions = suggest_neighbor_uids(collection, uidvalidity: uidvalidity, uid: uid, window: 10)
+            unless suggestions.empty?
+              puts "Nearby existing UIDs for uidvalidity=#{uidvalidity}: #{suggestions.join(", ")}"
+            end
             exit 2
           end
           print_document(embeddings.first)
@@ -61,6 +65,7 @@ module NittyMail
 
         if possible.empty?
           warn "no documents found for uid=#{uid} in collection '#{collection_name}'"
+          puts "Tip: Re-run with --uidvalidity <n> to get neighbor suggestions."
           exit 2
         end
 
@@ -72,7 +77,7 @@ module NittyMail
           return
         end
 
-        puts "Multiple UIDVALIDITY generations found for uid=#{uid}: #{gens.join(", ")}"
+        puts "Multiple UIDVALIDITY generations found for uid: #{uid}: #{gens.join(", ")}"
         puts "Re-run with: --uidvalidity <one of: #{gens.join(", ")}>"
       rescue ArgumentError => e
         warn "error: #{e.message}"
@@ -93,6 +98,18 @@ module NittyMail
             exit 6
           end
           puts doc
+        end
+
+        def suggest_neighbor_uids(collection, uidvalidity:, uid:, window: 10)
+          neighbors = ((uid - window)..(uid + window)).to_a - [uid]
+          ids = neighbors.map { |u| "#{uidvalidity}:#{u}" }
+          begin
+            hits = collection.get(ids: ids)
+            uids = hits.map(&:id).map { |did| did.split(":", 2)[1].to_i }
+            neighbors.select { |u| uids.include?(u) }
+          rescue
+            []
+          end
         end
       end
     end
