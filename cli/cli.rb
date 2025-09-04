@@ -10,13 +10,17 @@ module NittyMail
     # Subcommand: mailbox
     class MailboxCmd < Thor
       desc "list", "List all mailboxes for the account"
-      method_option :address, aliases: "-a", type: :string, required: true, desc: "IMAP account (email)"
-      method_option :password, aliases: "-p", type: :string, required: true, desc: "IMAP password / app password"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       def list
-        settings = NittyMail::Settings.new(
-          imap_address: options[:address],
-          imap_password: options[:password]
-        )
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
+
+        if address.to_s.empty? || password.to_s.empty?
+          raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
+        end
+
+        settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
         mb = NittyMail::Mailbox.new(settings: settings)
         list = Array(mb.list)
 

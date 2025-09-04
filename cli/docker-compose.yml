@@ -1,0 +1,12 @@
+services:
+  cli:
+    platform: linux/amd64
+    image: ruby:3.4.4
+    working_dir: /app/cli
+    volumes:
+      - ..:/app                 # mount repo root so ../gem path works
+      - ./.bundle:/usr/local/bundle
+    env_file:
+      - .env
+    entrypoint: ["bash","/app/cli/entrypoint.sh"]
+    command: ["bash"]
