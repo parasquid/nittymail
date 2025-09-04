@@ -1,0 +1,28 @@
+PATH
+  remote: ../gem
+  specs:
+    nitty_mail (0.1.0)
+      net-imap (~> 0.2)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    date (3.4.1)
+    net-imap (0.5.10)
+      date
+      net-protocol
+    net-protocol (0.2.2)
+      timeout
+    thor (1.4.0)
+    timeout (0.4.3)
+
+PLATFORMS
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  nitty_mail!
+  thor
+
+BUNDLED WITH
+   2.6.8
