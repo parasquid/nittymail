@@ -9,6 +9,7 @@ require "net/http"
 require "nitty_mail"
 require "chroma-db"
 require "ruby-progressbar"
+require_relative "utils/utils"
 
 module NittyMail
   class CLI < Thor
@@ -64,7 +65,7 @@ module NittyMail
 
         safe_mbox = mbox.to_s
         # Build a default collection name and sanitize to meet Chroma rules
-        default_collection = sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
+        default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
         collection_name = options[:collection] || default_collection
 
         settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
@@ -186,26 +187,7 @@ module NittyMail
         exit 3
       end
 
-      no_commands do
-        # Sanitize string into a valid Chroma collection name:
-        # - 3-63 chars, start/end alphanumeric
-        # - only [A-Za-z0-9_-]
-        # - no consecutive periods (we remove periods entirely)
-        def sanitize_collection_name(name)
-          s = name.to_s.downcase
-          s = s.gsub(/[^a-z0-9_-]+/, "-")  # replace invalid with '-'
-          s = s.gsub(/-+/, "-")            # collapse dashes
-          s = s.gsub(/^[-_]+|[-_]+$/, "")  # trim non-alnum at ends
-          s = "nm" if s.length < 3
-          s = s[0, 63]
-          # ensure ends with alnum after truncate
-          s = s.gsub(/[^a-z0-9]+\z/, "")
-          s = "nm" if s.empty?
-          s
-        end
-
-        # ruby-progressbar handles timing and ETA
-      end
+      # ruby-progressbar handles timing and ETA
     end
 
     desc "mailbox SUBCOMMAND ...ARGS", "Mailbox commands"
