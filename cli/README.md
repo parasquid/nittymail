@@ -82,6 +82,11 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
 
 Tip: The default `NITTYMAIL_CHROMA_HOST` in `.env.sample` points to the bundled `chroma` service (`http://chroma:8000`).
 
+Persistence:
+- Chroma data persists in `cli/chroma-data` (bind-mounted to `/chroma` in the container).
+- Do not use `docker compose down -v` unless you want to delete data; that flag removes volumes.
+- You can verify persistence with: `docker compose run --rm cli ls -la chroma-data`.
+
 Agent docs: See `AGENTS_CHROMA.md` for using the `chroma-db` gem in code (collections, paging, batching, and troubleshooting).
 
 - Open an interactive shell in the CLI container:
