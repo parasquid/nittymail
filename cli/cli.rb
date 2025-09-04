@@ -11,6 +11,7 @@ require "nitty_mail"
 require "chroma-db"
 require "ruby-progressbar"
 require_relative "utils/utils"
+require_relative "utils/db"
 
 module NittyMail
   class CLI < Thor
@@ -60,7 +61,6 @@ module NittyMail
         address = ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = ENV["NITTYMAIL_IMAP_PASSWORD"]
         mbox = options[:mailbox] || "INBOX"
-        chroma_host = ENV["NITTYMAIL_CHROMA_HOST"] || "http://chroma:8000"
 
         if address.to_s.empty? || password.to_s.empty?
           raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
@@ -88,14 +88,8 @@ module NittyMail
         server_uids = Array(plan[:to_fetch])
         puts "UIDVALIDITY=#{uidvalidity}, server_size=#{plan[:server_size]}"
 
-        # Configure Chroma gem and get or create collection
-        Chroma.connect_host = chroma_host
-        # Allow overriding API base and version for compatibility (env only)
-        api_base = ENV["NITTYMAIL_CHROMA_API_BASE"]
-        api_version = ENV["NITTYMAIL_CHROMA_API_VERSION"]
-        Chroma.api_base = api_base unless api_base.to_s.empty?
-        Chroma.api_version = api_version unless api_version.to_s.empty?
-        collection = Chroma::Resources::Collection.get_or_create(collection_name)
+        # Configure Chroma via NittyMail::DB helper and get or create collection
+        collection = NittyMail::DB.chroma_collection(collection_name)
 
         # Discover existing docs in Chroma for this generation by paging through IDs
         prefix = "#{uidvalidity}:"
