@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    NittyMail (0.1.0)
+    nitty_mail (0.1.0)
       net-imap (~> 0.2)
 
 GEM
@@ -118,8 +118,8 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
-  NittyMail!
   irb
+  nitty_mail!
   rake (~> 13.0)
   rspec (~> 3.0)
   rspec-given
