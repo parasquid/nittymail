@@ -44,7 +44,6 @@ RSpec.describe NittyMail::Workers::Chroma do
     end
 
     Then { result.subset?(existing_subset) }
-    And  { result.size <= existing_subset.size }
+    And { result.size <= existing_subset.size }
   end
 end
-

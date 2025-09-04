@@ -25,7 +25,7 @@ module NittyMail
               id_batch, doc_batch, meta_batch = upload_job
               begin
                 embeddings = id_batch.each_with_index.map do |idv, idx|
-                  Chroma::Resources::Embedding.new(id: idv, document: doc_batch[idx], metadata: meta_batch[idx])
+                  ::Chroma::Resources::Embedding.new(id: idv, document: doc_batch[idx], metadata: meta_batch[idx])
                 end
                 @collection.add(embeddings)
                 @on_progress&.call(embeddings.size)
@@ -40,4 +40,3 @@ module NittyMail
     end
   end
 end
-
