@@ -189,6 +189,7 @@ module NittyMail
       method_option :address, aliases: "-a", type: :string, required: false, desc: "Account email (or env NITTYMAIL_IMAP_ADDRESS)"
       method_option :page_size, type: :numeric, default: 200, desc: "Page size for scanning"
       method_option :batch_size, type: :numeric, default: 100, desc: "Upload batch size"
+      method_option :skip_errors, type: :boolean, default: false, desc: "Skip messages that fail to parse or convert"
       def backfill
         mailbox = options[:mailbox] || "INBOX"
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
@@ -200,7 +201,23 @@ module NittyMail
         collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
         uv = options[:uidvalidity] && Integer(options[:uidvalidity])
 
+        # First pass: count total raw docs
+        total = 0
+        cpage = 1
+        loop do
+          cemb = if uv
+            collection.get(page: cpage, page_size: page_size, where: {'$and': [{uidvalidity: uv}, {item_type: "raw"}]})
+          else
+            collection.get(page: cpage, page_size: page_size)
+          end
+          break if cemb.empty?
+          total += cemb.count { |e| (e.respond_to?(:metadata) ? (e.metadata[:item_type] || e.metadata["item_type"]) : nil) == "raw" || e.id.to_s.split(":").length == 2 }
+          break if cemb.size < page_size
+          cpage += 1
+        end
+
         processed = 0
+        progress = NittyMail::Utils.progress_bar(title: "Backfill", total: total)
         added = 0
         page = 1
         loop do
@@ -215,7 +232,14 @@ module NittyMail
             item_type = md[:item_type] || md["item_type"]
             item_type == "raw" || e.id.to_s.split(":").length == 2
           end
-          ids, docs, metas = backfill_variants(collection, raw_docs)
+
+          begin
+            ids, docs, metas = backfill_variants(collection, raw_docs, strict: !options[:skip_errors])
+          rescue => e
+            warn "backfill error: %s: %s" % [e.class, e.message]
+            raise unless options[:skip_errors]
+            ids = docs = metas = []
+          end
           existing = NittyMail::Workers::Chroma.existing_ids(collection: collection, candidate_ids: ids, threads: 4, batch_size: 1000)
           to_add = []
           ids.each_with_index do |idv, idx|
@@ -223,14 +247,20 @@ module NittyMail
             to_add << [idv, docs[idx], metas[idx]]
           end
           to_add.each_slice(batch_size) do |chunk|
-            embeddings_objs = chunk.map { |idv, doc, meta| ::Chroma::Resources::Embedding.new(id: idv, document: doc, metadata: meta) }
+            embeddings_objs = chunk.map do |idv, doc, meta|
+              norm_doc = NittyMail::Enricher.normalize_utf8(doc)
+              norm_meta = normalize_meta(meta)
+              ::Chroma::Resources::Embedding.new(id: idv, document: norm_doc, metadata: norm_meta)
+            end
             collection.add(embeddings_objs)
             added += embeddings_objs.size
           end
           processed += raw_docs.size
+          progress.progress = [processed, total].min
           break if embeddings.size < page_size
           page += 1
         end
+        progress.finish unless progress.finished?
         puts "Backfill complete for '#{collection_name}': processed=#{processed}, added=#{added}"
       rescue ::Chroma::ChromaError => e
         warn "chroma error: #{e.class}: #{e.message}"
@@ -320,7 +350,22 @@ module NittyMail
       end
 
       no_commands do
-        def backfill_variants(collection, entries)
+        def normalize_meta(meta)
+          out = {}
+          meta.to_h.each do |k, v|
+            out[k] = case v
+            when String
+              NittyMail::Enricher.normalize_utf8(v)
+            when Array
+              v.map { |x| x.is_a?(String) ? NittyMail::Enricher.normalize_utf8(x) : x }
+            else
+              v
+            end
+          end
+          out
+        end
+
+        def backfill_variants(collection, entries, strict: true)
           ids = []
           docs = []
           metas = []
@@ -341,7 +386,7 @@ module NittyMail
               labels: Array(md[:labels] || md["labels"] || []),
               item_type: "raw"
             }
-            v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(raw: raw, base_meta: base_meta, uidvalidity: uidvalidity, uid: uid)
+            v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(raw: raw, base_meta: base_meta, uidvalidity: uidvalidity, uid: uid, raise_on_error: strict)
             ids.concat(v_ids)
             docs.concat(v_docs)
             metas.concat(v_metas)

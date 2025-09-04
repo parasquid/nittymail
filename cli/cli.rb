@@ -116,11 +116,7 @@ module NittyMail
         total_to_process = to_fetch.size
         processed = 0
         puts "Fetching #{total_to_process} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
-        progress = ProgressBar.create(
-          title: "Upload",
-          total: total_to_process,
-          format: "%t: |%B| %p%% (%c/%C) [%e]"
-        )
+        progress = NittyMail::Utils.progress_bar(title: "Upload", total: total_to_process)
 
         interrupted = false
         Signal.trap("INT") do
