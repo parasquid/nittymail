@@ -60,7 +60,7 @@ module NittyMail
       end
     end
 
-    def retrieve(uids:)
+    def fetch(uids:)
       raise NittyMail::MaxFetchSizeError.new(uids.size, @settings.max_fetch_size) if uids.size > @settings.max_fetch_size
 
       with_imap do |imap|
