@@ -186,7 +186,7 @@ module NittyMail
               producers_alive = fetch_workers.count(&:alive?)
               consumers_alive = upload_workers.count(&:alive?)
               progress.title = "Upload f:#{producers_alive}/#{fetch_threads} u:#{consumers_alive}/#{upload_threads} jq:#{job_queue.size} fq:#{fetch_queue.size}"
-            rescue StandardError
+            rescue
               # best-effort status only
             end
             sleep 1

@@ -246,6 +246,12 @@ module NittyMail
             next if existing.include?(idv)
             to_add << [idv, docs[idx], metas[idx]]
           end
+          # Update progress bar title with live status
+          begin
+            progress.title = "Backfill add:%d page:%d rq:%d added:%d" % [to_add.size, page, raw_docs.size, added]
+          rescue
+          end
+
           to_add.each_slice(batch_size) do |chunk|
             embeddings_objs = chunk.map do |idv, doc, meta|
               norm_doc = NittyMail::Enricher.normalize_utf8(doc)
