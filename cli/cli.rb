@@ -13,6 +13,7 @@ require_relative "utils/utils"
 require_relative "utils/db"
 require_relative "workers/producer"
 require_relative "workers/consumer"
+require_relative "workers/chroma"
 
 module NittyMail
   class CLI < Thor
@@ -93,39 +94,15 @@ module NittyMail
         # Configure Chroma via NittyMail::DB helper and get or create collection
         collection = NittyMail::DB.chroma_collection(collection_name)
 
-        # Fast discovery: batched id lookups (avoid full scans)
+        # Fast discovery: use Chroma worker to lookup existing ids
         candidate_ids = server_uids.map { |u| "#{uidvalidity}:#{u}" }
-        id_queue = Queue.new
-        candidate_ids.each_slice(1000) { |slice| id_queue << slice }
-        existing_ids = Set.new
-        existing_mutex = Mutex.new
         exist_threads = (ENV["NITTYMAIL_EXIST_THREADS"] || 4).to_i
-        exist_threads = 1 if exist_threads < 1
-        exist_workers = Array.new(exist_threads) do
-          Thread.new do
-            until id_queue.empty?
-              id_batch = begin
-                id_queue.pop(true)
-              rescue ThreadError
-                break
-              end
-              begin
-                embeddings = begin
-                  collection.get(ids: id_batch, include: [])
-                rescue ArgumentError, NoMethodError
-                  collection.get(ids: id_batch)
-                end
-                ids = embeddings.map(&:id)
-                existing_mutex.synchronize { ids.each { |i| existing_ids << i } }
-              rescue Chroma::ChromaError => e
-                warn "chroma lookup error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
-              rescue => e
-                warn "unexpected lookup error: #{e.class}: #{e.message} ids=#{id_batch.first}..#{id_batch.last}"
-              end
-            end
-          end
-        end
-        exist_workers.each(&:join)
+        existing_ids = NittyMail::Workers::Chroma.existing_ids(
+          collection: collection,
+          candidate_ids: candidate_ids,
+          threads: exist_threads,
+          batch_size: 1000
+        )
         existing_uids = existing_ids.map { |id| id.split(":", 2)[1].to_i }
 
         # Compute missing uids relative to Chroma
