@@ -14,6 +14,7 @@ require_relative "utils/db"
 require_relative "workers/producer"
 require_relative "workers/consumer"
 require_relative "workers/chroma"
+require_relative "commands/db"
 
 module NittyMail
   class CLI < Thor
@@ -217,6 +218,8 @@ module NittyMail
 
     desc "mailbox SUBCOMMAND ...ARGS", "Mailbox commands"
     subcommand "mailbox", MailboxCmd
+    desc "db SUBCOMMAND ...ARGS", "Database-backed commands"
+    subcommand "db", NittyMail::Commands::DB
   end
 end
 
