@@ -42,7 +42,7 @@ module NittyMail
         # Some libraries leave non-breaking spaces as literal entities; normalize both forms.
         s = md.gsub(/&nbsp;/i, " ")
         s = CGI.unescapeHTML(s)
-        s = s.gsub("\u00A0", " ")
+        s = s.tr("\u00A0", " ")
         s = s.gsub(/[ \t]+/, " ")
         # Remove simple Markdown emphasis markers introduced by ReverseMarkdown
         s = s.gsub(/\*\*(.+?)\*\*/, "\\1").gsub(/\*(.+?)\*/, "\\1").gsub(/__(.+?)__/, "\\1")
@@ -52,7 +52,7 @@ module NittyMail
         s = h.gsub(/<[^>]+>/, " ")
         s = s.gsub(/&nbsp;/i, " ")
         s = CGI.unescapeHTML(s)
-        s = s.gsub("\u00A0", " ")
+        s = s.tr("\u00A0", " ")
         s = s.gsub(/[ \t]+/, " ")
         s = s.gsub(/\*\*(.+?)\*\*/, "\\1").gsub(/\*(.+?)\*/, "\\1").gsub(/__(.+?)__/, "\\1")
         s.strip
