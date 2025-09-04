@@ -83,6 +83,19 @@ Notes:
 - We pass documents + metadata without local embedding vectors.
 - Ensure your Chroma server is configured with a default embedding function, or the add call may fail.
 
+## Metadata Schema
+
+Each uploaded embedding includes a `metadata` hash with mailbox and message fields used by CLI tools:
+
+- address: Gmail address (string)
+- mailbox: IMAP mailbox name (string)
+- uidvalidity: IMAP UIDVALIDITY for the mailbox (integer)
+- uid: IMAP UID for the message within the UIDVALIDITY (integer)
+- internaldate_epoch: Server-reported INTERNALDATE as Unix epoch seconds (integer)
+
+These fields enable fast existence checks, “latest” queries, and stats without IMAP access. Keep types stable to preserve filter performance.
+
+
 ## Concurrency & Tuning
 
 - Producer–consumer model:
