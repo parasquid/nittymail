@@ -49,6 +49,11 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     --collection my-mails
   ```
 
+- Performance tuning (flags):
+  - `--upload-batch-size 200` (upload chunk size)
+  - `--upload-threads 4` (concurrent upload workers)
+  - `--max-fetch-size 50` (IMAP fetch slice size)
+
 - Troubleshooting tips:
   - Use Docker service host: `http://chroma:8000` (not localhost)
   - Check server: `docker compose run --rm cli curl -i http://chroma:8000/api/v1/version`

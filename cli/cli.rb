@@ -6,6 +6,7 @@ require "thor"
 require "json"
 require "uri"
 require "net/http"
+require "thread"
 require "nitty_mail"
 require "chroma-db"
 require "ruby-progressbar"
@@ -52,7 +53,9 @@ module NittyMail
       desc "download", "Download new emails into a Chroma collection"
       method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name"
       method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
-      method_option :batch_size, type: :numeric, default: 100, desc: "Upload batch size"
+      method_option :upload_batch_size, type: :numeric, default: 100, desc: "Upload batch size (env: NITTYMAIL_UPLOAD_BATCH_SIZE)"
+      method_option :upload_threads, type: :numeric, default: 2, desc: "Concurrent upload workers (env: NITTYMAIL_UPLOAD_THREADS)"
+      method_option :max_fetch_size, type: :numeric, required: false, desc: "IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)"
       def download
         address = ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -68,7 +71,14 @@ module NittyMail
         default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{safe_mbox}")
         collection_name = options[:collection] || default_collection
 
-        settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
+        # Tunables from flags
+        fetch_override = options[:max_fetch_size]
+        upload_batch_size = options[:upload_batch_size]
+
+        # Initialize settings, honoring fetch override via Settings#max_fetch_size
+        settings_kwargs = {imap_address: address, imap_password: password}
+        settings_kwargs[:max_fetch_size] = fetch_override if fetch_override && fetch_override > 0
+        settings = NittyMail::Settings.new(**settings_kwargs)
         mb = NittyMail::Mailbox.new(settings: settings, mailbox_name: mbox)
 
         # Preflight 1: get current uidvalidity and server uids (to_fetch since existing_uids is empty)
@@ -131,9 +141,46 @@ module NittyMail
           end
         end
 
-        # Fetch messages in chunks based on Settings#max_fetch_size
-        max_batch = [settings.max_fetch_size, 1000].min
-        to_fetch.each_slice(max_batch) do |uid_batch|
+        # Producer-consumer pipeline
+        job_queue = Queue.new
+        progress_mutex = Mutex.new
+        errors_mutex = Mutex.new
+        upload_errors = 0
+
+        # Consumers: upload workers
+        upload_threads = options[:upload_threads].to_i
+        upload_threads = 1 if upload_threads < 1
+        workers = Array.new(upload_threads) do
+          Thread.new do
+            loop do
+              job = job_queue.pop
+              break if job.equal?(:__END__)
+
+              id_chunk, doc_chunk, meta_chunk = job
+              begin
+                embeddings = id_chunk.each_with_index.map do |idv, idx|
+                  Chroma::Resources::Embedding.new(id: idv, document: doc_chunk[idx], metadata: meta_chunk[idx])
+                end
+                collection.add(embeddings)
+                progress_mutex.synchronize do
+                  processed += embeddings.size
+                  progress.progress = [processed, total_to_process].min
+                end
+              rescue Chroma::ChromaError => e
+                errors_mutex.synchronize { upload_errors += id_chunk.size }
+                warn "chroma upload error: #{e.class}: #{e.message} ids=#{id_chunk.first}..#{id_chunk.last}"
+              rescue => e
+                errors_mutex.synchronize { upload_errors += id_chunk.size }
+                warn "unexpected upload error: #{e.class}: #{e.message} ids=#{id_chunk.first}..#{id_chunk.last}"
+              end
+
+              break if interrupted
+            end
+          end
+        end
+
+        # Producer: fetch messages, build chunks, enqueue
+        to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
           fetch_res = mb.fetch(uids: uid_batch)
           ids = []
           docs = []
@@ -149,27 +196,28 @@ module NittyMail
             metas << {address:, mailbox: mbox, uidvalidity:, uid:}
           end
 
-          # Upload to Chroma in sub-batches for stability using chroma-db gem
-          Array(ids).each_slice(options[:batch_size])
-            .zip(Array(docs).each_slice(options[:batch_size]), Array(metas).each_slice(options[:batch_size]))
+          Array(ids).each_slice(upload_batch_size)
+            .zip(Array(docs).each_slice(upload_batch_size), Array(metas).each_slice(upload_batch_size))
             .each do |id_chunk, doc_chunk, meta_chunk|
-              embeddings = id_chunk.each_with_index.map do |idv, idx|
-                Chroma::Resources::Embedding.new(id: idv, document: doc_chunk[idx], metadata: meta_chunk[idx])
-              end
-              collection.add(embeddings)
-              processed += embeddings.size
-              progress.progress = [processed, total_to_process].min
-              break if interrupted
+              job_queue << [id_chunk, doc_chunk, meta_chunk]
             end
+
           break if interrupted
         end
+
+        # Signal consumers to stop
+        workers.size.times { job_queue << :__END__ }
+        workers.each(&:join)
         progress.finish unless progress.finished?
         if interrupted
-          puts "Download interrupted. Processed #{processed}/#{total_to_process}."
+          puts "Download interrupted. Processed #{processed}/#{total_to_process}. Errors: #{upload_errors}."
           exit 130
-        else
-          puts "Download complete."
         end
+        if upload_errors > 0
+          warn "Download finished with errors. Failed uploads: #{upload_errors}."
+          exit 4
+        end
+        puts "Download complete."
       rescue ArgumentError => e
         warn "error: #{e.message}"
         exit 1

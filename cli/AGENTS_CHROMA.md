@@ -117,6 +117,18 @@ Notes:
 - We pass documents + metadata without local embedding vectors.
 - Ensure your Chroma server is configured with a default embedding function to compute embeddings server-side, or the add call may fail.
 
+## Concurrency & Tuning
+
+- Producer–consumer model:
+  - Producer fetches IMAP messages in slices and enqueues chunks.
+  - Multiple consumers upload chunks concurrently with `collection.add`.
+ - Controls (flags):
+  - `--upload-threads`: number of parallel upload workers (recommend 2–4).
+  - `--max-fetch-size`: IMAP fetch slice size (defaults to `Settings#max_fetch_size`).
+  - `--upload-batch-size`: upload chunk size per HTTP request (typical 100–500).
+- Progress: `ruby-progressbar` shows %/counts/ETA; updates as chunks complete.
+- Interrupts: first Ctrl-C stops after current chunk; second Ctrl-C forces exit.
+
 ## Quick Health Checks
 
 ```ruby
