@@ -57,6 +57,7 @@ module NittyMail
       method_option :upload_batch_size, type: :numeric, default: 100, desc: "Upload batch size (env: NITTYMAIL_UPLOAD_BATCH_SIZE)"
       method_option :upload_threads, type: :numeric, default: 2, desc: "Concurrent upload workers (env: NITTYMAIL_UPLOAD_THREADS)"
       method_option :max_fetch_size, type: :numeric, required: false, desc: "IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)"
+      method_option :fetch_threads, type: :numeric, default: 2, desc: "Concurrent IMAP fetch workers (env: NITTYMAIL_FETCH_THREADS)"
       def download
         address = ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -96,14 +97,29 @@ module NittyMail
         existing_uids = []
         page = 1
         page_size = 1000
-        loop do
-          embeddings = collection.get(page:, page_size:)
-          ids = embeddings.map(&:id)
-          break if ids.empty?
-          matches = ids.grep(/^#{Regexp.escape(prefix)}/).map { |id| id.split(":", 2)[1].to_i }
-          existing_uids.concat(matches)
-          break if ids.size < page_size
-          page += 1
+        begin
+          # Prefer server-side filtering by uidvalidity when available
+          loop do
+            embeddings = collection.get(page:, page_size:, where: {uidvalidity: uidvalidity})
+            ids = embeddings.map(&:id)
+            break if ids.empty?
+            matches = ids.map { |id| id.split(":", 2)[1].to_i }
+            existing_uids.concat(matches)
+            break if ids.size < page_size
+            page += 1
+          end
+        rescue Chroma::APIError, NoMethodError
+          # Fallback: client-side filter by ID prefix
+          page = 1
+          loop do
+            embeddings = collection.get(page:, page_size:)
+            ids = embeddings.map(&:id)
+            break if ids.empty?
+            matches = ids.grep(/^#{Regexp.escape(prefix)}/).map { |id| id.split(":", 2)[1].to_i }
+            existing_uids.concat(matches)
+            break if ids.size < page_size
+            page += 1
+          end
         end
 
         # Compute missing uids relative to Chroma
@@ -138,13 +154,14 @@ module NittyMail
         progress_mutex = Mutex.new
         errors_mutex = Mutex.new
         upload_errors = 0
+        fetch_errors = 0
 
         # Consumers: upload workers
         upload_threads = options[:upload_threads].to_i
         upload_threads = 1 if upload_threads < 1
         workers = Array.new(upload_threads) do
           Thread.new do
-            loop do
+            until interrupted
               job = job_queue.pop
               break if job.equal?(:__END__)
 
@@ -166,47 +183,71 @@ module NittyMail
                 warn "unexpected upload error: #{e.class}: #{e.message} ids=#{id_chunk.first}..#{id_chunk.last}"
               end
 
-              break if interrupted
             end
           end
         end
 
-        # Producer: fetch messages, build chunks, enqueue
-        to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
-          fetch_res = mb.fetch(uids: uid_batch)
-          ids = []
-          docs = []
-          metas = []
-          fetch_res.each do |fd|
-            uid = fd.attr["UID"] || fd.attr[:UID] || fd.attr[:uid]
-            raw = fd.attr["BODY[]"] || fd.attr["BODY"] || fd.attr[:BODY] || fd.attr[:"BODY[]"]
-            raw = raw.to_s.dup
-            raw.force_encoding("BINARY")
-            safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
-            ids << "#{uidvalidity}:#{uid}"
-            docs << safe
-            metas << {address:, mailbox: mbox, uidvalidity:, uid:}
-          end
+        # Build fetch queue of UID batches
+        fetch_queue = Queue.new
+        to_fetch.each_slice(settings.max_fetch_size) { |uid_batch| fetch_queue << uid_batch }
 
-          Array(ids).each_slice(upload_batch_size)
-            .zip(Array(docs).each_slice(upload_batch_size), Array(metas).each_slice(upload_batch_size))
-            .each do |id_chunk, doc_chunk, meta_chunk|
-              job_queue << [id_chunk, doc_chunk, meta_chunk]
+        # Producer workers: parallel IMAP fetchers
+        fetch_threads = options[:fetch_threads].to_i
+        fetch_threads = 1 if fetch_threads < 1
+        fetch_workers = Array.new(fetch_threads) do
+          Thread.new do
+            # One IMAP connection per fetch worker
+            t_mb = NittyMail::Mailbox.new(settings: settings, mailbox_name: mbox)
+            until interrupted
+              uid_batch = begin
+                fetch_queue.pop(true)
+              rescue ThreadError
+                break
+              end
+
+              begin
+                fetch_res = t_mb.fetch(uids: uid_batch)
+                ids = []
+                docs = []
+                metas = []
+                fetch_res.each do |fd|
+                  uid = fd.attr["UID"] || fd.attr[:UID] || fd.attr[:uid]
+                  raw = fd.attr["BODY[]"] || fd.attr["BODY"] || fd.attr[:BODY] || fd.attr[:"BODY[]"]
+                  raw = raw.to_s.dup
+                  raw.force_encoding("BINARY")
+                  safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+                  ids << "#{uidvalidity}:#{uid}"
+                  docs << safe
+                  metas << {address:, mailbox: mbox, uidvalidity:, uid:}
+                end
+
+                Array(ids).each_slice(upload_batch_size)
+                  .zip(Array(docs).each_slice(upload_batch_size), Array(metas).each_slice(upload_batch_size))
+                  .each do |id_chunk, doc_chunk, meta_chunk|
+                    job_queue << [id_chunk, doc_chunk, meta_chunk]
+                  end
+              rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
+                errors_mutex.synchronize { fetch_errors += 1 }
+                warn "imap fetch error: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last}"
+              rescue => e
+                errors_mutex.synchronize { fetch_errors += 1 }
+                warn "unexpected fetch error: #{e.class}: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last}"
+              end
             end
-
-          break if interrupted
+          end
         end
 
-        # Signal consumers to stop
+        # Wait for fetchers to finish, then signal consumers to stop
+        fetch_workers.each(&:join)
         workers.size.times { job_queue << :__END__ }
         workers.each(&:join)
         progress.finish unless progress.finished?
         if interrupted
-          puts "Download interrupted. Processed #{processed}/#{total_to_process}. Errors: #{upload_errors}."
+          puts "Download interrupted. Processed #{processed}/#{total_to_process}. Upload errors: #{upload_errors}. Fetch errors: #{fetch_errors}."
           exit 130
         end
-        if upload_errors > 0
-          warn "Download finished with errors. Failed uploads: #{upload_errors}."
+        if upload_errors > 0 || fetch_errors > 0
+          warn "Download finished with errors. Failed uploads: #{upload_errors}. Fetch errors: #{fetch_errors}."
           exit 4
         end
         puts "Download complete."
