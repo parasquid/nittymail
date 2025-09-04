@@ -22,6 +22,10 @@ module NittyMail
     ].freeze
 
     def initialize(**options)
+      # merge in externally defined settings
+      options[:imap_address] = ENV["IMAP_ADDRESS"] if ENV["IMAP_ADDRESS"]
+      options[:imap_password] = ENV["IMAP_PASSWORD"] if ENV["IMAP_PASSWORD"]
+
       validate_required_options!(options)
       merged_options = self.class::DEFAULTS.merge(options)
       merged_options.each { |key, value| instance_variable_set("@#{key}", value) }
@@ -33,6 +37,10 @@ module NittyMail
       required = self.class.const_defined?(:REQUIRED) ? self.class::REQUIRED : []
       missing = required - options.keys
       raise ArgumentError, "Missing required options: #{missing.join(", ")}" unless missing.empty?
+
+      required.each do |key|
+        raise ArgumentError, "Required option is nil: #{key}" if options[key].nil?
+      end
     end
   end
 end
