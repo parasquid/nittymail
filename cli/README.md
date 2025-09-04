@@ -77,6 +77,19 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   - `rq:N`: raw documents processed in the current page
   - `added:N`: total variants uploaded so far
 
+### Tuning & backpressure
+
+- Bounded queues with backpressure are enabled by default:
+  - Fetch queue (`fq`) is a small buffer of pending IMAP batches (capacity ≈ `fetch_threads*4`).
+  - Job queue (`jq`) is a small buffer of pending upload chunks (capacity ≈ `upload_threads*4`).
+- Reading the gauges:
+  - `jq` consistently high → uploads are the bottleneck (increase `--upload-threads` or reduce fetch rate).
+  - `fq` consistently at capacity → fetchers are the bottleneck (increase `--fetch-threads` or `--max-fetch-size`).
+  - If both are low and progress is slow, consider raising both thread counts (watch CPU and IMAP limits).
+- Practical starting points:
+  - `--fetch-threads 4` and `--max-fetch-size 200–500` for larger mailboxes.
+  - `--upload-threads 2–4` and `--upload-batch-size 200–500` for stable Chroma uploads.
+
 
 
 - Performance tuning (flags):
