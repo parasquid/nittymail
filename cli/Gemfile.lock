@@ -34,6 +34,8 @@ GEM
       net-protocol
     net-protocol (0.2.2)
       timeout
+    nokogiri (1.18.9-x86_64-linux-gnu)
+      racc (~> 1.4)
     paco (0.2.3)
     parallel (1.27.0)
     parser (3.3.9.0)
@@ -44,6 +46,8 @@ GEM
     rainbow (3.1.1)
     regexp_parser (2.11.2)
     require-hooks (0.2.2)
+    reverse_markdown (3.0.0)
+      nokogiri
     rspec (3.13.1)
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
@@ -112,12 +116,12 @@ GEM
     zeitwerk (2.6.18)
 
 PLATFORMS
-  ruby
   x86_64-linux
 
 DEPENDENCIES
   chroma-db
   nitty_mail!
+  reverse_markdown
   rspec
   rspec-given
   rubocop

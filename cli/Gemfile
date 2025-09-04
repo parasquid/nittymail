@@ -4,6 +4,7 @@ gem "thor"
 gem "nitty_mail", path: "../gem"
 gem "chroma-db"
 gem "ruby-progressbar"
+gem "reverse_markdown"
 
 group :development do
   gem "standard", ">= 1.35.1", require: false

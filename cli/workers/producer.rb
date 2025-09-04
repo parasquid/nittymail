@@ -1,4 +1,6 @@
 require "time"
+require "mail"
+require "reverse_markdown"
 
 # frozen_string_literal: true
 
@@ -48,9 +50,78 @@ module NittyMail
                   rescue ArgumentError
                     0
                   end))
+                  # Envelope FROM email
+                  envelope = msg.attr["ENVELOPE"] || msg.attr[:ENVELOPE] || msg.attr[:envelope]
+                  from_email = begin
+                    addrs = envelope&.from
+                    addr = Array(addrs).first
+                    m = addr&.mailbox&.to_s
+                    h = addr&.host&.to_s
+                    (m && h && !m.empty? && !h.empty?) ? "#{m}@#{h}".downcase : nil
+                  rescue
+                    nil
+                  end
+                  # Gmail labels
+                  labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
+                  labels = Array(labels_attr).map { |v| v.to_s }
+                  # RFC822.SIZE
+                  size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE'] || msg.attr[:'RFC822.SIZE']
+                  rfc822_size = size_attr.to_i
+                  # Build base (raw) embedding
                   doc_ids << "#{@uidvalidity}:#{uid}"
                   documents << safe
-                  metadata_list << {address: @address, mailbox: @mailbox_name, uidvalidity: @uidvalidity, uid: uid, internaldate_epoch: internal_epoch}
+                  base_meta = {
+                    address: @address,
+                    mailbox: @mailbox_name,
+                    uidvalidity: @uidvalidity,
+                    uid: uid,
+                    internaldate_epoch: internal_epoch,
+                    from_email: from_email,
+                    rfc822_size: rfc822_size,
+                    labels: labels,
+                    item_type: "raw"
+                  }
+                  metadata_list << base_meta
+
+                  # Parse email for subject/body
+                  mail = begin
+                    ::Mail.read_from_string(safe)
+                  rescue
+                    nil
+                  end
+                  if mail
+                    subject = mail.subject.to_s
+                    # Prefer text part; fallback to decoded body
+                    text_part = mail.text_part&.decoded
+                    html_part = mail.html_part&.decoded
+                    plain_text = (text_part && text_part.to_s.strip != "") ? text_part.to_s : mail.body.to_s
+                    markdown = if html_part && html_part.to_s.strip != ""
+                      ::ReverseMarkdown.convert(html_part.to_s)
+                    else
+                      ::ReverseMarkdown.convert(plain_text.to_s)
+                    end
+
+                    # Subject embedding
+                    unless subject.to_s.strip.empty?
+                      doc_ids << "#{@uidvalidity}:#{uid}:subject"
+                      documents << subject.to_s
+                      metadata_list << base_meta.merge(item_type: "subject")
+                    end
+
+                    # Plain text embedding
+                    unless plain_text.to_s.strip.empty?
+                      doc_ids << "#{@uidvalidity}:#{uid}:text"
+                      documents << plain_text.to_s
+                      metadata_list << base_meta.merge(item_type: "plain_text")
+                    end
+
+                    # Markdown embedding
+                    unless markdown.to_s.strip.empty?
+                      doc_ids << "#{@uidvalidity}:#{uid}:markdown"
+                      documents << markdown.to_s
+                      metadata_list << base_meta.merge(item_type: "markdown")
+                    end
+                  end
                 end
 
                 Array(doc_ids).each_slice(@upload_batch_size)
@@ -67,18 +138,6 @@ module NittyMail
           end
         end
       end
-    end
-
-    private
-
-    def extract_date_epoch(rfc822)
-      line = rfc822.to_s.each_line.find { |l| l.start_with?("Date:") }
-      return 0 unless line
-      Time.parse(line.sub(/^Date:\s*/i, "").strip).to_i
-    rescue ArgumentError
-      0
-    rescue
-      0
     end
   end
 end

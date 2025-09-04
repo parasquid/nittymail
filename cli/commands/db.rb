@@ -115,7 +115,7 @@ module NittyMail
         collection, collection_name = collection_for(address: address, mailbox: mailbox, override: options[:collection])
         gens_filter = options[:uidvalidity] && options[:uidvalidity].to_s.split(",").map { |v| v.strip.to_i }
 
-        stats = Hash.new { |h, k| h[k] = {count: 0, min_uid: nil, max_uid: nil, min_epoch: nil, max_epoch: nil} }
+        stats = Hash.new { |h, k| h[k] = {count: 0, min_uid: nil, max_uid: nil, min_epoch: nil, max_epoch: nil, size_sum: 0, min_size: nil, max_size: nil, sender_counts: Hash.new(0), label_counts: Hash.new(0)} }
         page = 1
         begin
           loop do
@@ -133,6 +133,15 @@ module NittyMail
               st[:max_uid] = uid if st[:max_uid].nil? || uid > st[:max_uid]
               st[:min_epoch] = epoch if st[:min_epoch].nil? || epoch < st[:min_epoch]
               st[:max_epoch] = epoch if st[:max_epoch].nil? || epoch > st[:max_epoch]
+              size = (md && (md["rfc822_size"] || md[:rfc822_size]) || 0).to_i
+              st[:size_sum] += size
+              st[:min_size] = size if st[:min_size].nil? || size < st[:min_size]
+              st[:max_size] = size if st[:max_size].nil? || size > st[:max_size]
+              sender = (md && (md["from_email"] || md[:from_email]) || "").to_s.downcase
+              st[:sender_counts][sender] += 1 unless sender.empty?
+              Array(md && (md["labels"] || md[:labels]) || []).each do |lab|
+                st[:label_counts][lab.to_s] += 1
+              end
             end
             break if embeddings.size < page_size
             page += 1
@@ -156,6 +165,18 @@ module NittyMail
             puts "  uid range: #{st[:min_uid]}..#{st[:max_uid]}"
             puts "  internaldate_epoch max: #{st[:max_epoch]} (#{Time.at(st[:max_epoch]).utc})"
             puts "  internaldate_epoch min: #{st[:min_epoch]} (#{Time.at(st[:min_epoch]).utc})"
+            avg = (st[:size_sum].to_f / st[:count]).round(1)
+            puts "  size bytes: min=#{st[:min_size]} max=#{st[:max_size]} avg=#{avg} sum=#{st[:size_sum]}"
+            top_senders = st[:sender_counts].sort_by { |_, c| -c }.first(5)
+            unless top_senders.empty?
+              puts "  top senders:"
+              top_senders.each { |email, c| puts "    #{email} (#{c})" }
+            end
+            top_labels = st[:label_counts].sort_by { |_, c| -c }.first(5)
+            unless top_labels.empty?
+              puts "  top labels:"
+              top_labels.each { |lab, c| puts "    #{lab} (#{c})" }
+            end
           end
         end
       end

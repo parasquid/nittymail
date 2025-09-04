@@ -92,8 +92,28 @@ Each uploaded embedding includes a `metadata` hash with mailbox and message fiel
 - uidvalidity: IMAP UIDVALIDITY for the mailbox (integer)
 - uid: IMAP UID for the message within the UIDVALIDITY (integer)
 - internaldate_epoch: Server-reported INTERNALDATE as Unix epoch seconds (integer)
+- from_email: Parsed ENVELOPE.from email address (string)
+- rfc822_size: Message size from RFC822.SIZE in bytes (integer)
+- labels: Gmail `X-GM-LABELS` array (array of strings)
+- item_type: One of `raw`, `plain_text`, `markdown`, `subject` (string)
 
-These fields enable fast existence checks, “latest” queries, and stats without IMAP access. Keep types stable to preserve filter performance.
+These fields enable fast existence checks, “latest” queries, sender/label/size stats, and multi-representation embeddings — all without IMAP access. Keep types stable to preserve filter performance.
+
+Example embedding metadata (JSON):
+
+```json
+{
+  "address": "you@example.com",
+  "mailbox": "INBOX",
+  "uidvalidity": 2,
+  "uid": 177077,
+  "internaldate_epoch": 1724000123,
+  "from_email": "sender@example.org",
+  "rfc822_size": 45123,
+  "labels": ["\Inbox", "Important"],
+  "item_type": "plain_text"
+}
+```
 
 
 ## Concurrency & Tuning
