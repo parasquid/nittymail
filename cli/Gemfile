@@ -8,4 +8,6 @@ gem "ruby-progressbar"
 group :development do
   gem "standard", ">= 1.35.1", require: false
   gem "rubocop", require: false
+  gem "rspec", require: false
+  gem "rspec-given", require: false
 end

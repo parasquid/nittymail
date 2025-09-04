@@ -50,3 +50,10 @@ collection = NittyMail::DB.chroma_collection(collection_name)
   - `docker compose run --rm cli bundle exec standardrb --fix`
   - `docker compose run --rm cli bundle exec rubocop -A`
 - Ensure no offenses remain before committing.
+
+## Tests
+
+- Write specs in rspec-given style for readability.
+- Require `rspec/given` via `spec/spec_helper.rb` (already set up here).
+- Run specs from `cli/` via Docker:
+  - `docker compose run --rm cli bundle exec rspec -fd -b`

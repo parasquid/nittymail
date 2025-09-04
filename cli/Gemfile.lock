@@ -23,6 +23,8 @@ GEM
       concurrent-ruby (~> 1.0)
       dry-core (~> 1.1)
       zeitwerk (~> 2.6)
+    given_core (3.8.2)
+      sorcerer (>= 0.3.7)
     json (2.13.2)
     language_server-protocol (3.17.0.5)
     lint_roller (1.1.0)
@@ -42,6 +44,22 @@ GEM
     rainbow (3.1.1)
     regexp_parser (2.11.2)
     require-hooks (0.2.2)
+    rspec (3.13.1)
+      rspec-core (~> 3.13.0)
+      rspec-expectations (~> 3.13.0)
+      rspec-mocks (~> 3.13.0)
+    rspec-core (3.13.5)
+      rspec-support (~> 3.13.0)
+    rspec-expectations (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-given (3.8.2)
+      given_core (= 3.8.2)
+      rspec (>= 2.14.0)
+    rspec-mocks (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-support (3.13.5)
     rubocop (1.75.8)
       json (~> 2.3)
       language_server-protocol (~> 3.17.0.2)
@@ -70,6 +88,7 @@ GEM
     ruby-next-parser (3.4.0.2)
       parser (>= 3.0.3.1)
     ruby-progressbar (1.13.0)
+    sorcerer (2.0.1)
     standard (1.50.0)
       language_server-protocol (~> 3.17.0.2)
       lint_roller (~> 1.0)
@@ -99,6 +118,8 @@ PLATFORMS
 DEPENDENCIES
   chroma-db
   nitty_mail!
+  rspec
+  rspec-given
   rubocop
   ruby-progressbar
   standard (>= 1.35.1)

@@ -32,8 +32,6 @@ module NittyMail
                 end
                 ids = embeddings.map(&:id)
                 mutex.synchronize { ids.each { |i| existing << i } }
-              rescue ::Chroma::ChromaError
-                # Ignore per-batch errors; caller decides on tolerance policy
               rescue
                 # Ignore unexpected errors to allow other batches to proceed
               end
