@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "NittyMail"
+require "nitty_mail"
 require "rspec/given"
 
 RSpec.configure do |config|
