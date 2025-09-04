@@ -178,10 +178,26 @@ module NittyMail
           }
         ).start(threads: fetch_threads)
 
+        # Periodic status embedded into progress bar title
+        status_thread = Thread.new do
+          loop do
+            break if interrupted
+            begin
+              producers_alive = fetch_workers.count(&:alive?)
+              consumers_alive = upload_workers.count(&:alive?)
+              progress.title = "Upload f:#{producers_alive}/#{fetch_threads} u:#{consumers_alive}/#{upload_threads} jq:#{job_queue.size} fq:#{fetch_queue.size}"
+            rescue StandardError
+              # best-effort status only
+            end
+            sleep 1
+          end
+        end
+
         # Wait for fetchers to finish, then signal consumers to stop
         fetch_workers.each(&:join)
         upload_workers.size.times { job_queue << :__END__ }
         upload_workers.each(&:join)
+        status_thread&.kill
         progress.finish unless progress.finished?
         if interrupted
           puts "Download interrupted. Processed #{processed}/#{total_to_process}. Upload errors: #{upload_errors}. Fetch errors: #{fetch_errors}."
