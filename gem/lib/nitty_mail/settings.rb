@@ -36,8 +36,8 @@ module NittyMail
 
     def initialize(**options)
       # merge in externally defined settings
-      options[:imap_address] = ENV["IMAP_ADDRESS"] if ENV["IMAP_ADDRESS"]
-      options[:imap_password] = ENV["IMAP_PASSWORD"] if ENV["IMAP_PASSWORD"]
+      options[:imap_address] = ENV["NITTYMAIL_IMAP_ADDRESS"] if ENV["NITTYMAIL_IMAP_ADDRESS"]
+      options[:imap_password] = ENV["NITTYMAIL_IMAP_PASSWORD"] if ENV["NITTYMAIL_IMAP_PASSWORD"]
 
       validate_required_options!(options)
       merged_options = self.class::DEFAULTS.merge(options)
