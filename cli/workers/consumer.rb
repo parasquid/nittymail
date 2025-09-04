@@ -26,9 +26,13 @@ module NittyMail
               id_batch, doc_batch, meta_batch = upload_job
               begin
                 embeddings = id_batch.each_with_index.map do |idv, idx|
-                  norm_doc = NittyMail::Enricher.normalize_utf8(doc_batch[idx])
-                  norm_meta = normalize_meta(meta_batch[idx])
-                  ::Chroma::Resources::Embedding.new(id: idv, document: norm_doc, metadata: norm_meta)
+                  meta = meta_batch[idx]
+                  item_type = meta && (meta[:item_type] || meta["item_type"]) || nil
+                  doc = doc_batch[idx]
+                  # Only normalize non-raw variants; keep raw RFC822 pristine
+                  out_doc = (item_type == "raw") ? doc.to_s : NittyMail::Enricher.normalize_utf8(doc)
+                  norm_meta = normalize_meta(meta)
+                  ::Chroma::Resources::Embedding.new(id: idv, document: out_doc, metadata: norm_meta)
                 end
                 @collection.add(embeddings)
                 @on_progress&.call(embeddings.size)
