@@ -63,6 +63,21 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   docker compose run --rm cli db latest --uidvalidity 2
   ```
 
+### Progress indicators
+
+- Download (`mailbox download`) progress title shows live status:
+  - `f:X/Y`: producer threads alive/total
+  - `u:X/Y`: consumer threads alive/total
+  - `jq:N`: job queue size (pending uploads)
+  - `fq:N`: fetch queue size (pending IMAP batches)
+
+- Backfill (`db backfill`) progress title shows:
+  - `add:N`: pending variant embeddings to upload for the current page
+  - `page:P`: current page index
+  - `rq:N`: raw documents processed in the current page
+  - `added:N`: total variants uploaded so far
+
+
 
 - Performance tuning (flags):
   - `--upload-batch-size 200` (upload chunk size)
