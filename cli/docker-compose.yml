@@ -29,7 +29,7 @@ services:
       - .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq.yml", "-q", "fetch"]
+    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq_fetch.yml", "-q", "fetch"]
     depends_on:
       - redis
 
@@ -45,7 +45,7 @@ services:
       - .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq.yml", "-q", "write", "-c", "1"]
+    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq_write.yml", "-q", "write"]
     depends_on:
       - redis
 

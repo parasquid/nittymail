@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Scale Sidekiq workers using env-configured process counts.
+# Usage:
+#   ./bin/up-workers            # uses FETCH_PROCESSES/WRITE_PROCESSES or defaults
+#   FETCH_PROCESSES=8 WRITE_PROCESSES=2 ./bin/up-workers
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${SCRIPT_DIR}/.."
+cd "${APP_DIR}"
+
+# Load .env if present to pick up FETCH_PROCESSES/WRITE_PROCESSES
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
+FETCH_PROCESSES="${FETCH_PROCESSES:-8}"
+WRITE_PROCESSES="${WRITE_PROCESSES:-2}"
+
+echo "Scaling workers: fetch=${FETCH_PROCESSES} write=${WRITE_PROCESSES}"
+
+# Ensure Redis is up
+docker compose up -d redis
+
+# Bring up workers with the requested scale
+docker compose up -d \
+  --scale worker_fetch="${FETCH_PROCESSES}" \
+  --scale worker_write="${WRITE_PROCESSES}" \
+  worker_fetch worker_write
+
+echo "Done. View Sidekiq Web at http://localhost:9292 if monitor is running."
+
