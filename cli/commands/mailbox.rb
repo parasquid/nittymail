@@ -62,6 +62,7 @@ module NittyMail
       method_option :max_fetch_size, type: :numeric, required: false, desc: "IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)"
       method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
       method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
+      method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
       def download
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -76,6 +77,7 @@ module NittyMail
         NittyMail::DB.establish_sqlite_connection(database_path: db_path, address: address)
         NittyMail::DB.run_migrations!
 
+        strict = !!options[:strict]
         max_fetch_override = options[:max_fetch_size]
         batch_size = options[:batch_size].to_i
         batch_size = 200 if batch_size <= 0
@@ -106,8 +108,13 @@ module NittyMail
           fetch_response = begin
             mailbox_client.fetch(uids: uid_batch)
           rescue => e
-            warn "imap fetch error: #{e.class}: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last} (skipping)"
-            next
+            msg = "imap fetch error: #{e.class}: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last}"
+            if strict
+              raise e
+            else
+              warn msg + " (skipping)"
+              next
+            end
           end
           rows = []
           fetch_response.each do |msg|
@@ -117,8 +124,12 @@ module NittyMail
             raw.force_encoding("BINARY")
             safe = begin
               raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
-            rescue
-              raw.to_s
+            rescue => e
+              if strict
+                raise e
+              else
+                raw.to_s
+              end
             end
             internal = msg.attr["INTERNALDATE"] || msg.attr[:INTERNALDATE] || msg.attr[:internaldate]
             internal_time = internal.is_a?(Time) ? internal : (begin
@@ -177,7 +188,12 @@ module NittyMail
               cc_emails = JSON.generate(cc_list) unless cc_list.empty?
               bcc_emails = JSON.generate(bcc_list) unless bcc_list.empty?
             rescue => e
-              warn "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping parse; storing raw only)"
+              msg = "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
+              if strict
+                raise e
+              else
+                warn msg + " (skipping parse; storing raw only)"
+              end
             end
 
             rows << {
@@ -200,16 +216,22 @@ module NittyMail
               created_at: Time.now,
               updated_at: Time.now
             }
-          rescue Encoding::CompatibilityError => e
-            warn "encoding error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
-            next
-          rescue ArgumentError => e
-            # invalid byte sequence etc.
-            warn "processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
-            next
+          rescue Encoding::CompatibilityError, ArgumentError => e
+            msg = "processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
+            if strict
+              raise e
+            else
+              warn msg + " (skipping message)"
+              next
+            end
           rescue => e
-            warn "unexpected processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
-            next
+            msg = "unexpected processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
+            if strict
+              raise e
+            else
+              warn msg + " (skipping message)"
+              next
+            end
           end
 
           rows.each_slice(batch_size) do |chunk|
@@ -217,13 +239,17 @@ module NittyMail
             processed += chunk.size
             progress.progress = [processed, total_to_process].min
           rescue => e
-            warn "db upsert error: #{e.class}: #{e.message} (retrying per-row for chunk of #{chunk.size})"
-            chunk.each do |row|
-              NittyMail::Email.upsert_all([row], unique_by: "index_emails_on_identity")
-              processed += 1
-              progress.progress = [processed, total_to_process].min
-            rescue => e2
-              warn "db upsert row error: #{e2.class}: #{e2.message} uidvalidity=#{row[:uidvalidity]} uid=#{row[:uid]} (skipping row)"
+            if strict
+              raise e
+            else
+              warn "db upsert error: #{e.class}: #{e.message} (retrying per-row for chunk of #{chunk.size})"
+              chunk.each do |row|
+                NittyMail::Email.upsert_all([row], unique_by: "index_emails_on_identity")
+                processed += 1
+                progress.progress = [processed, total_to_process].min
+              rescue => e2
+                warn "db upsert row error: #{e2.class}: #{e2.message} uidvalidity=#{row[:uidvalidity]} uid=#{row[:uid]} (skipping row)"
+              end
             end
           end
         end
