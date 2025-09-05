@@ -36,6 +36,6 @@
   - [ ] 6.2 Update AGENTS.md (job-mode guidance, testing patterns, interrupts)
 
 - [ ] 7. Tests and quality
-  - [ ] 7.1 Add integration specs: enqueue + parallel fetch + single writer writes
-  - [ ] 7.2 Add strict-mode spec for job failures (fetch/write)
-  - [ ] 7.3 Lint (StandardRB/RuboCop) and full RSpec run (green)
+  - [x] 7.1 Add integration specs: enqueue + parallel fetch + single writer writes
+  - [x] 7.2 Add strict-mode spec for job failures (fetch/write)
+  - [x] 7.3 Lint (StandardRB/RuboCop) and full RSpec run (green)
