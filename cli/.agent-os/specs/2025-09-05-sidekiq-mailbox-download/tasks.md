@@ -2,17 +2,17 @@
 
 ## Tasks
 
-- [ ] 1. Add Redis + Active Job (Sidekiq adapter) and boot
-  - [ ] 1.1 Add gems (`activejob`, `redis`, `sidekiq`) and bundle install
-  - [ ] 1.2 Add `config/sidekiq.yml` and `sidekiq_boot.rb` wiring AR + migrations; set `ActiveJob::Base.queue_adapter = :sidekiq`
-  - [ ] 1.3 Add Docker Compose `redis` service and `worker` service with shared volumes
-  - [ ] 1.4 Verify services start and Sidekiq connects to Redis
+- [x] 1. Add Redis + Active Job (Sidekiq adapter) and boot
+  - [x] 1.1 Add gems (`activejob`, `redis`, `sidekiq`) and bundle install
+  - [x] 1.2 Add `config/sidekiq.yml` and `sidekiq_boot.rb` wiring AR + migrations; set `ActiveJob::Base.queue_adapter = :sidekiq`
+  - [x] 1.3 Add Docker Compose `redis` service and `worker` service with shared volumes
+  - [x] 1.4 Verify services start and Sidekiq connects to Redis
 
-- [ ] 2. Implement jobs and artifact pipeline
-  - [ ] 2.1 Create `job-data/` shared folder and ensure `.keep`
-  - [ ] 2.2 Implement `FetchJob` (IMAP batch fetch → write `.eml` files → enqueue `WriteJob`)
-  - [ ] 2.3 Implement `WriteJob` (queue `write`, concurrency 1) to parse + upsert + cleanup
-  - [ ] 2.4 Ensure idempotency and error handling (`--strict` aware)
+- [x] 2. Implement jobs and artifact pipeline
+  - [x] 2.1 Create `job-data/` shared folder and ensure `.keep`
+  - [x] 2.2 Implement `FetchJob` (IMAP batch fetch → write `.eml` files → enqueue `WriteJob`)
+  - [x] 2.3 Implement `WriteJob` (queue `write`, concurrency 1) to parse + upsert + cleanup
+  - [x] 2.4 Ensure idempotency and error handling (`--strict` aware)
 
 - [ ] 3. CLI integration (default `--jobs`) and progress
   - [ ] 3.1 Add flags: default `--jobs`, `--no-jobs` to force single-process, and job tuning flags
