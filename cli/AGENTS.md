@@ -2,6 +2,10 @@
 
 This guide describes conventions and helpers for working in the `cli/` folder. The CLI now uses SQLite via ActiveRecord and the `nitty_mail` gem for IMAP — Chroma is no longer used.
 
+## Tech Stack
+
+- For the up‑to‑date stack used by this CLI (Ruby version, DB/ORM, jobs, monitoring, and tooling), see `.agent-os/standards/tech-stack.md`.
+
 ## Style & Safety
 
 - Prefer concise, descriptive names (e.g., `mailbox_client`, `fetch_response`).
