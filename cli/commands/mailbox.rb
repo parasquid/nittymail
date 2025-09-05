@@ -72,7 +72,7 @@ module NittyMail
 
         # DB setup
         db_path = options[:database]
-        NittyMail::DB.establish_sqlite_connection(database_path: db_path)
+        NittyMail::DB.establish_sqlite_connection(database_path: db_path, address: address)
         NittyMail::DB.run_migrations!
 
         max_fetch_override = options[:max_fetch_size]

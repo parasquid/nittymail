@@ -30,7 +30,7 @@
   - [ ] 3.7 Verify all tests pass
 
 - [ ] 4. Ops, configuration, and docs
-  - [ ] 4.1 Write tests (or smoke checks) for default DB path and env/flag overrides
+  - [x] 4.1 Write tests (or smoke checks) for default DB path and env/flag overrides
   - [x] 4.2 Remove Chroma service from docker-compose; update env samples if needed
   - [x] 4.3 Update CLI help and README to reflect SQLite backend and new flags
   - [ ] 4.4 Add guidance for performance flags (batch size, threads if any), WAL, and resume behavior

@@ -7,16 +7,17 @@ module NittyMail
     # -----------------------
     # ActiveRecord / SQLite3
     # -----------------------
-    def default_database_path
+    def default_database_path(address: nil)
       # Allow override via env; otherwise local file under cli/
       env_path = ENV["NITTYMAIL_SQLITE_DB"].to_s
       return env_path unless env_path.empty?
-      File.expand_path("nittymail.sqlite3", __dir__ + "/..")
+      basename = address.to_s.empty? ? "nittymail.sqlite3" : "#{address}.sqlite3"
+      File.expand_path(basename, File.expand_path("..", __dir__))
     end
 
-    def establish_sqlite_connection(database_path: nil)
+    def establish_sqlite_connection(database_path: nil, address: nil)
       require "active_record"
-      db_path = (database_path || default_database_path).to_s
+      db_path = (database_path || default_database_path(address: address)).to_s
       FileUtils.mkdir_p(File.dirname(db_path)) unless Dir.exist?(File.dirname(db_path))
       ActiveRecord::Base.establish_connection(
         adapter: "sqlite3",

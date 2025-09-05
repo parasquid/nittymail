@@ -101,3 +101,4 @@ Agent guide: See `AGENTS.md` for CLI agent conventions and style.
 
 - The Compose service mounts the repository root so the local gem at `../gem` (declared in `Gemfile`) is available in-container.
 - No host Ruby required; all commands are executed via the `cli` service.
+- Default DB path is `cli/[IMAP_ADDRESS].sqlite3` unless overridden by `--database` or `NITTYMAIL_SQLITE_DB`.
