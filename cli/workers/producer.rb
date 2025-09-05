@@ -80,10 +80,23 @@ module NittyMail
                   metadata_list << base_meta
 
                   # Generate additional embeddings via Enricher
-                  v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(raw: safe, base_meta: base_meta, uidvalidity: @uidvalidity, uid: uid)
-                  doc_ids.concat(v_ids)
-                  documents.concat(v_docs)
-                  metadata_list.concat(v_metas)
+                  begin
+                    v_ids, v_docs, v_metas = NittyMail::Enricher.variants_for(
+                      raw: safe,
+                      base_meta: base_meta,
+                      uidvalidity: @uidvalidity,
+                      uid: uid
+                    )
+                    doc_ids.concat(v_ids)
+                    documents.concat(v_docs)
+                    metadata_list.concat(v_metas)
+                  rescue ::Mail::UnknownEncodingType => e
+                    warn "enrich skip: #{e.class}: #{e.message} uid=#{uid}"
+                    # Keep going: raw doc is still queued for upload.
+                  rescue StandardError => e
+                    warn "enrich error: #{e.class}: #{e.message} uid=#{uid}"
+                    # Keep going for robustness; outer rescue handles batch-level errors.
+                  end
                 end
 
                 Array(doc_ids).each_slice(@upload_batch_size)
@@ -96,6 +109,28 @@ module NittyMail
               rescue => e
                 @on_error&.call(:unexpected, e, uid_batch)
               end
+            end
+          ensure
+            begin
+              if mailbox_client.respond_to?(:close)
+                mailbox_client.close
+              elsif mailbox_client.respond_to?(:disconnect)
+                mailbox_client.disconnect
+              elsif mailbox_client.respond_to?(:logout)
+                mailbox_client.logout
+              elsif mailbox_client.instance_variable_defined?(:@imap)
+                imap = mailbox_client.instance_variable_get(:@imap)
+                begin
+                  imap.logout if imap && imap.respond_to?(:logout)
+                rescue
+                end
+                begin
+                  imap.disconnect if imap && imap.respond_to?(:disconnect)
+                rescue
+                end
+              end
+            rescue
+              # swallow close errors
             end
           end
         end

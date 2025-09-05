@@ -32,8 +32,11 @@ module NittyMail
                 end
                 ids = embeddings.map(&:id)
                 mutex.synchronize { ids.each { |i| existing << i } }
-              rescue
-                # Ignore unexpected errors to allow other batches to proceed
+              rescue => e
+                # Log and continue to allow other batches to proceed
+                first = id_batch.first rescue nil
+                last = id_batch.last rescue nil
+                warn "chroma existing_ids error: #{e.class}: #{e.message} ids=#{first}..#{last}"
               end
             end
           end

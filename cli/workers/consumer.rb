@@ -35,7 +35,10 @@ module NittyMail
                   ::Chroma::Resources::Embedding.new(id: idv, document: out_doc, metadata: norm_meta)
                 end
                 @collection.add(embeddings)
-                @on_progress&.call(embeddings.size)
+                # Progress counts messages, not embeddings: count 'raw' items in this batch
+                raw_count = meta_batch.count { |m| (m && ((m[:item_type] || m["item_type"])) == "raw") }
+                incr = raw_count > 0 ? raw_count : 0
+                @on_progress&.call(incr)
               rescue => e
                 id_range = [id_batch.first, id_batch.last]
                 @on_error&.call(id_batch.size, e, id_range)

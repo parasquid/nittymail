@@ -8,6 +8,7 @@ This guide covers how AI agents should work within the CLI folder: naming style,
 - Examples: `mailbox_client` (not `mb`), `fetch_response` (not `fr`), `doc_ids`/`documents`/`metadata_list` (not `ids`/`docs`/`metas`).
 - Use `until interrupted` instead of `loop do` + `break if interrupted` when expressing interrupt-aware loops.
 - Rescue specific exceptions; log actionable context; avoid swallowing errors unless explicitly justified.
+- Do not swallow exceptions silently. If you skip or fall back, log a concise warning with the error class/message and enough identifiers (e.g., `uidvalidity`, `uid`, id range) to triage. Only suppress when there is a strong reason and you have an alternate path.
 - **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
 
 
@@ -24,6 +25,17 @@ collection = NittyMail::DB.chroma_collection(collection_name)
 # - NITTYMAIL_CHROMA_API_BASE (optional)
 # - NITTYMAIL_CHROMA_API_VERSION (optional)
 ```
+
+### Chroma Docs
+
+- See `docs/chroma.md` for full Chroma details: metadata schema, naming rules, deduplication IDs, paging and batching examples, search across multiple embeddings, tuning/backpressure, health checks, and troubleshooting.
+
+### IDs and Metadata (quick rules)
+
+- Use `"#{uidvalidity}:#{uid}"` as the document ID to align with IMAP semantics and deduplicate across syncs.
+- Store multiple representations per message with `item_type` metadata: `raw`, `plain_text`, `markdown`, `subject`.
+- Keep raw RFC822 pristine; normalize only non-raw variants on upload.
+- Include mailbox fields in metadata: `address`, `mailbox`, `uidvalidity`, `uid`, `internaldate_epoch`, `from_email`, `rfc822_size`, `labels`, `item_type`.
 
 ## Concurrency & Tuning
 

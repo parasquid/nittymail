@@ -24,6 +24,17 @@ module NittyMail
         settings = NittyMail::Settings.new(imap_address: address, imap_password: password)
         mailbox_client = NittyMail::Mailbox.new(settings: settings)
         mailboxes = Array(mailbox_client.list)
+        begin
+          # ensure IMAP connection is closed to avoid lingering threads
+          if mailbox_client.respond_to?(:close)
+            mailbox_client.close
+          elsif mailbox_client.respond_to?(:disconnect)
+            mailbox_client.disconnect
+          elsif mailbox_client.respond_to?(:logout)
+            mailbox_client.logout
+          end
+        rescue
+        end
 
         names = mailboxes.map { |x| x.respond_to?(:name) ? x.name : x.to_s }
 
@@ -76,6 +87,17 @@ module NittyMail
         uidvalidity = preflight[:uidvalidity]
         server_uids = Array(preflight[:to_fetch])
         puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+        begin
+          # proactively close preflight IMAP connection
+          if mailbox_client.respond_to?(:close)
+            mailbox_client.close
+          elsif mailbox_client.respond_to?(:disconnect)
+            mailbox_client.disconnect
+          elsif mailbox_client.respond_to?(:logout)
+            mailbox_client.logout
+          end
+        rescue
+        end
 
         collection = NittyMail::DB.chroma_collection(collection_name)
 
@@ -101,15 +123,50 @@ module NittyMail
         progress = NittyMail::Utils.progress_bar(title: "Upload", total: total_to_process)
 
         interrupted = false
+        feeder = nil
+        status_thread = nil
+        upload_workers = []
+        fetch_workers = []
+        flush_fetch_queue = -> do
+          begin
+            loop { fetch_queue.pop(true) }
+          rescue ThreadError
+            # emptied
+          rescue
+          end
+        end
         Signal.trap("INT") do
           if interrupted
-            puts "
-Force exiting..."
-            exit 130
+            puts "\nForce exiting..."
+            begin; status_thread&.kill; rescue; end
+            begin; feeder&.kill; rescue; end
+            begin; fetch_workers.each { |t| t&.kill }; rescue; end
+            begin; upload_workers.each { |t| t&.kill }; rescue; end
+            # Immediate exit; bypass at_exit/ensure to avoid hangs in blocked threads
+            begin
+              Kernel.exit!(130)
+            rescue
+              # As a last resort, hard kill this process
+              begin
+                Process.kill("KILL", $$)
+              rescue
+              end
+            end
           else
             interrupted = true
-            warn "
-Interrupt received. Will stop after current batch (Ctrl-C again to force)."
+            warn "\nInterrupt received. Will stop after current batch (Ctrl-C again to force)."
+            # Drop queued fetch work and signal workers to wind down
+            flush_fetch_queue.call if defined?(fetch_queue) && fetch_queue
+            begin
+              if defined?(fetch_threads) && defined?(fetch_queue) && fetch_queue
+                fetch_threads.times { fetch_queue.push(:__END__) }
+              end
+            rescue; end
+            begin
+              if defined?(upload_threads) && defined?(job_queue) && job_queue
+                upload_threads.times { job_queue << :__END__ }
+              end
+            rescue; end
           end
         end
 
@@ -172,6 +229,10 @@ Interrupt received. Will stop after current batch (Ctrl-C again to force)."
               producers_alive = fetch_workers.count(&:alive?)
               consumers_alive = upload_workers.count(&:alive?)
               progress.title = "Upload f:#{producers_alive}/#{fetch_threads} u:#{consumers_alive}/#{upload_threads} jq:#{job_queue.size} fq:#{fetch_queue.size}"
+              # Stop status updates once all queues drain and workers exit
+              if producers_alive == 0 && consumers_alive == 0 && fetch_queue.empty? && job_queue.empty?
+                break
+              end
             rescue
             end
             sleep 1

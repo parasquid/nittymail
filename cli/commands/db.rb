@@ -48,7 +48,8 @@ module NittyMail
               break if sampled >= [limit, page_size * 5].max
               break if embeddings.size < page_size
             end
-          rescue
+          rescue => e
+            warn "latest: error sampling uidvalidity candidates: #{e.class}: #{e.message}"
             gens = []
           end
           gens = gens.compact.uniq.sort
@@ -459,10 +460,11 @@ module NittyMail
             hits = collection.get(ids: ids)
             uids = hits.map(&:id).map { |did| did.split(":", 2)[1].to_i }
             neighbors.select { |u| uids.include?(u) }
-          rescue
+          rescue => e
+            warn "neighbor uid suggestion failed: #{e.class}: #{e.message}"
             []
-          end
         end
+      end
       end
     end
   end
