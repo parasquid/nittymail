@@ -105,6 +105,12 @@ class WriteJob < ActiveJob::Base
           updated_at: Time.now
         }
       ], unique_by: "index_emails_on_identity")
+      # Only delete artifact and increment processed counter on successful DB write
+      begin
+        File.delete(artifact_path) if !keep_artifact && File.exist?(artifact_path)
+      rescue
+      end
+      increment_counter(run_id, :processed) if run_id
     rescue => e
       warn "write db error: #{e.class}: #{e.message} uv=#{uidvalidity} uid=#{uid}"
       if strict || ENV["NITTYMAIL_STRICT"] == "1"
@@ -112,13 +118,7 @@ class WriteJob < ActiveJob::Base
       elsif run_id
         increment_counter(run_id, :errors)
       end
-    ensure
-      begin
-        File.delete(artifact_path) if !keep_artifact && File.exist?(artifact_path)
-      rescue
-      end
     end
-    increment_counter(run_id, :processed) if run_id
   end
 
   private
