@@ -94,6 +94,9 @@ class FetchJob < ActiveJob::Base
           run_id: run_id,
           strict: strict
         )
+        
+        # Increment fetched counter to show progress
+        increment_counter(run_id, :fetched) if run_id
       end
     rescue => e
       warn "fetch job error: #{e.class}: #{e.message} addr=#{address} mb=#{mailbox} uv=#{uidvalidity} uids=#{uids.first}..#{uids.last}"
@@ -107,6 +110,17 @@ class FetchJob < ActiveJob::Base
   end
 
   private
+
+  def increment_counter(run_id, key)
+    return unless run_id
+    begin
+      require "redis"
+      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+      r = ::Redis.new(url: url)
+      r.incr("nm:dl:#{run_id}:#{key}")
+    rescue
+    end
+  end
 
   def aborted?(run_id)
     require "redis"

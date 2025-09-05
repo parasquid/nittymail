@@ -156,6 +156,20 @@ module NittyMail
           end
         end
         if want_jobs
+          # Safety: avoid enqueuing background jobs with placeholder/example domains in non-test runs
+          begin
+            adapter = ActiveJob::Base.queue_adapter
+            is_test_adapter = adapter && adapter.class.name =~ /TestAdapter/i
+          rescue
+            is_test_adapter = false
+          end
+          if address.to_s =~ /@example\.(com|net|org)\z/i && !is_test_adapter
+            warn "jobs disabled: example.* address detected (#{address}); skipping enqueues"
+            want_jobs = false
+          end
+        end
+
+        if want_jobs
           url = ENV["REDIS_URL"] || "redis://redis:6379/0"
           begin
             redis = ::Redis.new(url: url, timeout: 1.0)
@@ -175,6 +189,7 @@ module NittyMail
             require_relative "../jobs/write_job"
             run_id = "#{address}:#{mailbox}:#{uidvalidity}:#{Time.now.to_i}"
             redis.set("nm:dl:#{run_id}:total", total_to_process)
+            redis.set("nm:dl:#{run_id}:fetched", 0)
             redis.set("nm:dl:#{run_id}:processed", 0)
             redis.set("nm:dl:#{run_id}:errors", 0)
             redis.set("nm:dl:#{run_id}:aborted", 0)
@@ -225,17 +240,23 @@ module NittyMail
             if test_adapter
               # Brief polling to allow interrupt to be caught
               5.times do
+                fetched = redis.get("nm:dl:#{run_id}:fetched").to_i
                 processed = redis.get("nm:dl:#{run_id}:processed").to_i
                 errs = redis.get("nm:dl:#{run_id}:errors").to_i
-                progress.progress = [processed + errs, total_to_process].min
+                # Show progress based on fetched items (which happens first) or processed+errors (final)
+                current_progress = [fetched, processed + errs].max
+                progress.progress = [current_progress, total_to_process].min
                 break if aborted || processed + errs >= total_to_process
                 sleep 0.1
               end
             else
               loop do
+                fetched = redis.get("nm:dl:#{run_id}:fetched").to_i
                 processed = redis.get("nm:dl:#{run_id}:processed").to_i
                 errs = redis.get("nm:dl:#{run_id}:errors").to_i
-                progress.progress = [processed + errs, total_to_process].min
+                # Show progress based on fetched items (which happens first) or processed+errors (final)
+                current_progress = [fetched, processed + errs].max
+                progress.progress = [current_progress, total_to_process].min
                 break if aborted || processed + errs >= total_to_process
                 sleep 1
               end
