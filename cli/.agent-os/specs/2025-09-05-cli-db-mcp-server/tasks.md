@@ -38,9 +38,9 @@
   - [x] 4.6 Stub `db.search_emails` returning empty list with correct shape and info log
   - [x] 4.7 Verify all tests pass
 
-- [ ] 5. Documentation and validation
-  - [ ] 5.1 Update CLI README and command help for `db mcp` usage, options, defaults via env vars
-  - [ ] 5.2 Document tool list with params and return shapes; include note that `db.search_emails` is stubbed
-  - [ ] 5.2.1 Update `.env.sample` to include any missing env vars used by this command (e.g., `NITTYMAIL_SQLITE_DB`, `NITTYMAIL_MCP_MAX_LIMIT`, `NITTYMAIL_QUIET`) with comments and example values
-  - [ ] 5.3 Run `./bin/lint` and RSpec via Docker; ensure green
-  - [ ] 5.4 Smoke test with a local MCP client (manual) to confirm stdio behavior
+- [x] 5. Documentation and validation
+  - [x] 5.1 Update CLI README and command help for `db mcp` usage, options, defaults via env vars
+  - [x] 5.2 Document tool list with params and return shapes; include note that `db.search_emails` is stubbed
+  - [x] 5.2.1 Update `.env.sample` to include any missing env vars used by this command (e.g., `NITTYMAIL_SQLITE_DB`, `NITTYMAIL_MCP_MAX_LIMIT`, `NITTYMAIL_QUIET`) with comments and example values
+  - [x] 5.3 Run `./bin/lint` and RSpec via Docker; ensure green
+  - [x] 5.4 Smoke test with a local MCP client (manual) to confirm stdio behavior
