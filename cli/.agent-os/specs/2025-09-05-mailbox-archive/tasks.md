@@ -2,15 +2,15 @@
 
 ## Tasks
 
-- [ ] 1. CLI command and flags
-  - [ ] 1.1 Add `archive` subcommand to `cli mailbox`
-  - [ ] 1.2 Flags: `--mailbox`, `--output`, `--no-jobs`, `--job_uid_batch_size`, `--strict`, `--max-fetch-size`
-  - [ ] 1.3 Default output folder to `cli/archives` and create `.keep`
+- [x] 1. CLI command and flags
+  - [x] 1.1 Add `archive` subcommand to `cli mailbox`
+  - [x] 1.2 Flags: `--mailbox`, `--output`, `--no-jobs`, `--job_uid_batch_size`, `--strict`, `--max-fetch-size`
+  - [x] 1.3 Default output folder to `cli/archives` and create `.keep`
 
-- [ ] 2. Single-process archiver
-  - [ ] 2.1 Preflight; compute `to_archive` (server UIDs minus existing files)
-  - [ ] 2.2 Fetch in slices; atomic write `<uid>.eml`; skip existing
-  - [ ] 2.3 Progress bar and summary; strict vs skip-on-error handling
+- [x] 2. Single-process archiver
+  - [x] 2.1 Preflight; compute `to_archive` (server UIDs minus existing files)
+  - [x] 2.2 Fetch in slices; atomic write `<uid>.eml`; skip existing
+  - [x] 2.3 Progress bar and summary; strict vs skip-on-error handling
 
 - [ ] 3. Jobs mode (default)
   - [ ] 3.1 Implement `ArchiveFetchJob` (queue `fetch`)
@@ -18,9 +18,9 @@
   - [ ] 3.3 Poll counters to update progress; completion when `processed+errors==total`
   - [ ] 3.4 Prefer Active Job APIs in code/tests; no Sidekiq queue inspection
 
-- [ ] 4. Resumability and atomic writes
-  - [ ] 4.1 Skip if `<uid>.eml` exists; do not overwrite
-  - [ ] 4.2 Atomic write (`.tmp` → rename); ensure directories exist
+- [x] 4. Resumability and atomic writes
+  - [x] 4.1 Skip if `<uid>.eml` exists; do not overwrite
+  - [x] 4.2 Atomic write (`.tmp` → rename); ensure directories exist
 
 - [ ] 5. Graceful interrupts
   - [ ] 5.1 CLI: on first Ctrl‑C set abort flag and stop enqueues/polling; second Ctrl‑C force exit
@@ -37,5 +37,5 @@
   - [ ] 7.3 Jobs integration spec: counters + files written
   - [ ] 7.4 Strict-mode spec: fetch/write failure path (SystemExit)
   - [ ] 7.5 Interrupts spec: single and double Ctrl‑C
-  - [ ] 7.6 Add gitignore rules for archives: ignore all under `archives/**` except `archives/.keep`
+  - [x] 7.6 Add gitignore rules for archives: ignore all under `archives/**` except `archives/.keep`
   - [ ] 7.7 Lint (StandardRB/RuboCop) and full RSpec run (green)
