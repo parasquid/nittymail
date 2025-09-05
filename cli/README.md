@@ -67,6 +67,22 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
 - Default: skips per-message parse/encoding errors and failing fetch batches with clear warnings.
 - Strict mode: pass `--strict` to fail-fast (helpful in CI or when debugging data problems).
 
+### Maintenance flags
+
+- `--recreate`: Drop and rebuild rows for the current mailbox generation (scoped to `address` + `mailbox` + `uidvalidity` discovered during preflight). Requires confirmation unless `--yes`/`--force` is provided.
+- `--purge-uidvalidity <n>`: Delete all rows for the specified UIDVALIDITY and exit (no download).
+- `--yes` / `--force`: Skip confirmation prompts for destructive actions.
+
+Examples:
+
+```bash
+# Drop and re-download the current generation for INBOX
+docker compose run --rm cli mailbox download --mailbox INBOX --recreate --yes
+
+# Purge an old generation and exit
+docker compose run --rm cli mailbox download --mailbox INBOX --purge-uidvalidity 12345 --yes
+```
+
 - Troubleshooting tips:
   - Ensure IMAP is enabled for your account; app password may be required.
   - Set `NITTYMAIL_SQLITE_DB` or use `--database` to control DB location.
