@@ -65,7 +65,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - Output: `cli/archives/<address>/<sanitized-mailbox>/<uidvalidity>/<uid>.eml`.
   - `cli/archives/.keep` is tracked; all other files are gitignored.
 - Resumability: skip existing files; atomic write (`.tmp` then rename).
-- Jobs Mode: defaults to Active Job (Sidekiq adapter) when Redis reachable; `--no-jobs` for single‑process.
+- Jobs Mode: single‑process is default; pass `--jobs` to enable Active Job (Sidekiq adapter) when Redis is reachable.
 - Interrupts: first Ctrl‑C sets abort flag `nm:arc:<run_id>:aborted=1` and stops enqueues/polling; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
 - Testing patterns: mirror jobs download approach (Active Job test adapter + Redis stubs); prefer adapter‑agnostic tests.
 
