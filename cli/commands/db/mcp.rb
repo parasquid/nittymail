@@ -219,7 +219,7 @@ module NittyMail
 
         def get_top_senders(args)
           limit = clamp_limit(args["limit"], default: 20)
-          ds = NittyMail::Email.where.not(from_email: [nil, ""]).group(:from_email).order("COUNT(*) DESC").limit(limit).count
+          ds = NittyMail::Email.where.not(from_email: [nil, ""]).group(:from_email).order(Arel.sql("COUNT(*) DESC")).limit(limit).count
           # ActiveRecord group(...).count returns {"from_email"=>count} or { [colvals]=>count }
           ds.map { |k, v| {from: (k.is_a?(Array) ? k.first : k), count: v.to_i} }
         end
@@ -240,12 +240,12 @@ module NittyMail
             dom = fd.to_s.start_with?("@") ? fd.to_s[1..] : fd.to_s
             ds = ds.where("LOWER(from_email) LIKE ? ESCAPE '\\'", like("@#{dom}"))
           end
-          rows = ds.select("emails.*", "LENGTH(raw) AS size_bytes").order("size_bytes DESC").limit(limit).map(&:attributes)
+          rows = ds.select("emails.*", "LENGTH(raw) AS size_bytes").order(Arel.sql("size_bytes DESC")).limit(limit).map(&:attributes)
           rows.map { |h| symbolize_and_normalize(h) }
         end
 
         def get_mailbox_stats(_args)
-          ds = NittyMail::Email.group(:mailbox).order("COUNT(*) DESC").count
+          ds = NittyMail::Email.group(:mailbox).order(Arel.sql("COUNT(*) DESC")).count
           ds.map { |k, v| {mailbox: (k.is_a?(Array) ? k.first : k), count: v.to_i} }
         end
 
