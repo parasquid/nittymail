@@ -16,7 +16,7 @@ class WriteJob < ActiveJob::Base
   # - from_email: String (optional)
   # - rfc822_size: Integer (optional)
   # - labels: Array<String>
-  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false, sha256: nil)
+  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false, sha256: nil, x_gm_thrid: nil, x_gm_msgid: nil)
     # Respect abort flag if present; leave artifact for cleanup
     if run_id && aborted?(run_id)
       return
@@ -49,12 +49,26 @@ class WriteJob < ActiveJob::Base
     subject = ""
     plain_text = ""
     markdown = ""
+    message_id = nil
+    header_date = nil
+    from_display = nil
+    reply_to_emails = nil
+    in_reply_to = nil
+    references_list = nil
+    has_attachments = false
     to_emails = nil
     cc_emails = nil
     bcc_emails = nil
     begin
       mail = ::Mail.read_from_string(NittyMail::Enricher.normalize_utf8(raw))
       subject = NittyMail::Enricher.normalize_utf8(mail.subject.to_s)
+      message_id = NittyMail::Enricher.normalize_utf8(mail.message_id.to_s)
+      begin
+        header_date = mail.date&.to_time
+      rescue
+        header_date = nil
+      end
+      from_display = NittyMail::Enricher.normalize_utf8(mail[:from]&.to_s)
       text_part = NittyMail::Enricher.safe_decode(mail.text_part)
       html_part = NittyMail::Enricher.safe_decode(mail.html_part)
       body_fallback = NittyMail::Enricher.safe_decode(mail.body)
@@ -65,13 +79,19 @@ class WriteJob < ActiveJob::Base
         ::ReverseMarkdown.convert(plain_text.to_s)
       end
       markdown = NittyMail::Enricher.normalize_utf8(markdown)
+      has_attachments = mail.attachments && !mail.attachments.empty?
 
       to_list = Array(mail.to).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
       cc_list = Array(mail.cc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
       bcc_list = Array(mail.bcc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+      reply_to_list = Array(mail.reply_to).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+      in_reply_to = NittyMail::Enricher.normalize_utf8(mail.in_reply_to.to_s)
+      references_vals = Array(mail.references).map { |x| NittyMail::Enricher.normalize_utf8(x.to_s) }
       to_emails = JSON.generate(to_list) unless to_list.empty?
       cc_emails = JSON.generate(cc_list) unless cc_list.empty?
       bcc_emails = JSON.generate(bcc_list) unless bcc_list.empty?
+      reply_to_emails = JSON.generate(reply_to_list) unless reply_to_list.empty?
+      references_list = JSON.generate(references_vals) unless references_vals.empty?
     rescue => e
       warn "write parse error: #{e.class}: #{e.message} uv=#{uidvalidity} uid=#{uid}"
       if strict || ENV["NITTYMAIL_STRICT"] == "1"
@@ -92,12 +112,21 @@ class WriteJob < ActiveJob::Base
           subject: subject,
           internaldate: Time.at(internaldate_epoch),
           internaldate_epoch: internaldate_epoch,
+          date: header_date,
           rfc822_size: rfc822_size,
           from_email: from_email,
+          from: from_display,
           labels_json: JSON.generate(Array(labels)),
           to_emails: to_emails,
           cc_emails: cc_emails,
           bcc_emails: bcc_emails,
+          envelope_reply_to: reply_to_emails,
+          envelope_in_reply_to: in_reply_to,
+          envelope_references: references_list,
+          message_id: message_id,
+          x_gm_thrid: x_gm_thrid,
+          x_gm_msgid: x_gm_msgid,
+          has_attachments: has_attachments,
           raw: raw,
           plain_text: plain_text,
           markdown: markdown,

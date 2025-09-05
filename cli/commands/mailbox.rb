@@ -352,12 +352,26 @@ module NittyMail
             subject = ""
             plain_text = ""
             markdown = ""
+            message_id = nil
+            header_date = nil
+            from_display = nil
+            reply_to_emails = nil
+            in_reply_to = nil
+            references_list = nil
+            has_attachments = false
             to_emails = nil
             cc_emails = nil
             bcc_emails = nil
             begin
               mail = ::Mail.read_from_string(safe)
               subject = mail.subject.to_s
+              message_id = mail.message_id.to_s
+              begin
+                header_date = mail.date&.to_time
+              rescue
+                header_date = nil
+              end
+              from_display = mail[:from]&.to_s
               text_part = NittyMail::Enricher.safe_decode(mail.text_part)
               html_part = NittyMail::Enricher.safe_decode(mail.html_part)
               body_fallback = NittyMail::Enricher.safe_decode(mail.body)
@@ -369,15 +383,23 @@ module NittyMail
               end
               # normalize encodings to UTF-8 for DB writes
               subject = NittyMail::Enricher.normalize_utf8(subject)
+              message_id = NittyMail::Enricher.normalize_utf8(message_id)
               plain_text = NittyMail::Enricher.normalize_utf8(plain_text)
               markdown = NittyMail::Enricher.normalize_utf8(markdown)
+              from_display = NittyMail::Enricher.normalize_utf8(from_display)
+              has_attachments = mail.attachments && !mail.attachments.empty?
               # recipients lists (store as JSON arrays)
               to_list = Array(mail.to).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
               cc_list = Array(mail.cc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
               bcc_list = Array(mail.bcc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+              reply_to_list = Array(mail.reply_to).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+              in_reply_to = NittyMail::Enricher.normalize_utf8(mail.in_reply_to.to_s)
+              references_vals = Array(mail.references).map { |x| NittyMail::Enricher.normalize_utf8(x.to_s) }
               to_emails = JSON.generate(to_list) unless to_list.empty?
               cc_emails = JSON.generate(cc_list) unless cc_list.empty?
               bcc_emails = JSON.generate(bcc_list) unless bcc_list.empty?
+              reply_to_emails = JSON.generate(reply_to_list) unless reply_to_list.empty?
+              references_list = JSON.generate(references_vals) unless references_vals.empty?
             rescue => e
               msg = "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
               if strict
@@ -387,6 +409,10 @@ module NittyMail
               end
             end
 
+            # Gmail X-GM attributes
+            x_gm_thrid = msg.attr["X-GM-THRID"] || msg.attr[:"X-GM-THRID"] || msg.attr[:x_gm_thrid]
+            x_gm_msgid = msg.attr["X-GM-MSGID"] || msg.attr[:"X-GM-MSGID"] || msg.attr[:x_gm_msgid]
+
             rows << {
               address: address,
               mailbox: mailbox,
@@ -395,12 +421,21 @@ module NittyMail
               subject: subject,
               internaldate: internal_time,
               internaldate_epoch: internal_epoch,
+              date: header_date,
               rfc822_size: rfc822_size,
               from_email: from_email,
+              from: from_display,
               labels_json: JSON.generate(labels),
               to_emails: to_emails,
               cc_emails: cc_emails,
               bcc_emails: bcc_emails,
+              envelope_reply_to: reply_to_emails,
+              envelope_in_reply_to: in_reply_to,
+              envelope_references: references_list,
+              message_id: message_id,
+              x_gm_thrid: x_gm_thrid,
+              x_gm_msgid: x_gm_msgid,
+              has_attachments: has_attachments,
               raw: raw,
               plain_text: plain_text,
               markdown: markdown,
