@@ -63,6 +63,10 @@ module NittyMail
       method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
       method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
+      method_option :recreate, type: :boolean, default: false, desc: "Drop and recreate rows for this mailbox+uidvalidity"
+      method_option :yes, type: :boolean, default: false, desc: "Auto-confirm destructive actions"
+      method_option :force, type: :boolean, default: false, desc: "Alias for --yes"
+      method_option :purge_uidvalidity, type: :numeric, required: false, desc: "Delete rows for a specific UIDVALIDITY and exit"
       def download
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -92,6 +96,38 @@ module NittyMail
         uidvalidity = preflight[:uidvalidity]
         server_uids = Array(preflight[:to_fetch])
         puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+
+        # Handle purge-only mode
+        purge_val = options[:purge_uidvalidity]
+        if purge_val
+          confirm = options[:yes] || options[:force]
+          unless confirm
+            answer = ask("This will DELETE rows for #{address} #{mailbox} UIDVALIDITY=#{purge_val}. Type 'DELETE' to confirm:")
+            confirm = (answer == "DELETE")
+          end
+          unless confirm
+            warn "Purge cancelled."
+            return
+          end
+          deleted = NittyMail::Email.where(address: address, mailbox: mailbox, uidvalidity: purge_val).delete_all
+          puts "Purged #{deleted} row(s) for UIDVALIDITY=#{purge_val}."
+          return
+        end
+
+        # Recreate mode: delete current generation before fetching
+        if options[:recreate]
+          confirm = options[:yes] || options[:force]
+          unless confirm
+            answer = ask("This will DELETE rows for #{address} #{mailbox} UIDVALIDITY=#{uidvalidity}. Type 'DELETE' to confirm:")
+            confirm = (answer == "DELETE")
+          end
+          unless confirm
+            warn "Recreate cancelled."
+            return
+          end
+          dropped = NittyMail::Email.where(address: address, mailbox: mailbox, uidvalidity: uidvalidity).delete_all
+          puts "Dropped #{dropped} row(s) for UIDVALIDITY=#{uidvalidity} (recreate)."
+        end
 
         existing_uids = NittyMail::Email.where(address: address, mailbox: mailbox, uidvalidity: uidvalidity).pluck(:uid).to_set
         to_fetch = server_uids.reject { |u| existing_uids.include?(u) }

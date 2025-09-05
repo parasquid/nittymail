@@ -50,7 +50,7 @@
   - [x] 6.4 Add `--strict` flag to fail-fast on errors and include tests
 
 - [ ] 7. Recreate mode
-  - [ ] 7.1 Add `--recreate` option to `mailbox download` to drop and recreate only the targeted mailbox+uidvalidity rows
-  - [ ] 7.2 Implement safe confirmation prompt (requires explicit `--yes` or `--force`)
-  - [ ] 7.3 Provide alternative `--purge-uidvalidity <n>` to delete a generation without full drop
-  - [ ] 7.4 Add tests covering recreate/purge flows and non-destructive defaults
+  - [x] 7.1 Add `--recreate` option to `mailbox download` to drop and recreate only the targeted mailbox+uidvalidity rows
+  - [x] 7.2 Implement safe confirmation prompt (requires explicit `--yes` or `--force`)
+  - [x] 7.3 Provide alternative `--purge-uidvalidity <n>` to delete a generation without full drop
+  - [x] 7.4 Add tests covering recreate/purge flows and non-destructive defaults
