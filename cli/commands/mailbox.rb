@@ -112,7 +112,7 @@ module NittyMail
           rows = []
           fetch_response.each do |msg|
             uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
+            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
             raw = raw.to_s.dup
             raw.force_encoding("BINARY")
             safe = begin
@@ -141,15 +141,18 @@ module NittyMail
               nil
             end
 
-            labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:"X-GM-LABELS"] || msg.attr[:x_gm_labels]
+            labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
             labels = Array(labels_attr).map { |v| NittyMail::Enricher.normalize_utf8(v.to_s) }
 
-            size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"]
+            size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
             rfc822_size = size_attr.to_i
 
             subject = ""
             plain_text = ""
             markdown = ""
+            to_emails = nil
+            cc_emails = nil
+            bcc_emails = nil
             begin
               mail = ::Mail.read_from_string(safe)
               subject = mail.subject.to_s
@@ -166,6 +169,13 @@ module NittyMail
               subject = NittyMail::Enricher.normalize_utf8(subject)
               plain_text = NittyMail::Enricher.normalize_utf8(plain_text)
               markdown = NittyMail::Enricher.normalize_utf8(markdown)
+              # recipients lists (store as JSON arrays)
+              to_list = Array(mail.to).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+              cc_list = Array(mail.cc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+              bcc_list = Array(mail.bcc).map { |a| NittyMail::Enricher.normalize_utf8(a.to_s.downcase) }
+              to_emails = JSON.generate(to_list) unless to_list.empty?
+              cc_emails = JSON.generate(cc_list) unless cc_list.empty?
+              bcc_emails = JSON.generate(bcc_list) unless bcc_list.empty?
             rescue => e
               warn "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping parse; storing raw only)"
             end
@@ -181,6 +191,9 @@ module NittyMail
               rfc822_size: rfc822_size,
               from_email: from_email,
               labels_json: JSON.generate(labels),
+              to_emails: to_emails,
+              cc_emails: cc_emails,
+              bcc_emails: bcc_emails,
               raw: raw,
               plain_text: plain_text,
               markdown: markdown,

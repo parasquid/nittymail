@@ -20,14 +20,14 @@
   - [x] 2.6 Emit concise progress with counts; graceful SIGINT handling (simplified loop)
   - [x] 2.7 Verify all tests pass
 
-- [ ] 3. Parsing and normalization pipeline
-  - [ ] 3.1 Write tests for parsing: subject, internaldate/epoch, plain_text, markdown, addresses, labels, size
-  - [ ] 3.2 Implement RFC822 parsing using `mail` with safe decoding
-  - [ ] 3.3 Derive plain_text (text/plain or HTML→text fallback via ReverseMarkdown)
-  - [ ] 3.4 Derive lightweight markdown from HTML/text deterministically
-  - [ ] 3.5 Normalize address lists (from/to/cc/bcc) and labels JSON
-  - [ ] 3.6 Populate rfc822_size; preserve exact raw bytes (BLOB)
-  - [ ] 3.7 Verify all tests pass
+- [x] 3. Parsing and normalization pipeline
+  - [x] 3.1 Write tests for parsing: subject, internaldate/epoch, plain_text, markdown, addresses, labels, size
+  - [x] 3.2 Implement RFC822 parsing using `mail` with safe decoding
+  - [x] 3.3 Derive plain_text (text/plain or HTML→text fallback via ReverseMarkdown)
+  - [x] 3.4 Derive lightweight markdown from HTML/text deterministically
+  - [x] 3.5 Normalize address lists (from/to/cc/bcc) and labels JSON
+  - [x] 3.6 Populate rfc822_size; preserve exact raw bytes (BLOB)
+  - [x] 3.7 Verify all tests pass
 
 - [ ] 4. Ops, configuration, and docs
   - [x] 4.1 Write tests (or smoke checks) for default DB path and env/flag overrides
@@ -37,11 +37,11 @@
   - [ ] 4.4 Add guidance for performance flags (batch size, threads if any), WAL, and resume behavior
   - [ ] 4.5 Verify all tests pass
 
-- [ ] 5. Quality, lint, and integration checks
-  - [ ] 5.1 Write integration spec: small inbox fetch scenario with mocked IMAP; verify resumability
-  - [ ] 5.2 StandardRB auto-fix, RuboCop clean
+- [x] 5. Quality, lint, and integration checks
+  - [x] 5.1 Write integration spec: small inbox fetch scenario with mocked IMAP; verify resumability
+  - [x] 5.2 StandardRB auto-fix, RuboCop clean
   - [x] 5.3 Run full RSpec suite inside Docker; ensure green
-  - [ ] 5.4 Verify all tests pass
+  - [x] 5.4 Verify all tests pass
 
 - [x] 6. Error handling and resilience
   - [x] 6.1 Skip per-message parse/encoding errors by default with warnings (uid shown)
