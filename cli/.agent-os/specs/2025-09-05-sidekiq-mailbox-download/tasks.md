@@ -25,15 +25,15 @@
   - [x] 4.2 Organize artifacts by `address/mailbox/uidvalidity/uid.eml`
   - [x] 4.3 Best-effort cleanup and optional checksum validation (added SHA256 to jobs and validated in writer)
 
-- [ ] 5. Graceful interrupts (jobs mode)
+- [x] 5. Graceful interrupts (jobs mode)
   - [x] 5.1 Ensure jobs carry `run_id` to support selective cleanup
   - [x] 5.2 On first Ctrl-C: stop enqueuing/polling, set abort flag in Redis for `run_id` (e.g., `nm:dl:<run_id>:aborted=1`), have jobs check this and self-terminate early; best-effort delete unprocessed artifacts (no Sidekiq queue manipulation)
   - [x] 5.3 On second Ctrl-C: force quit after best-effort cleanup
   - [x] 5.4 Add specs for graceful vs forceful interrupts (prefer Active Job test helpers and stubbing Redis/filesystem; avoid Sidekiq-specific APIs)
 
-- [ ] 6. Docs and examples
-  - [ ] 6.1 Update README (job-mode quickstart, flags, compose services, interrupts)
-  - [ ] 6.2 Update AGENTS.md (job-mode guidance, testing patterns, interrupts)
+- [x] 6. Docs and examples
+  - [x] 6.1 Update README (job-mode quickstart, flags, compose services, interrupts)
+  - [x] 6.2 Update AGENTS.md (job-mode guidance, testing patterns, interrupts)
 
 - [ ] 7. Tests and quality
   - [x] 7.1 Add integration specs: enqueue + parallel fetch + single writer writes
