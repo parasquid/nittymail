@@ -48,3 +48,25 @@ services:
     command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq.yml", "-q", "write", "-c", "1"]
     depends_on:
       - redis
+
+  monitor:
+    platform: linux/amd64
+    image: ruby:3.4.4
+    working_dir: /app/cli
+    volumes:
+      - ..:/app
+      - ./.bundle:/usr/local/bundle
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Optional basic auth for Sidekiq Web
+      # SIDEKIQ_WEB_USER=user
+      # SIDEKIQ_WEB_PASSWORD=pass
+      # Optional session secret
+      # SIDEKIQ_SESSION_SECRET=some-long-random-string
+    command: ["bash", "-lc", "bundle install && bundle exec rackup -s webrick -o 0.0.0.0 -p 9292 ./config.ru"]
+    ports:
+      - "9292:9292"
+    depends_on:
+      - redis

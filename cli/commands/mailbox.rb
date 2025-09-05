@@ -535,7 +535,28 @@ module NittyMail
           redis.set("nm:arc:#{run_id}:aborted", 0)
           batch_size_jobs = options[:job_uid_batch_size].to_i
           batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
+          aborted = false
+          second_interrupt = false
+          safe_address = address.to_s.downcase
+          safe_mailbox = NittyMail::Utils.sanitize_collection_name(mailbox.to_s)
+          uv_dir = File.join(out_base, safe_address, safe_mailbox, uidvalidity.to_s)
+          trap_handler = proc do
+            if aborted
+              second_interrupt = true
+              puts "\nForce exit requested."
+            else
+              aborted = true
+              begin
+                redis.set("nm:arc:#{run_id}:aborted", 1)
+              rescue
+              end
+              puts "\nAborting archive... stopping enqueues and polling; cleaning up temp files."
+            end
+          end
+          trap("INT", &trap_handler)
+
           to_archive.each_slice(batch_size_jobs) do |uid_batch|
+            break if aborted
             ArchiveFetchJob.perform_later(
               address: address,
               password: password,
@@ -553,11 +574,25 @@ module NittyMail
             processed = redis.get("nm:arc:#{run_id}:processed").to_i
             errs = redis.get("nm:arc:#{run_id}:errors").to_i
             progress.progress = [processed + errs, total_to_process].min
-            break if processed + errs >= total_to_process
+            break if aborted || processed + errs >= total_to_process
             sleep 1
           end
           progress.finish unless progress.finished?
-          puts "Archive complete: processed #{redis.get("nm:arc:#{run_id}:processed")} file(s), errors #{redis.get("nm:arc:#{run_id}:errors")}."
+          if aborted
+            # Best-effort cleanup: remove temp files left by partial writes
+            begin
+              Dir.glob(File.join(uv_dir, ".*.eml.tmp")).each do |tmp|
+                File.delete(tmp)
+              rescue
+                nil
+              end
+            rescue
+            end
+            puts "Aborted. processed #{redis.get("nm:arc:#{run_id}:processed")} file(s), errors #{redis.get("nm:arc:#{run_id}:errors")}."
+            exit 130 if second_interrupt
+          else
+            puts "Archive complete: processed #{redis.get("nm:arc:#{run_id}:processed")} file(s), errors #{redis.get("nm:arc:#{run_id}:errors")}."
+          end
           return
         end
 
