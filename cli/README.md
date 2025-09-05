@@ -65,14 +65,14 @@ How it works:
 
 ### Archive Raw Mail (.eml files)
 
-Archive saves raw RFC822 email files named by UID without parsing or database writes.
+Archive saves raw RFC822 email files named by UID without parsing or database writes. It runs single‑process by default (no Redis required); you can opt into jobs mode with `--jobs`.
 
-- Run archive (jobs mode by default; falls back to single‑process if Redis unavailable):
+- Run archive (single‑process by default; add `--jobs` to enable jobs mode):
   ```bash
   docker compose run --rm cli mailbox archive --mailbox INBOX
   # Optional flags:
   #   --output ./path/to/archives  # base output (default cli/archives)
-  #   --no-jobs                    # single‑process mode
+  #   --jobs                       # enable jobs mode (requires Redis)
   #   --job_uid_batch_size 200     # batch size for jobs mode
   #   --max-fetch-size 200         # IMAP fetch slice
   #   --strict                     # fail‑fast on errors

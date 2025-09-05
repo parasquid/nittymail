@@ -21,11 +21,23 @@ RSpec.describe "Archive jobs interrupts" do
     allow(ActiveJob::Base).to receive(:queue_adapter=).and_return(nil)
     # Redis stub
     @redis = Class.new {
-      def initialize; @data = {}; end
-      def ping; "PONG"; end
-      def set(k, v); @data[k] = v.to_s; end
-      def get(k); @data[k]; end
-      def data; @data; end
+      def initialize
+        @data = {}
+      end
+
+      def ping
+        "PONG"
+      end
+
+      def set(k, v)
+        @data[k] = v.to_s
+      end
+
+      def get(k)
+        @data[k]
+      end
+
+      attr_reader :data
     }.new
     allow(::Redis).to receive(:new).and_return(@redis)
 
@@ -35,7 +47,17 @@ RSpec.describe "Archive jobs interrupts" do
     allow(NittyMail::Mailbox).to receive(:new).and_return(@mb)
     allow(@mb).to receive(:preflight).and_return({uidvalidity: 65, to_fetch: [7, 8, 9], server_size: 3})
     # Keep fetch simple
-    def mkmsg(u); Class.new { def initialize(u); @u=u; end; def attr; {"UID"=>@u, :UID=>@u, "BODY[]"=>"X", :'BODY[]'=>'X', "RFC822.SIZE"=>1, :'RFC822.SIZE'=>1}; end }.new(u); end
+    def mkmsg(u)
+      Class.new {
+        def initialize(u)
+          @u = u
+        end
+
+        def attr
+          {"UID" => @u, :UID => @u, "BODY[]" => "X", :"BODY[]" => "X", "RFC822.SIZE" => 1, :"RFC822.SIZE" => 1}
+        end
+      }.new(u)
+    end
     allow(@mb).to receive(:fetch) { |uids:| uids.map { |u| mkmsg(u) } }
   end
 
@@ -56,4 +78,3 @@ RSpec.describe "Archive jobs interrupts" do
     expect(@redis.get(key)).to eq("1")
   end
 end
-

@@ -471,8 +471,8 @@ module NittyMail
       method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
       method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
-      method_option :no_jobs, type: :boolean, default: false, desc: "Force single-process mode (default will use jobs when available)"
-      method_option :job_uid_batch_size, type: :numeric, default: 200, desc: "UID batch size per fetch job"
+      method_option :jobs, type: :boolean, default: false, desc: "Enable jobs mode (default is single-process)"
+      method_option :job_uid_batch_size, type: :numeric, default: 200, desc: "UID batch size per fetch job (jobs mode)"
       def archive
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -513,7 +513,7 @@ module NittyMail
         end
 
         # Jobs mode placeholder: fall back to local if requested or Redis unavailable
-        want_jobs = !options[:no_jobs]
+        want_jobs = !!options[:jobs]
         redis = nil
         if want_jobs
           url = ENV["REDIS_URL"] || "redis://redis:6379/0"

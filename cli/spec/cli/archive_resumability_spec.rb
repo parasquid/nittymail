@@ -6,14 +6,15 @@ class ARStubMsg
     @uid = uid
     @raw = raw
   end
+
   def attr
     {
       "UID" => @uid,
       :UID => @uid,
       "BODY[]" => @raw,
-      :'BODY[]' => @raw,
+      :"BODY[]" => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :'RFC822.SIZE' => @raw.bytesize
+      :"RFC822.SIZE" => @raw.bytesize
     }
   end
 end
@@ -62,4 +63,3 @@ RSpec.describe "Archive resumability" do
     expect(File.exist?(File.join(uv_dir, "23.eml"))).to eq(true)
   end
 end
-

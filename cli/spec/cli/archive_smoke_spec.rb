@@ -7,6 +7,7 @@ class AStubMsg
     @t = t
     @raw = "Subject: #{subj}\n\n#{body}"
   end
+
   def attr
     {
       "UID" => @uid,
@@ -14,9 +15,9 @@ class AStubMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :'BODY[]' => @raw,
+      :"BODY[]" => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :'RFC822.SIZE' => @raw.bytesize
+      :"RFC822.SIZE" => @raw.bytesize
     }
   end
 end
@@ -64,4 +65,3 @@ RSpec.describe "Archive smoke" do
     expect(Dir.children(uv_dir).grep(/\.eml\z/).size).to eq(2)
   end
 end
-

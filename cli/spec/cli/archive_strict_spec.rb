@@ -6,8 +6,9 @@ class ASMsg
     @uid = uid
     @raw = raw
   end
+
   def attr
-    {"UID" => @uid, :UID => @uid, "BODY[]" => @raw, :'BODY[]' => @raw, "RFC822.SIZE" => @raw.bytesize, :'RFC822.SIZE' => @raw.bytesize}
+    {"UID" => @uid, :UID => @uid, "BODY[]" => @raw, :"BODY[]" => @raw, "RFC822.SIZE" => @raw.bytesize, :"RFC822.SIZE" => @raw.bytesize}
   end
 end
 
@@ -53,4 +54,3 @@ RSpec.describe "Archive strict mode" do
     expect { cli.invoke(:archive, [], {mailbox: mailbox, strict: true}) }.to raise_error(SystemExit)
   end
 end
-
