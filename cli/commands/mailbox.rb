@@ -526,7 +526,39 @@ module NittyMail
           end
         end
         if want_jobs && redis
-          warn "archive jobs mode will be added shortly; running local mode for now"
+          ActiveJob::Base.queue_adapter = :sidekiq
+          require_relative "../jobs/archive_fetch_job"
+          run_id = "#{address}:#{mailbox}:#{uidvalidity}:#{Time.now.to_i}"
+          redis.set("nm:arc:#{run_id}:total", total_to_process)
+          redis.set("nm:arc:#{run_id}:processed", 0)
+          redis.set("nm:arc:#{run_id}:errors", 0)
+          redis.set("nm:arc:#{run_id}:aborted", 0)
+          batch_size_jobs = options[:job_uid_batch_size].to_i
+          batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
+          to_archive.each_slice(batch_size_jobs) do |uid_batch|
+            ArchiveFetchJob.perform_later(
+              address: address,
+              password: password,
+              mailbox: mailbox,
+              uidvalidity: uidvalidity,
+              uids: uid_batch,
+              settings: ((max_fetch_override && max_fetch_override > 0) ? {max_fetch_size: max_fetch_override} : {}),
+              archive_dir: out_base,
+              run_id: run_id,
+              strict: options[:strict]
+            )
+          end
+          progress = NittyMail::Utils.progress_bar(title: "Archive(jobs)", total: total_to_process)
+          loop do
+            processed = redis.get("nm:arc:#{run_id}:processed").to_i
+            errs = redis.get("nm:arc:#{run_id}:errors").to_i
+            progress.progress = [processed + errs, total_to_process].min
+            break if processed + errs >= total_to_process
+            sleep 1
+          end
+          progress.finish unless progress.finished?
+          puts "Archive complete: processed #{redis.get("nm:arc:#{run_id}:processed")} file(s), errors #{redis.get("nm:arc:#{run_id}:errors")}."
+          return
         end
 
         # Local single-process archiving
