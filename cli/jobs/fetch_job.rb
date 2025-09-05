@@ -16,7 +16,7 @@ class FetchJob < ActiveJob::Base
   # - uids: array of Integers
   # - settings: optional hash for NittyMail::Settings overrides
   # - artifact_dir: optional base dir for artifacts
-  def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil, run_id: nil, strict: false)
+  def perform(mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil, run_id: nil, strict: false)
     # Add small delay when using ActiveJob TestAdapter to allow interrupt trap to set abort flag
     begin
       aj_adapter = ActiveJob::Base.queue_adapter
@@ -29,6 +29,14 @@ class FetchJob < ActiveJob::Base
     if run_id && aborted?(run_id)
       return
     end
+    
+    # Read IMAP credentials from environment variables for security
+    address = ENV["NITTYMAIL_IMAP_ADDRESS"]
+    password = ENV["NITTYMAIL_IMAP_PASSWORD"]
+    
+    raise ArgumentError, "NITTYMAIL_IMAP_ADDRESS environment variable is required" unless address
+    raise ArgumentError, "NITTYMAIL_IMAP_PASSWORD environment variable is required" unless password
+
     settings_args = {imap_address: address, imap_password: password}.merge(settings || {})
     settings_obj = NittyMail::Settings.new(**settings_args)
     mailbox_client = NittyMail::Mailbox.new(settings: settings_obj, mailbox_name: mailbox)

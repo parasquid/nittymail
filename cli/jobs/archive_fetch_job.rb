@@ -14,8 +14,15 @@ class ArchiveFetchJob < ActiveJob::Base
   # - uids: array of Integers
   # - settings: optional hash for NittyMail::Settings overrides
   # - archive_dir: optional base dir for outputs
-  def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, archive_dir: nil, run_id: nil, strict: false)
+  def perform(mailbox:, uidvalidity:, uids:, settings: {}, archive_dir: nil, run_id: nil, strict: false)
     return if run_id && aborted?(run_id)
+
+    # Read IMAP credentials from environment variables for security
+    address = ENV["NITTYMAIL_IMAP_ADDRESS"]
+    password = ENV["NITTYMAIL_IMAP_PASSWORD"]
+    
+    raise ArgumentError, "NITTYMAIL_IMAP_ADDRESS environment variable is required" unless address
+    raise ArgumentError, "NITTYMAIL_IMAP_PASSWORD environment variable is required" unless password
 
     settings_args = {imap_address: address, imap_password: password}.merge(settings || {})
     settings_obj = NittyMail::Settings.new(**settings_args)
