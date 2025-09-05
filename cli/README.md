@@ -54,7 +54,7 @@ Jobs mode parallelizes IMAP fetches via background workers while keeping a singl
    #   --no-jobs                   # force single-process
    #   --job_uid_batch_size 200    # UIDs per fetch job (default 200)
    #   --strict                    # fail-fast in jobs and local modes
-   ```
+  ```
 
 How it works:
 - The CLI enqueues `FetchJob` batches that write raw RFC822 artifacts under `cli/job-data/<address>/<mailbox>/<uidvalidity>/<uid>.eml`.
@@ -62,6 +62,27 @@ How it works:
 - Integrity: each artifact includes an SHA256 checksum validated by the writer before parsing.
 - Progress: the CLI polls Redis counters and shows a progress bar; completion is when `processed + errors == total`.
 - Interrupts: first Ctrl‑C requests a graceful stop (sets an abort flag, stops enqueues/polling, and cleans up artifacts). A second Ctrl‑C forces exit.
+
+### Archive Raw Mail (.eml files)
+
+Archive saves raw RFC822 email files named by UID without parsing or database writes.
+
+- Run archive (jobs mode by default; falls back to single‑process if Redis unavailable):
+  ```bash
+  docker compose run --rm cli mailbox archive --mailbox INBOX
+  # Optional flags:
+  #   --output ./path/to/archives  # base output (default cli/archives)
+  #   --no-jobs                    # single‑process mode
+  #   --job_uid_batch_size 200     # batch size for jobs mode
+  #   --max-fetch-size 200         # IMAP fetch slice
+  #   --strict                     # fail‑fast on errors
+  ```
+
+- Output layout: `cli/archives/<address>/<mailbox>/<uidvalidity>/<uid>.eml`.
+  - The `cli/archives/.keep` file is tracked; all other archive files are gitignored to prevent accidental commits.
+- Resumable: re‑running archives only missing UIDs; existing `<uid>.eml` files are skipped.
+- Progress: progress bar reflects processed vs total.
+- Interrupts: first Ctrl‑C sets `nm:arc:<run_id>:aborted=1`, stops enqueues/polling, and cleans temporary files; second Ctrl‑C forces exit.
 
 ### Notes on stored columns
 

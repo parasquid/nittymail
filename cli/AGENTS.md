@@ -59,6 +59,16 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
   - Stub Redis via a minimal in-memory object or mock; avoid Sidekiq-API-specific assertions.
   - Simulate interrupts by sending `INT` to the current process in specs.
 
+## Archive Command
+
+- Command: `mailbox archive` saves raw RFC822 `.eml` files named by UID; no parsing or DB writes.
+- Output: `cli/archives/<address>/<sanitized-mailbox>/<uidvalidity>/<uid>.eml`.
+  - `cli/archives/.keep` is tracked; all other files are gitignored.
+- Resumability: skip existing files; atomic write (`.tmp` then rename).
+- Jobs Mode: defaults to Active Job (Sidekiq adapter) when Redis reachable; `--no-jobs` for single‑process.
+- Interrupts: first Ctrl‑C sets abort flag `nm:arc:<run_id>:aborted=1` and stops enqueues/polling; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
+- Testing patterns: mirror jobs download approach (Active Job test adapter + Redis stubs); prefer adapter‑agnostic tests.
+
 ## Error Handling
 
 - Default: skip-on-error with warnings (parse/encoding/fetch/upsert). Per-chunk upsert falls back to per-row.
