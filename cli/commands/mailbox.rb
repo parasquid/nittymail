@@ -195,6 +195,8 @@ module NittyMail
             redis.set("nm:dl:#{run_id}:aborted", 0)
             batch_size_jobs = options[:job_uid_batch_size].to_i
             batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
+            # Ensure job batch size doesn't exceed server's max fetch size limit
+            batch_size_jobs = [batch_size_jobs, settings.max_fetch_size].min
             aborted = false
             second_interrupt = false
             artifact_base = File.expand_path("../job-data", __dir__)
