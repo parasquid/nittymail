@@ -3,7 +3,12 @@
 require "bundler/setup"
 require "active_job"
 require "sidekiq"
-require "dotenv/load"
+# Load env vars from .env when available; Docker Compose also injects envs.
+begin
+  require "dotenv/load"
+rescue LoadError
+  warn "[sidekiq_boot] dotenv not found; using existing environment variables"
+end
 
 # Configure Active Job to use Sidekiq adapter
 ActiveJob::Base.queue_adapter = :sidekiq
