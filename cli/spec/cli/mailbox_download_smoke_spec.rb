@@ -1,50 +1,50 @@
 require "spec_helper"
 
+class StubMsg
+  def initialize(uid:, internaldate:, raw:, size: 123, labels: [], envelope_from: nil)
+    @uid = uid
+    @internaldate = internaldate
+    @raw = raw
+    @size = size
+    @labels = labels
+    @envelope_from = envelope_from
+  end
+
+  def attr
+    {
+      "UID" => @uid,
+      :UID => @uid,
+      "INTERNALDATE" => @internaldate,
+      :INTERNALDATE => @internaldate,
+      "BODY[]" => @raw,
+      :"BODY[]" => @raw,
+      "RFC822.SIZE" => @size,
+      :"RFC822.SIZE" => @size,
+      "X-GM-LABELS" => @labels,
+      :"X-GM-LABELS" => @labels,
+      :x_gm_labels => @labels,
+      "ENVELOPE" => @envelope_from,
+      :ENVELOPE => @envelope_from,
+      :envelope => @envelope_from
+    }
+  end
+end
+
+class StubAddress
+  attr_reader :mailbox, :host
+  def initialize(addr)
+    @mailbox, @host = addr.split("@", 2)
+  end
+end
+
+class StubEnvelope
+  attr_reader :from
+  def initialize(addr)
+    @from = [StubAddress.new(addr)]
+  end
+end
+
 RSpec.describe "CLI mailbox smoke" do
-  class StubMsg
-    def initialize(uid:, internaldate:, raw:, size: 123, labels: [], envelope_from: nil)
-      @uid = uid
-      @internaldate = internaldate
-      @raw = raw
-      @size = size
-      @labels = labels
-      @envelope_from = envelope_from
-    end
-
-    def attr
-      {
-        "UID" => @uid,
-        :UID => @uid,
-        "INTERNALDATE" => @internaldate,
-        :INTERNALDATE => @internaldate,
-        "BODY[]" => @raw,
-        :'BODY[]' => @raw,
-        "RFC822.SIZE" => @size,
-        :'RFC822.SIZE' => @size,
-        "X-GM-LABELS" => @labels,
-        :'X-GM-LABELS' => @labels,
-        :x_gm_labels => @labels,
-        "ENVELOPE" => @envelope_from,
-        :ENVELOPE => @envelope_from,
-        :envelope => @envelope_from
-      }
-    end
-  end
-
-  class StubAddress
-    attr_reader :mailbox, :host
-    def initialize(addr)
-      @mailbox, @host = addr.split("@", 2)
-    end
-  end
-
-  class StubEnvelope
-    attr_reader :from
-    def initialize(addr)
-      @from = [StubAddress.new(addr)]
-    end
-  end
-
   Given(:address) { "smoke@example.com" }
   Given(:password) { "secret" }
   Given(:tmp_db) { File.expand_path("../../tmp/smoke.sqlite3", __dir__) }

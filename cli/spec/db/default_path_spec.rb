@@ -10,7 +10,7 @@ RSpec.describe "Default DB path naming" do
     begin
       path = NittyMail::DB.default_database_path(address: address)
       cli_root = File.expand_path("../..", __dir__)
-      expect(path).to eq(File.join(cli_root, "#{address}.sqlite3"))
+      expect(path).to eq(File.join(cli_root, "data", "#{address}.sqlite3"))
     ensure
       ENV["NITTYMAIL_SQLITE_DB"] = orig if orig
     end

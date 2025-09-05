@@ -34,7 +34,8 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   ```bash
   docker compose run --rm cli mailbox download \
     --mailbox INBOX \
-    --database ./nittymail.sqlite3
+    # default path is cli/data/[IMAP_ADDRESS].sqlite3 unless overridden
+    # --database ./path/to/custom.sqlite3
   ```
 
 ### Notes on stored columns
@@ -76,4 +77,4 @@ Agent guide: See `AGENTS.md` for CLI agent conventions and style.
 
 - The Compose service mounts the repository root so the local gem at `../gem` (declared in `Gemfile`) is available in-container.
 - No host Ruby required; all commands are executed via the `cli` service.
-- Default DB path is `cli/[IMAP_ADDRESS].sqlite3` unless overridden by `--database` or `NITTYMAIL_SQLITE_DB`.
+- Default DB path is `cli/data/[IMAP_ADDRESS].sqlite3` unless overridden by `--database` or `NITTYMAIL_SQLITE_DB`.
