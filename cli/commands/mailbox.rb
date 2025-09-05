@@ -135,13 +135,14 @@ module NittyMail
               addr = Array(addrs).first
               m = addr&.mailbox&.to_s
               h = addr&.host&.to_s
-              (m && h && !m.empty? && !h.empty?) ? "#{m}@#{h}".downcase : nil
+              fe = (m && h && !m.empty? && !h.empty?) ? "#{m}@#{h}".downcase : nil
+              fe ? NittyMail::Enricher.normalize_utf8(fe) : nil
             rescue
               nil
             end
 
             labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
-            labels = Array(labels_attr).map { |v| v.to_s }
+            labels = Array(labels_attr).map { |v| NittyMail::Enricher.normalize_utf8(v.to_s) }
 
             size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
             rfc822_size = size_attr.to_i
@@ -203,7 +204,14 @@ module NittyMail
             processed += chunk.size
             progress.progress = [processed, total_to_process].min
           rescue => e
-            warn "db upsert error: #{e.class}: #{e.message} (skipping chunk of #{chunk.size})"
+            warn "db upsert error: #{e.class}: #{e.message} (retrying per-row for chunk of #{chunk.size})"
+            chunk.each do |row|
+              NittyMail::Email.upsert_all([row], unique_by: "index_emails_on_identity")
+              processed += 1
+              progress.progress = [processed, total_to_process].min
+            rescue => e2
+              warn "db upsert row error: #{e2.class}: #{e2.message} uidvalidity=#{row[:uidvalidity]} uid=#{row[:uid]} (skipping row)"
+            end
           end
         end
 
