@@ -45,10 +45,12 @@ module NittyMail
               nil
             end
             unless req && req["jsonrpc"] == "2.0" && req["method"]
-              write(io_out, error(nil, -32600, "Invalid Request"))
+              # Skip invalid requests silently to avoid protocol issues
               next
             end
             id = req["id"]
+            is_notification = id.nil?
+            
             case req["method"]
             when "initialize"
               write(io_out, {
@@ -77,8 +79,17 @@ module NittyMail
             when "shutdown"
               write(io_out, {jsonrpc: "2.0", id:, result: {}})
               break
+            when "notifications/initialized"
+              # Handle MCP initialized notification - no response needed
+              log(io_err, "mcp:initialized")
             else
-              write(io_out, error(id, -32601, "Method not found"))
+              if is_notification
+                # For unknown notifications, just log and ignore (no response)
+                log(io_err, "mcp:unknown_notification method=#{req["method"]}")
+              else
+                # For unknown requests, log and skip to avoid protocol errors
+                log(io_err, "mcp:unknown_method method=#{req["method"]} id=#{id}")
+              end
             end
           end
         ensure
@@ -94,7 +105,9 @@ module NittyMail
         end
 
         def error(id, code, message)
-          {jsonrpc: "2.0", id:, error: {code:, message:}}
+          # Per JSON-RPC spec: id should be null if request id couldn't be determined
+          response_id = id.nil? ? nil : id
+          {jsonrpc: "2.0", id: response_id, error: {code:, message:}}
         end
 
         def log(io, msg)
