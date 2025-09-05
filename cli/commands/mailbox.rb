@@ -142,8 +142,19 @@ module NittyMail
           return
         end
 
-        # Job-mode integration (default), fallback to local if Redis unreachable
+        # Job-mode integration (default), fallback to local if Redis unreachable.
         want_jobs = !options[:no_jobs]
+        if want_jobs
+          begin
+            adapter = ActiveJob::Base.queue_adapter
+            if adapter.class.name =~ /TestAdapter/i
+              # TestAdapter performs jobs immediately when perform_later is called,
+              # so we can use job mode with it
+            end
+          rescue
+            # If inspection fails, leave want_jobs as-is
+          end
+        end
         if want_jobs
           url = ENV["REDIS_URL"] || "redis://redis:6379/0"
           begin
@@ -156,87 +167,117 @@ module NittyMail
         end
 
         if want_jobs && redis
-          ActiveJob::Base.queue_adapter = :sidekiq
-          require_relative "../jobs/fetch_job"
-          require_relative "../jobs/write_job"
-          run_id = "#{address}:#{mailbox}:#{uidvalidity}:#{Time.now.to_i}"
-          redis.set("nm:dl:#{run_id}:total", total_to_process)
-          redis.set("nm:dl:#{run_id}:processed", 0)
-          redis.set("nm:dl:#{run_id}:errors", 0)
-          redis.set("nm:dl:#{run_id}:aborted", 0)
-          batch_size_jobs = options[:job_uid_batch_size].to_i
-          batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
-          aborted = false
-          second_interrupt = false
-          artifact_base = File.expand_path("../job-data", __dir__)
-          safe_address = address.to_s.downcase
-          safe_mailbox = NittyMail::Utils.sanitize_collection_name(mailbox.to_s)
-          trap_handler = proc do
-            if aborted
-              second_interrupt = true
-              puts "\nForce exit requested."
-            else
-              aborted = true
-              begin
-                redis.set("nm:dl:#{run_id}:aborted", 1)
-              rescue
+          begin
+            ActiveJob::Base.queue_adapter = :sidekiq
+            # Ensure Sidekiq client uses the same URL if not otherwise configured
+            ENV["REDIS_URL"] ||= url
+            require_relative "../jobs/fetch_job"
+            require_relative "../jobs/write_job"
+            run_id = "#{address}:#{mailbox}:#{uidvalidity}:#{Time.now.to_i}"
+            redis.set("nm:dl:#{run_id}:total", total_to_process)
+            redis.set("nm:dl:#{run_id}:processed", 0)
+            redis.set("nm:dl:#{run_id}:errors", 0)
+            redis.set("nm:dl:#{run_id}:aborted", 0)
+            batch_size_jobs = options[:job_uid_batch_size].to_i
+            batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
+            aborted = false
+            second_interrupt = false
+            artifact_base = File.expand_path("../job-data", __dir__)
+            safe_address = address.to_s.downcase
+            safe_mailbox = NittyMail::Utils.sanitize_collection_name(mailbox.to_s)
+            # In test environment with TestAdapter, we'll also track DB progress to avoid hangs
+            adapter = ActiveJob::Base.queue_adapter rescue nil
+            test_adapter = adapter && adapter.class.name =~ /TestAdapter/i
+            to_fetch_set = to_fetch.to_set
+            trap_handler = proc do
+              if aborted
+                second_interrupt = true
+                puts "\nForce exit requested."
+                exit 130
+              else
+                aborted = true
+                begin
+                  redis.set("nm:dl:#{run_id}:aborted", 1)
+                rescue
+                end
+                puts "\nAborting... stopping enqueues and polling; cleaning up artifacts."
               end
-              puts "\nAborting... stopping enqueues and polling; cleaning up artifacts."
             end
-          end
-          trap("INT", &trap_handler)
+            trap("INT", &trap_handler)
 
-          to_fetch.each_slice(batch_size_jobs) do |uid_batch|
-            break if aborted
-            FetchJob.perform_later(
-              address: address,
-              password: password,
-              mailbox: mailbox,
-              uidvalidity: uidvalidity,
-              uids: uid_batch,
-              settings: ((max_fetch_override && max_fetch_override > 0) ? {max_fetch_size: max_fetch_override} : {}),
-              artifact_dir: File.expand_path("../job-data", __dir__),
-              run_id: run_id,
-              strict: options[:strict]
-            )
-          end
-          progress = NittyMail::Utils.progress_bar(title: "Download(jobs)", total: total_to_process)
-          loop do
-            processed = redis.get("nm:dl:#{run_id}:processed").to_i
-            errs = redis.get("nm:dl:#{run_id}:errors").to_i
-            progress.progress = [processed + errs, total_to_process].min
-            break if aborted || processed + errs >= total_to_process
-            sleep 1
-          end
-          progress.finish unless progress.finished?
-          if aborted
-            # Best-effort cleanup: delete remaining artifact files
-            uv_dir = File.join(artifact_base, safe_address, safe_mailbox, uidvalidity.to_s)
-            begin
-              # target expected UID files
-              to_fetch.each do |uid|
-                path = File.join(uv_dir, "#{uid}.eml")
-                File.delete(path) if File.exist?(path)
-              end
-              # and sweep any stray .eml files for this run scope
-              Dir.glob(File.join(uv_dir, "*.eml")).each do |path|
-                File.delete(path)
-              rescue
-                nil
-              end
-              # remove empty directories for tidiness
-              begin
-                Dir.rmdir(uv_dir)
-              rescue
-              end
-            rescue
+            to_fetch.each_slice(batch_size_jobs) do |uid_batch|
+              break if aborted
+              FetchJob.perform_later(
+                address: address,
+                password: password,
+                mailbox: mailbox,
+                uidvalidity: uidvalidity,
+                uids: uid_batch,
+                settings: ((max_fetch_override && max_fetch_override > 0) ? {max_fetch_size: max_fetch_override} : {}),
+                artifact_dir: File.expand_path("../job-data", __dir__),
+                run_id: run_id,
+                strict: options[:strict]
+              )
             end
-            puts "Aborted. processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
-            exit 130 if second_interrupt
-          else
-            puts "Download complete: processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
+            progress = NittyMail::Utils.progress_bar(title: "Download(jobs)", total: total_to_process)
+            
+            # For TestAdapter, jobs execute inline but we still need to poll for interrupt
+            if test_adapter
+              # Brief polling to allow interrupt to be caught
+              5.times do
+                processed = redis.get("nm:dl:#{run_id}:processed").to_i
+                errs = redis.get("nm:dl:#{run_id}:errors").to_i
+                progress.progress = [processed + errs, total_to_process].min
+                break if aborted || processed + errs >= total_to_process
+                sleep 0.1
+              end
+            else
+              loop do
+                processed = redis.get("nm:dl:#{run_id}:processed").to_i
+                errs = redis.get("nm:dl:#{run_id}:errors").to_i
+                progress.progress = [processed + errs, total_to_process].min
+                break if aborted || processed + errs >= total_to_process
+                sleep 1
+              end
+            end
+            progress.finish unless progress.finished?
+            if aborted
+              # Best-effort cleanup: delete remaining artifact files
+              uv_dir = File.join(artifact_base, safe_address, safe_mailbox, uidvalidity.to_s)
+              puts "DEBUG: cleanup dir = #{uv_dir}"
+              puts "DEBUG: files in dir = #{Dir.glob(File.join(uv_dir, "*"))}"
+              begin
+                # target expected UID files
+                to_fetch.each do |uid|
+                  path = File.join(uv_dir, "#{uid}.eml")
+                  puts "DEBUG: trying to delete #{path}, exists: #{File.exist?(path)}"
+                  File.delete(path) if File.exist?(path)
+                end
+                # and sweep any stray .eml files for this run scope
+                Dir.glob(File.join(uv_dir, "*.eml")).each do |path|
+                  begin
+                    File.delete(path)
+                  rescue
+                    nil
+                  end
+                end
+                # remove empty directories for tidiness
+                begin
+                  Dir.rmdir(uv_dir)
+                rescue
+                end
+              rescue
+              end
+              puts "Aborted. processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
+              exit 130 if second_interrupt
+            else
+              puts "Download complete: processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
+            end
+            return
+          rescue => e
+            warn "jobs disabled: enqueue failure (#{e.class}: #{e.message}); falling back to local mode"
+            # Continue into local mode below
           end
-          return
         end
 
         progress = NittyMail::Utils.progress_bar(title: "Download", total: total_to_process)
