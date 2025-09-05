@@ -6,7 +6,7 @@
   - [x] 1.1 Add `archive` subcommand to `cli mailbox`
   - [x] 1.2 Flags: `--mailbox`, `--output`, `--jobs` (optional), `--job_uid_batch_size`, `--strict`, `--max-fetch-size`
   - [x] 1.3 Default output folder to `cli/archives` and create `.keep`
-  - [ ] 1.4 Default execution is single‑process (no Redis); `--jobs` opt‑in
+  - [x] 1.4 Default execution is single‑process (no Redis); `--jobs` opt‑in
 
 - [x] 2. Single-process archiver
   - [x] 2.1 Preflight; compute `to_archive` (server UIDs minus existing files)
@@ -28,15 +28,15 @@
   - [x] 5.2 Jobs: check abort flag on start and between messages and exit early
   - [x] 5.3 Cleanup: best-effort remove `.tmp` files; keep completed `.eml`
 
-- [ ] 6. Docs
-  - [ ] 6.1 README: usage, jobs default, output layout, progress, interrupts
-  - [ ] 6.2 AGENTS.md: test guidance (Active Job test adapter; Redis stubs)
+- [x] 6. Docs
+  - [x] 6.1 README: usage, jobs default, output layout, progress, interrupts
+  - [x] 6.2 AGENTS.md: test guidance (Active Job test adapter; Redis stubs)
 
 - [ ] 7. Tests and quality
-  - [ ] 7.1 Smoke spec: archives sample UIDs; idempotency
-  - [ ] 7.2 Resumability spec: skip existing file(s)
-  - [ ] 7.3 Jobs integration spec: counters + files written
-  - [ ] 7.4 Strict-mode spec: fetch/write failure path (SystemExit)
-  - [ ] 7.5 Interrupts spec: single and double Ctrl‑C
+  - [x] 7.1 Smoke spec: archives sample UIDs; idempotency
+  - [x] 7.2 Resumability spec: skip existing file(s)
+  - [x] 7.3 Jobs integration spec: counters + files written
+  - [x] 7.4 Strict-mode spec: fetch/write failure path (SystemExit)
+  - [x] 7.5 Interrupts spec: single and double Ctrl‑C
   - [x] 7.6 Add gitignore rules for archives: ignore all under `archives/**` except `archives/.keep`
   - [ ] 7.7 Lint (StandardRB/RuboCop) and full RSpec run (green)
