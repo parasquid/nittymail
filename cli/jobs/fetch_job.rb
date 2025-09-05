@@ -36,7 +36,7 @@ class FetchJob < ActiveJob::Base
       fetch_response.each do |msg|
         # re-check abort between messages to exit early if requested
         if run_id && aborted?(run_id)
-          return
+          break
         end
         uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
         raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
@@ -105,13 +105,11 @@ class FetchJob < ActiveJob::Base
   private
 
   def aborted?(run_id)
-    begin
-      require "redis"
-      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
-      r = ::Redis.new(url: url)
-      r.get("nm:dl:#{run_id}:aborted").to_s == "1"
-    rescue
-      false
-    end
+    require "redis"
+    url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+    r = ::Redis.new(url: url)
+    r.get("nm:dl:#{run_id}:aborted").to_s == "1"
+  rescue
+    false
   end
 end

@@ -29,7 +29,7 @@
   - [x] 5.1 Ensure jobs carry `run_id` to support selective cleanup
   - [x] 5.2 On first Ctrl-C: stop enqueuing/polling, set abort flag in Redis for `run_id` (e.g., `nm:dl:<run_id>:aborted=1`), have jobs check this and self-terminate early; best-effort delete unprocessed artifacts (no Sidekiq queue manipulation)
   - [x] 5.3 On second Ctrl-C: force quit after best-effort cleanup
-  - [ ] 5.4 Add specs for graceful vs forceful interrupts (prefer Active Job test helpers and stubbing Redis/filesystem; avoid Sidekiq-specific APIs)
+  - [x] 5.4 Add specs for graceful vs forceful interrupts (prefer Active Job test helpers and stubbing Redis/filesystem; avoid Sidekiq-specific APIs)
 
 - [ ] 6. Docs and examples
   - [ ] 6.1 Update README (job-mode quickstart, flags, compose services, interrupts)

@@ -149,7 +149,7 @@ module NittyMail
           begin
             redis = ::Redis.new(url: url, timeout: 1.0)
             redis.ping
-          rescue StandardError => e
+          rescue => e
             warn "jobs disabled: redis not reachable (#{e.class}: #{e.message}); falling back to local mode"
             redis = nil
           end
@@ -210,12 +210,24 @@ module NittyMail
           end
           progress.finish unless progress.finished?
           if aborted
-            # Best-effort cleanup: delete remaining artifact files for expected UIDs
+            # Best-effort cleanup: delete remaining artifact files
             uv_dir = File.join(artifact_base, safe_address, safe_mailbox, uidvalidity.to_s)
             begin
+              # target expected UID files
               to_fetch.each do |uid|
                 path = File.join(uv_dir, "#{uid}.eml")
                 File.delete(path) if File.exist?(path)
+              end
+              # and sweep any stray .eml files for this run scope
+              Dir.glob(File.join(uv_dir, "*.eml")).each do |path|
+                File.delete(path)
+              rescue
+                nil
+              end
+              # remove empty directories for tidiness
+              begin
+                Dir.rmdir(uv_dir)
+              rescue
               end
             rescue
             end
