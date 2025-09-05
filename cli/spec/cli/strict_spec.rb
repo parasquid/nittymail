@@ -14,7 +14,7 @@ class BadMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :'BODY[]' => @raw
+      :"BODY[]" => @raw
     }
   end
 end
