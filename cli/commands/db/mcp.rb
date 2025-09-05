@@ -51,10 +51,21 @@ module NittyMail
             id = req["id"]
             case req["method"]
             when "initialize"
-              write(io_out, {jsonrpc: "2.0", id:, result: {capabilities: {tools: {}}}})
+              write(io_out, {
+                jsonrpc: "2.0",
+                id:,
+                result: {
+                  protocolVersion: "2024-11-05",
+                  capabilities: {tools: {}},
+                  serverInfo: {
+                    name: "nittymail-db-mcp-server",
+                    version: "1.0.0"
+                  }
+                }
+              })
             when "tools/list"
-              tools = available_tools
-              write(io_out, {jsonrpc: "2.0", id:, result: {tools: tools.map { |name| {name:} }}})
+              tools = available_tools_with_schemas
+              write(io_out, {jsonrpc: "2.0", id:, result: {tools:}})
             when "tools/call"
               name = req.dig("params", "name")
               args = req.dig("params", "arguments") || {}
@@ -93,30 +104,272 @@ module NittyMail
         rescue
         end
 
-        def available_tools
-          %w[
-            db.list_earliest_emails
-            db.get_email_full
-            db.filter_emails
-            db.search_emails
-            db.count_emails
-            db.get_email_stats
-            db.get_top_senders
-            db.get_top_domains
-            db.get_largest_emails
-            db.get_mailbox_stats
-            db.get_emails_by_date_range
-            db.get_emails_with_attachments
-            db.get_email_thread
-            db.get_email_activity_heatmap
-            db.get_response_time_stats
-            db.get_email_frequency_by_sender
-            db.get_seasonal_trends
-            db.get_emails_by_size_range
-            db.get_duplicate_emails
-            db.search_email_headers
-            db.get_emails_by_keywords
-            db.execute_sql_query
+        def available_tools_with_schemas
+          [
+            {
+              name: "db.list_earliest_emails",
+              description: "Lists the earliest emails in the database by date",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of results (default: 100)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_email_full",
+              description: "Retrieves the complete email record by ID, including raw content",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  id: {type: "integer", description: "Email database ID"}
+                },
+                required: ["id"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.filter_emails",
+              description: "Filters emails by mailbox and sender criteria",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  mailbox: {type: "string", description: "Mailbox name to filter by"},
+                  from_contains: {type: "string", description: "Text to search in from field"},
+                  from_domain: {type: "string", description: "Domain to filter sender by"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 100)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.search_emails",
+              description: "Vector search emails (currently stubbed)",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: {type: "string", description: "Search query"},
+                  limit: {type: "integer", description: "Maximum number of results"}
+                },
+                required: ["query"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.count_emails",
+              description: "Simple count of emails, optionally filtered by mailbox",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  mailbox: {type: "string", description: "Mailbox to count emails in"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_email_stats",
+              description: "Provides comprehensive database statistics",
+              inputSchema: {
+                type: "object",
+                properties: {},
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_top_senders",
+              description: "Lists top email senders by message count",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of results (default: 20)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_top_domains",
+              description: "Lists top sender domains by message count",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of results (default: 10)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_largest_emails",
+              description: "Lists emails by size (largest first)",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  from_domain: {type: "string", description: "Filter by sender domain"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 5)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_mailbox_stats",
+              description: "Shows email count by mailbox",
+              inputSchema: {
+                type: "object",
+                properties: {},
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_emails_by_date_range",
+              description: "Retrieves emails within a specific date range",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  start_date: {type: "string", description: "Start date in ISO format or parseable format"},
+                  end_date: {type: "string", description: "End date in ISO format or parseable format"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 100)"}
+                },
+                required: ["start_date", "end_date"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_emails_with_attachments",
+              description: "Lists emails that have attachments",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_email_thread",
+              description: "Retrieves all emails in a Gmail thread",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  x_gm_thrid: {type: "integer", description: "Gmail thread ID"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                required: ["x_gm_thrid"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_email_activity_heatmap",
+              description: "Shows email activity patterns by hour of day and day of week",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of data points (default: 168)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_response_time_stats",
+              description: "Analyzes response times in email conversations",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of threads to analyze (default: 50)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_email_frequency_by_sender",
+              description: "Shows email frequency over time for a specific sender",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  sender_email: {type: "string", description: "Email address to analyze"},
+                  limit: {type: "integer", description: "Maximum number of date points (default: 365)"}
+                },
+                required: ["sender_email"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_seasonal_trends",
+              description: "Shows email volume trends by month and year",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  limit: {type: "integer", description: "Maximum number of data points (default: 24)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_emails_by_size_range",
+              description: "Finds emails within a specific size range",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  min_size: {type: "integer", description: "Minimum size in bytes (must be >= 0)"},
+                  max_size: {type: "integer", description: "Maximum size in bytes (must be > min_size)"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                required: ["min_size", "max_size"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_duplicate_emails",
+              description: "Finds emails with duplicate message IDs or Gmail message IDs",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  field: {type: "string", description: "Field to check for duplicates (default: message_id)", enum: ["message_id", "x_gm_msgid"]},
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.search_email_headers",
+              description: "Searches within email header fields",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: {type: "string", description: "Search query"},
+                  header_field: {type: "string", description: "Field to search in (default: subject)", enum: ["subject", "from", "to_emails", "cc_emails", "bcc_emails", "message_id"]},
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                required: ["query"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.get_emails_by_keywords",
+              description: "Searches email content by keywords with AND/OR logic",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  keywords: {type: "string", description: "Keywords to search for (comma-separated)"},
+                  search_field: {type: "string", description: "Field to search in (default: plain_text)", enum: ["plain_text", "markdown", "subject", "raw"]},
+                  match_all: {type: "boolean", description: "If true, all keywords must match (AND logic). If false, any keyword can match (OR logic). Default: false"},
+                  limit: {type: "integer", description: "Maximum number of results (default: 50)"}
+                },
+                required: ["keywords"],
+                additionalProperties: false
+              }
+            },
+            {
+              name: "db.execute_sql_query",
+              description: "Executes a read-only SQL query with safety validation",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  sql_query: {type: "string", description: "SQL query to execute (SELECT or WITH only)"}
+                },
+                required: ["sql_query"],
+                additionalProperties: false
+              }
+            }
           ]
         end
 
