@@ -135,13 +135,11 @@ class WriteJob < ActiveJob::Base
   end
 
   def aborted?(run_id)
-    begin
-      require "redis"
-      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
-      r = ::Redis.new(url: url)
-      r.get("nm:dl:#{run_id}:aborted").to_s == "1"
-    rescue
-      false
-    end
+    require "redis"
+    url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+    r = ::Redis.new(url: url)
+    r.get("nm:dl:#{run_id}:aborted").to_s == "1"
+  rescue
+    false
   end
 end
