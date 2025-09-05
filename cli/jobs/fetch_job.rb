@@ -17,6 +17,10 @@ class FetchJob < ActiveJob::Base
   # - settings: optional hash for NittyMail::Settings overrides
   # - artifact_dir: optional base dir for artifacts
   def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil, run_id: nil, strict: false)
+    # Respect abort flag if present
+    if run_id && aborted?(run_id)
+      return
+    end
     settings_args = {imap_address: address, imap_password: password}.merge(settings || {})
     settings_obj = NittyMail::Settings.new(**settings_args)
     mailbox_client = NittyMail::Mailbox.new(settings: settings_obj, mailbox_name: mailbox)
@@ -30,6 +34,10 @@ class FetchJob < ActiveJob::Base
     begin
       fetch_response = mailbox_client.fetch(uids: Array(uids))
       fetch_response.each do |msg|
+        # re-check abort between messages to exit early if requested
+        if run_id && aborted?(run_id)
+          return
+        end
         uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
         raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
         raw = raw.to_s.dup
@@ -91,6 +99,19 @@ class FetchJob < ActiveJob::Base
         mailbox_client&.logout if mailbox_client&.respond_to?(:logout)
       rescue
       end
+    end
+  end
+
+  private
+
+  def aborted?(run_id)
+    begin
+      require "redis"
+      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+      r = ::Redis.new(url: url)
+      r.get("nm:dl:#{run_id}:aborted").to_s == "1"
+    rescue
+      false
     end
   end
 end

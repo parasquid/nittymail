@@ -17,6 +17,10 @@ class WriteJob < ActiveJob::Base
   # - rfc822_size: Integer (optional)
   # - labels: Array<String>
   def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false, sha256: nil)
+    # Respect abort flag if present; leave artifact for cleanup
+    if run_id && aborted?(run_id)
+      return
+    end
     raw = File.binread(artifact_path)
     raw.force_encoding("BINARY")
     keep_artifact = false
@@ -127,6 +131,17 @@ class WriteJob < ActiveJob::Base
       r = ::Redis.new(url: url)
       r.incr("nm:dl:#{run_id}:#{key}")
     rescue
+    end
+  end
+
+  def aborted?(run_id)
+    begin
+      require "redis"
+      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+      r = ::Redis.new(url: url)
+      r.get("nm:dl:#{run_id}:aborted").to_s == "1"
+    rescue
+      false
     end
   end
 end
