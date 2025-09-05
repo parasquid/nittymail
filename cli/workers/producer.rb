@@ -35,7 +35,7 @@ module NittyMail
                 metadata_list = []
                 fetch_response.each do |msg|
                   uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-                  raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
+                  raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
                   raw = raw.to_s.dup
                   raw.force_encoding("BINARY")
                   safe = raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
@@ -58,10 +58,10 @@ module NittyMail
                     nil
                   end
                   # Gmail labels
-                  labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:"X-GM-LABELS"] || msg.attr[:"X-GM-LABELS"] || msg.attr[:x_gm_labels]
+                  labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
                   labels = Array(labels_attr).map { |v| v.to_s }
                   # RFC822.SIZE
-                  size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"]
+                  size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE'] || msg.attr[:'RFC822.SIZE']
                   rfc822_size = size_attr.to_i
                   # Build base (raw) embedding
                   doc_ids << "#{@uidvalidity}:#{uid}"
