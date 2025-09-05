@@ -251,8 +251,6 @@ module NittyMail
             to_fetch.each_slice(batch_size_jobs) do |uid_batch|
               break if aborted
               FetchJob.perform_later(
-                address: address,
-                password: password,
                 mailbox: mailbox,
                 uidvalidity: uidvalidity,
                 uids: uid_batch,
@@ -607,8 +605,6 @@ module NittyMail
           to_archive.each_slice(batch_size_jobs) do |uid_batch|
             break if aborted
             ArchiveFetchJob.perform_later(
-              address: address,
-              password: password,
               mailbox: mailbox,
               uidvalidity: uidvalidity,
               uids: uid_batch,
