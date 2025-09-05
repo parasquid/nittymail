@@ -39,3 +39,14 @@ require_relative "utils/utils"
 Dir[File.expand_path("jobs/**/*.rb", __dir__)].sort.each do |job_file|
   require job_file
 end
+
+# Reduce noisy ActiveJob logging (which can include arguments) in worker context
+begin
+  require "active_support/log_subscriber"
+  ActiveSupport::LogSubscriber.log_subscribers.each do |subscriber|
+    if subscriber.class.name == "ActiveJob::Logging::LogSubscriber"
+      ActiveSupport::Notifications.unsubscribe(subscriber)
+    end
+  end
+rescue
+end
