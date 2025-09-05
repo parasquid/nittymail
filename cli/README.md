@@ -78,6 +78,42 @@ Archive saves raw RFC822 email files named by UID without parsing or database wr
   #   --strict                     # fail‑fast on errors
   ```
 
+### MCP Server for Email Database
+
+Run a local Model Context Protocol (MCP) server that exposes email database tools over stdio. This allows MCP-compatible AI agents to query your local email database without requiring cloud access or IMAP connections.
+
+- Run the MCP server:
+  ```bash
+  docker compose run --rm cli db mcp
+  # Optional flags:
+  #   --database ./path/to/db.sqlite3   # SQLite database path (env: NITTYMAIL_SQLITE_DB)
+  #   --address user@example.com        # Email address context (env: NITTYMAIL_IMAP_ADDRESS)
+  #   --max-limit 500                   # Max rows for list endpoints (env: NITTYMAIL_MCP_MAX_LIMIT, default 1000)
+  #   --quiet                           # Reduce stderr logging (env: NITTYMAIL_QUIET)
+  ```
+
+- **Available MCP Tools (23 total)**:
+  - **Email Retrieval**: `db.list_earliest_emails`, `db.get_email_full`, `db.filter_emails`
+  - **Analytics**: `db.get_email_stats`, `db.get_top_senders`, `db.get_top_domains`, `db.get_largest_emails`, `db.get_mailbox_stats`
+  - **Date/Time Analysis**: `db.get_emails_by_date_range`, `db.get_email_activity_heatmap`, `db.get_seasonal_trends`
+  - **Thread Analysis**: `db.get_email_thread`, `db.get_response_time_stats`, `db.get_email_frequency_by_sender`
+  - **Content Search**: `db.search_email_headers`, `db.get_emails_by_keywords`, `db.get_emails_with_attachments`
+  - **Advanced Features**: `db.get_emails_by_size_range`, `db.get_duplicate_emails`, `db.execute_sql_query`
+  - **Utilities**: `db.count_emails`, `db.search_emails` (stubbed for future vector search)
+
+- **Security Features**:
+  - Read-only database access (no writes, updates, or deletes)
+  - SQL injection prevention with parameter binding
+  - Query limits enforced (configurable max 1000 rows)
+  - LIKE pattern sanitization to prevent wildcard abuse
+  - Restricted to SELECT/WITH queries only
+
+- **Usage with MCP Clients**:
+  - The server communicates via JSON-RPC 2.0 over stdio
+  - Compatible with MCP-enabled AI agents and development tools
+  - No network connections required - purely local database access
+  - Supports environment variable configuration for automation
+
 - Output layout: `cli/archives/<address>/<mailbox>/<uidvalidity>/<uid>.eml`.
   - The `cli/archives/.keep` file is tracked; all other archive files are gitignored to prevent accidental commits.
 - Resumable: re‑running archives only missing UIDs; existing `<uid>.eml` files are skipped.
