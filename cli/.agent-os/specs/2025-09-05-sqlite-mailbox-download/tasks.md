@@ -47,3 +47,4 @@
   - [x] 6.1 Skip per-message parse/encoding errors by default with warnings (uid shown)
   - [x] 6.2 Skip failing IMAP fetch batches with warnings (range shown)
   - [x] 6.3 Skip failing DB upsert chunks with warnings (size shown)
+  - [ ] 6.4 Add `--strict` flag to fail-fast on errors and include tests
