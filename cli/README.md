@@ -38,6 +38,31 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     # --database ./path/to/custom.sqlite3
   ```
 
+### Jobs Mode (Active Job + Sidekiq)
+
+Jobs mode parallelizes IMAP fetches via background workers while keeping a single, serialized writer to SQLite. It is the default; pass `--no-jobs` to force single‑process mode.
+
+1) Start Redis and workers:
+   ```bash
+   docker compose up -d redis worker_fetch worker_write
+   ```
+
+2) Run the download. The CLI will detect Redis; if unavailable, it falls back to single‑process mode and prints a warning.
+   ```bash
+   docker compose run --rm cli mailbox download --mailbox INBOX
+   # optional flags
+   #   --no-jobs                   # force single-process
+   #   --job_uid_batch_size 200    # UIDs per fetch job (default 200)
+   #   --strict                    # fail-fast in jobs and local modes
+   ```
+
+How it works:
+- The CLI enqueues `FetchJob` batches that write raw RFC822 artifacts under `cli/job-data/<address>/<mailbox>/<uidvalidity>/<uid>.eml`.
+- A `WriteJob` parses each artifact, upserts the row to SQLite, and deletes the artifact on success.
+- Integrity: each artifact includes an SHA256 checksum validated by the writer before parsing.
+- Progress: the CLI polls Redis counters and shows a progress bar; completion is when `processed + errors == total`.
+- Interrupts: first Ctrl‑C requests a graceful stop (sets an abort flag, stops enqueues/polling, and cleans up artifacts). A second Ctrl‑C forces exit.
+
 ### Notes on stored columns
 
 - Each email row stores: address, mailbox, uidvalidity, uid, subject, internaldate, internaldate_epoch, rfc822_size, from_email, labels_json, raw (BLOB), plain_text, markdown. Indexes include a composite unique key and internaldate_epoch.
@@ -45,6 +70,7 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
 ### Progress indicators
 
 - The progress bar displays processed vs. total messages for the current download run.
+  - In jobs mode, progress is driven by Redis counters (total/processed/errors).
 
 ### Performance tuning
 
