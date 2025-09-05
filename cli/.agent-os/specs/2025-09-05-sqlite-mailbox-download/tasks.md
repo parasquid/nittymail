@@ -34,8 +34,8 @@
   - [x] 4.2 Remove Chroma service from docker-compose; update env samples if needed
   - [x] 4.3 Update CLI help and README to reflect SQLite backend and new flags
   - [x] 4.6 Clean up remaining Chroma-era docs (tuning/backpressure)
-  - [ ] 4.4 Add guidance for performance flags (batch size, threads if any), WAL, and resume behavior
-  - [ ] 4.5 Verify all tests pass
+  - [x] 4.4 Add guidance for performance flags (batch size, threads if any), WAL, and resume behavior
+  - [x] 4.5 Verify all tests pass
 
 - [x] 5. Quality, lint, and integration checks
   - [x] 5.1 Write integration spec: small inbox fetch scenario with mocked IMAP; verify resumability
