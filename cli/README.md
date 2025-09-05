@@ -61,7 +61,23 @@ How it works:
 - A `WriteJob` parses each artifact, upserts the row to SQLite, and deletes the artifact on success.
 - Integrity: each artifact includes an SHA256 checksum validated by the writer before parsing.
 - Progress: the CLI polls Redis counters and shows a progress bar; completion is when `processed + errors == total`.
-- Interrupts: first Ctrl‑C requests a graceful stop (sets an abort flag, stops enqueues/polling, and cleans up artifacts). A second Ctrl‑C forces exit.
+- Interrupts: first Ctrl‑C requests a graceful stop (sets an abort flag, stops enqueues/polling, and retains artifacts for inspection). A second Ctrl‑C forces exit.
+
+Mailbox examples (Gmail names often include brackets and spaces; be sure to quote):
+
+```bash
+# List all mailboxes (uses credentials from .env)
+docker compose run --rm cli mailbox list
+
+# Download Sent Mail
+docker compose run --rm cli mailbox download --mailbox "[Gmail]/Sent Mail"
+
+# Download All Mail  
+docker compose run --rm cli mailbox download --mailbox "[Gmail]/All Mail"
+
+# Download a custom label
+docker compose run --rm cli mailbox download --mailbox "Receipts"
+```
 
 ### Archive Raw Mail (.eml files)
 
@@ -77,6 +93,16 @@ Archive saves raw RFC822 email files named by UID without parsing or database wr
   #   --max-fetch-size 200         # IMAP fetch slice
   #   --strict                     # fail‑fast on errors
   ```
+
+Mailbox examples for archive:
+
+```bash
+# Archive Sent Mail (uses credentials from .env)
+docker compose run --rm cli mailbox archive --mailbox "[Gmail]/Sent Mail"
+
+# Archive a custom label
+docker compose run --rm cli mailbox archive --mailbox "Receipts"
+```
 
 ### MCP Server for Email Database
 
@@ -159,7 +185,7 @@ Run a local Model Context Protocol (MCP) server that exposes email database tool
 Examples:
 
 ```bash
-# Drop and re-download the current generation for INBOX
+# Drop and re-download the current generation for INBOX (uses credentials from .env)
 docker compose run --rm cli mailbox download --mailbox INBOX --recreate --yes
 
 # Purge an old generation and exit
@@ -170,14 +196,13 @@ docker compose run --rm cli mailbox download --mailbox INBOX --purge-uidvalidity
   - Ensure IMAP is enabled for your account; app password may be required.
   - Set `NITTYMAIL_SQLITE_DB` or use `--database` to control DB location.
 
-- List mailboxes for your account. Flags are optional if env vars are set:
+- List mailboxes for your account (uses credentials from .env):
   ```bash
-  # using env vars only
   docker compose run --rm cli mailbox list
-
-  # or pass credentials explicitly
+  
+  # You can still override credentials if needed
   docker compose run --rm cli mailbox list \
-    -a "$NITTYMAIL_IMAP_ADDRESS" -p "$NITTYMAIL_IMAP_PASSWORD"
+    -a "your@email.com" -p "your-app-password"
   ```
 
 Agent guide: See `AGENTS.md` for CLI agent conventions and style.
