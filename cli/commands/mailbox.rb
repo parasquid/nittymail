@@ -13,6 +13,17 @@ require_relative "../utils/db"
 require_relative "../models/email"
 require_relative "../utils/enricher"
 
+# Suppress ActiveJob 'Enqueued ... with arguments' logs to avoid leaking credentials
+begin
+  require "active_support/log_subscriber"
+  ActiveSupport::LogSubscriber.log_subscribers.each do |subscriber|
+    if subscriber.class.name == "ActiveJob::Logging::LogSubscriber"
+      ActiveSupport::Notifications.unsubscribe(subscriber)
+    end
+  end
+rescue
+end
+
 module NittyMail
   module Commands
     class Mailbox < Thor
