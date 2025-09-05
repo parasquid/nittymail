@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 require "thor"
+require "json"
+require "mail"
+require "reverse_markdown"
 require_relative "../utils/utils"
 require_relative "../utils/db"
-require_relative "../workers/producer"
-require_relative "../workers/consumer"
-require_relative "../workers/chroma"
+require_relative "../models/email"
+require_relative "../utils/enricher"
 
 module NittyMail
   module Commands
@@ -25,7 +27,6 @@ module NittyMail
         mailbox_client = NittyMail::Mailbox.new(settings: settings)
         mailboxes = Array(mailbox_client.list)
         begin
-          # ensure IMAP connection is closed to avoid lingering threads
           if mailbox_client.respond_to?(:close)
             mailbox_client.close
           elsif mailbox_client.respond_to?(:disconnect)
@@ -37,7 +38,6 @@ module NittyMail
         end
 
         names = mailboxes.map { |x| x.respond_to?(:name) ? x.name : x.to_s }
-
         if names.empty?
           puts "(no mailboxes)"
         else
@@ -54,28 +54,30 @@ module NittyMail
         exit 3
       end
 
-      desc "download", "Download new emails into a Chroma collection"
+      desc "download", "Download new emails into a local SQLite database"
       method_option :mailbox, aliases: "-m", type: :string, default: "INBOX", desc: "Mailbox name"
-      method_option :collection, type: :string, required: false, desc: "Chroma collection name (defaults to address+mailbox)"
-      method_option :upload_batch_size, type: :numeric, default: 100, desc: "Upload batch size (env: NITTYMAIL_UPLOAD_BATCH_SIZE)"
-      method_option :upload_threads, type: :numeric, default: 2, desc: "Concurrent upload workers (env: NITTYMAIL_UPLOAD_THREADS)"
+      method_option :database, type: :string, required: false, desc: "SQLite database path (default: NITTYMAIL_SQLITE_DB or cli/nittymail.sqlite3)"
+      method_option :batch_size, type: :numeric, default: 200, desc: "DB upsert batch size"
       method_option :max_fetch_size, type: :numeric, required: false, desc: "IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE, default: Settings#max_fetch_size)"
-      method_option :fetch_threads, type: :numeric, default: 2, desc: "Concurrent IMAP fetch workers (env: NITTYMAIL_FETCH_THREADS)"
+      method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
+      method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       def download
-        address = ENV["NITTYMAIL_IMAP_ADDRESS"]
-        password = ENV["NITTYMAIL_IMAP_PASSWORD"]
+        address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
+        password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
         mailbox = options[:mailbox] || "INBOX"
 
         if address.to_s.empty? || password.to_s.empty?
           raise ArgumentError, "missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
 
-        sanitized_mailbox_name = mailbox.to_s
-        default_collection = NittyMail::Utils.sanitize_collection_name("nittymail-#{address}-#{sanitized_mailbox_name}")
-        collection_name = options[:collection] || default_collection
+        # DB setup
+        db_path = options[:database]
+        NittyMail::DB.establish_sqlite_connection(database_path: db_path)
+        NittyMail::DB.run_migrations!
 
         max_fetch_override = options[:max_fetch_size]
-        upload_batch_size = options[:upload_batch_size]
+        batch_size = options[:batch_size].to_i
+        batch_size = 200 if batch_size <= 0
 
         settings_args = {imap_address: address, imap_password: password}
         settings_args[:max_fetch_size] = max_fetch_override if max_fetch_override && max_fetch_override > 0
@@ -87,185 +89,110 @@ module NittyMail
         uidvalidity = preflight[:uidvalidity]
         server_uids = Array(preflight[:to_fetch])
         puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
-        begin
-          # proactively close preflight IMAP connection
-          if mailbox_client.respond_to?(:close)
-            mailbox_client.close
-          elsif mailbox_client.respond_to?(:disconnect)
-            mailbox_client.disconnect
-          elsif mailbox_client.respond_to?(:logout)
-            mailbox_client.logout
-          end
-        rescue
-        end
 
-        collection = NittyMail::DB.chroma_collection(collection_name)
-
-        candidate_ids = server_uids.map { |u| "#{uidvalidity}:#{u}" }
-        exist_threads = (ENV["NITTYMAIL_EXIST_THREADS"] || 4).to_i
-        existing_ids = NittyMail::Workers::Chroma.existing_ids(
-          collection: collection,
-          candidate_ids: candidate_ids,
-          threads: exist_threads,
-          batch_size: 1000
-        )
-        existing_uids = existing_ids.map { |id| id.split(":", 2)[1].to_i }
-
-        to_fetch = server_uids - existing_uids
-        if to_fetch.empty?
-          puts "Nothing to download; collection is up to date."
+        existing_uids = NittyMail::Email.where(address: address, mailbox: mailbox, uidvalidity: uidvalidity).pluck(:uid).to_set
+        to_fetch = server_uids.reject { |u| existing_uids.include?(u) }
+        total_to_process = to_fetch.size
+        if total_to_process <= 0
+          puts "Nothing to download. Database is up to date."
           return
         end
 
-        total_to_process = to_fetch.size
+        progress = NittyMail::Utils.progress_bar(title: "Download", total: total_to_process)
         processed = 0
-        puts "Fetching #{total_to_process} message(s) from IMAP and uploading to Chroma '#{collection_name}'..."
-        progress = NittyMail::Utils.progress_bar(title: "Upload", total: total_to_process)
 
-        interrupted = false
-        feeder = nil
-        status_thread = nil
-        upload_workers = []
-        fetch_workers = []
-        flush_fetch_queue = -> do
-          begin
-            loop { fetch_queue.pop(true) }
-          rescue ThreadError
-            # emptied
-          rescue
-          end
-        end
-        Signal.trap("INT") do
-          if interrupted
-            puts "\nForce exiting..."
-            begin; status_thread&.kill; rescue; end
-            begin; feeder&.kill; rescue; end
-            begin; fetch_workers.each { |t| t&.kill }; rescue; end
-            begin; upload_workers.each { |t| t&.kill }; rescue; end
-            # Immediate exit; bypass at_exit/ensure to avoid hangs in blocked threads
-            begin
-              Kernel.exit!(130)
+        to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
+          fetch_response = mailbox_client.fetch(uids: uid_batch)
+          rows = []
+          fetch_response.each do |msg|
+            uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
+            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
+            raw = raw.to_s.dup
+            raw.force_encoding("BINARY")
+            safe = begin
+              raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
             rescue
-              # As a last resort, hard kill this process
-              begin
-                Process.kill("KILL", $$)
-              rescue
-              end
+              raw.to_s
             end
-          else
-            interrupted = true
-            warn "\nInterrupt received. Will stop after current batch (Ctrl-C again to force)."
-            # Drop queued fetch work and signal workers to wind down
-            flush_fetch_queue.call if defined?(fetch_queue) && fetch_queue
-            begin
-              if defined?(fetch_threads) && defined?(fetch_queue) && fetch_queue
-                fetch_threads.times { fetch_queue.push(:__END__) }
-              end
-            rescue; end
-            begin
-              if defined?(upload_threads) && defined?(job_queue) && job_queue
-                upload_threads.times { job_queue << :__END__ }
-              end
-            rescue; end
-          end
-        end
-
-        upload_threads = options[:upload_threads].to_i
-        upload_threads = 1 if upload_threads < 1
-        job_queue = SizedQueue.new(upload_threads * 4)
-        progress_mutex = Mutex.new
-        errors_mutex = Mutex.new
-        upload_errors = 0
-        fetch_errors = 0
-
-        upload_workers = NittyMail::Workers::Consumer.new(
-          collection: collection,
-          job_queue: job_queue,
-          interrupted: -> { interrupted },
-          on_progress: ->(count) {
-            progress_mutex.synchronize do
-              processed += count
-              progress.progress = [processed, total_to_process].min
-            end
-          },
-          on_error: ->(failed_count, ex, id_range) {
-            errors_mutex.synchronize { upload_errors += failed_count }
-            warn "upload error: #{ex.class}: #{ex.message} ids=#{id_range.first}..#{id_range.last}"
-          }
-        ).start(threads: upload_threads)
-
-        fetch_threads = options[:fetch_threads].to_i
-        fetch_threads = 1 if fetch_threads < 1
-        fetch_queue = SizedQueue.new(fetch_threads * 4)
-        feeder = Thread.new do
-          to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
-            break if interrupted
-            fetch_queue.push(uid_batch)
-          end
-        ensure
-          fetch_threads.times { fetch_queue.push(:__END__) }
-        end
-
-        fetch_workers = NittyMail::Workers::Producer.new(
-          settings: settings,
-          mailbox_name: mailbox,
-          address: address,
-          uidvalidity: uidvalidity,
-          upload_batch_size: upload_batch_size,
-          fetch_queue: fetch_queue,
-          job_queue: job_queue,
-          interrupted: -> { interrupted },
-          on_error: ->(type, ex, uid_batch) {
-            errors_mutex.synchronize { fetch_errors += 1 }
-            range = uid_batch && [uid_batch.first, uid_batch.last]
-            warn "imap #{type} error: #{ex.class}: #{ex.message} batch=#{range&.first}..#{range&.last}"
-          }
-        ).start(threads: fetch_threads)
-
-        status_thread = Thread.new do
-          loop do
-            break if interrupted
-            begin
-              producers_alive = fetch_workers.count(&:alive?)
-              consumers_alive = upload_workers.count(&:alive?)
-              progress.title = "Upload f:#{producers_alive}/#{fetch_threads} u:#{consumers_alive}/#{upload_threads} jq:#{job_queue.size} fq:#{fetch_queue.size}"
-              # Stop status updates once all queues drain and workers exit
-              if producers_alive == 0 && consumers_alive == 0 && fetch_queue.empty? && job_queue.empty?
-                break
-              end
+            internal = msg.attr["INTERNALDATE"] || msg.attr[:INTERNALDATE] || msg.attr[:internaldate]
+            internal_time = internal.is_a?(Time) ? internal : (begin
+              require "time"
+              Time.parse(internal.to_s)
             rescue
+              Time.at(0)
+            end)
+            internal_epoch = internal_time.to_i
+
+            envelope = msg.attr["ENVELOPE"] || msg.attr[:ENVELOPE] || msg.attr[:envelope]
+            from_email = begin
+              addrs = envelope&.from
+              addr = Array(addrs).first
+              m = addr&.mailbox&.to_s
+              h = addr&.host&.to_s
+              (m && h && !m.empty? && !h.empty?) ? "#{m}@#{h}".downcase : nil
+            rescue
+              nil
             end
-            sleep 1
+
+            labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
+            labels = Array(labels_attr).map { |v| v.to_s }
+
+            size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
+            rfc822_size = size_attr.to_i
+
+            subject = ""
+            plain_text = ""
+            markdown = ""
+            begin
+              mail = ::Mail.read_from_string(safe)
+              subject = mail.subject.to_s
+              text_part = NittyMail::Enricher.safe_decode(mail.text_part)
+              html_part = NittyMail::Enricher.safe_decode(mail.html_part)
+              body_fallback = NittyMail::Enricher.safe_decode(mail.body)
+              plain_text = text_part.to_s.strip.empty? ? body_fallback.to_s : text_part.to_s
+              markdown = if html_part && !html_part.to_s.strip.empty?
+                ::ReverseMarkdown.convert(html_part.to_s)
+              else
+                ::ReverseMarkdown.convert(plain_text.to_s)
+              end
+            rescue => e
+              warn "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
+            end
+
+            rows << {
+              address: address,
+              mailbox: mailbox,
+              uidvalidity: uidvalidity,
+              uid: uid,
+              subject: subject,
+              internaldate: internal_time,
+              internaldate_epoch: internal_epoch,
+              rfc822_size: rfc822_size,
+              from_email: from_email,
+              labels_json: labels.to_json,
+              raw: raw,
+              plain_text: plain_text,
+              markdown: markdown,
+              created_at: Time.now,
+              updated_at: Time.now
+            }
+          end
+
+          rows.each_slice(batch_size) do |chunk|
+            NittyMail::Email.upsert_all(chunk, unique_by: "index_emails_on_identity")
+            processed += chunk.size
+            progress.progress = [processed, total_to_process].min
           end
         end
 
-        feeder.join
-        fetch_workers.each(&:join)
-        upload_workers.size.times { job_queue << :__END__ }
-        upload_workers.each(&:join)
-        status_thread&.kill
         progress.finish unless progress.finished?
-        if interrupted
-          puts "Download interrupted. Processed #{processed}/#{total_to_process}. Upload errors: #{upload_errors}. Fetch errors: #{fetch_errors}."
-          exit 130
-        end
-        if upload_errors > 0 || fetch_errors > 0
-          warn "Download finished with errors. Failed uploads: #{upload_errors}. Fetch errors: #{fetch_errors}."
-          exit 4
-        end
-        puts "Download complete."
+        puts "Download complete: processed #{processed} message(s)."
       rescue ArgumentError => e
         warn "error: #{e.message}"
         exit 1
       rescue Net::IMAP::NoResponseError, Net::IMAP::BadResponseError => e
         warn "imap error: #{e.message}"
         exit 2
-      rescue Chroma::ChromaError => e
-        details = []
-        details << "status=#{e.status}" if e.respond_to?(:status)
-        details << "body=#{e.body.inspect}" if e.respond_to?(:body)
-        warn "chroma error: #{e.class}: #{e.message} #{details.join(" ")}"
-        exit 4
       rescue => e
         warn "unexpected error: #{e.class}: #{e.message}"
         exit 3

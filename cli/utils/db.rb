@@ -1,28 +1,8 @@
 # frozen_string_literal: true
 
-# Keep existing Chroma helper for now (Task 2 removes usage),
-# and introduce ActiveRecord-backed SQLite setup functions.
-
-require "chroma-db"
-
 module NittyMail
   module DB
     module_function
-
-    # --------------------
-    # Chroma (legacy path)
-    # --------------------
-    def chroma_collection(collection_name, host: nil, api_base: nil, api_version: nil)
-      host ||= ENV["NITTYMAIL_CHROMA_HOST"] || "http://chroma:8000"
-      api_base = ENV["NITTYMAIL_CHROMA_API_BASE"] if api_base.nil?
-      api_version = ENV["NITTYMAIL_CHROMA_API_VERSION"] if api_version.nil?
-
-      Chroma.connect_host = host
-      Chroma.api_base = api_base unless api_base.to_s.empty?
-      Chroma.api_version = api_version unless api_version.to_s.empty?
-
-      Chroma::Resources::Collection.get_or_create(collection_name)
-    end
 
     # -----------------------
     # ActiveRecord / SQLite3
