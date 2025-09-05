@@ -16,9 +16,31 @@ class WriteJob < ActiveJob::Base
   # - from_email: String (optional)
   # - rfc822_size: Integer (optional)
   # - labels: Array<String>
-  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false)
+  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false, sha256: nil)
     raw = File.binread(artifact_path)
     raw.force_encoding("BINARY")
+    keep_artifact = false
+
+    begin
+      if sha256 && !sha256.to_s.empty?
+        require "digest"
+        computed = Digest::SHA256.hexdigest(raw)
+        if computed != sha256
+          warn "write checksum mismatch: uv=#{uidvalidity} uid=#{uid}"
+          increment_counter(run_id, :errors) if run_id
+          keep_artifact = true # keep for inspection
+          return
+        end
+      end
+    rescue => e
+      warn "write checksum error: #{e.class}: #{e.message} uv=#{uidvalidity} uid=#{uid}"
+      if strict || ENV["NITTYMAIL_STRICT"] == "1"
+        raise
+      else
+        increment_counter(run_id, :errors) if run_id
+        return
+      end
+    end
 
     subject = ""
     plain_text = ""
@@ -88,7 +110,7 @@ class WriteJob < ActiveJob::Base
       end
     ensure
       begin
-        File.delete(artifact_path) if File.exist?(artifact_path)
+        File.delete(artifact_path) if !keep_artifact && File.exist?(artifact_path)
       rescue
       end
     end

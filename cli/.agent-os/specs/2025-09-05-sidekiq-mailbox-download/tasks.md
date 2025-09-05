@@ -17,19 +17,25 @@
 - [x] 3. CLI integration (default `--jobs`) and progress
   - [x] 3.1 Add flags: default `--jobs`, `--no-jobs` to force single-process, and job tuning flags
   - [x] 3.2 Enqueue UID batches and initialize Redis counters (total/processed/errors)
-  - [x] 3.3 Poll counters and queue sizes; update progress bar until completion
+- [x] 3.3 Poll counters and update progress bar until completion (prefer Active Job APIs when possible)
   - [x] 3.4 Fallback to existing single-process flow when `--no-jobs` is set (or Redis unavailable)
 
-- [ ] 4. Serialization and safety
-  - [ ] 4.1 Store only file paths and small JSON payloads in Redis
-  - [ ] 4.2 Organize artifacts by `address/mailbox/uidvalidity/uid.eml`
-  - [ ] 4.3 Best-effort cleanup and optional checksum validation
+- [x] 4. Serialization and safety
+  - [x] 4.1 Store only file paths and small JSON payloads in Redis
+  - [x] 4.2 Organize artifacts by `address/mailbox/uidvalidity/uid.eml`
+  - [x] 4.3 Best-effort cleanup and optional checksum validation (added SHA256 to jobs and validated in writer)
 
-- [ ] 5. Docs and examples
-  - [ ] 5.1 Update README (job-mode quickstart, flags, compose services)
-  - [ ] 5.2 Update AGENTS.md (job-mode guidance, testing patterns)
+- [ ] 5. Graceful interrupts (jobs mode)
+  - [ ] 5.1 Ensure jobs carry `run_id` to support selective cleanup
+- [ ] 5.2 On first Ctrl-C: stop enqueuing/polling, set abort flag in Redis for `run_id` (e.g., `nm:dl:<run_id>:aborted=1`), have jobs check this and self-terminate early; best-effort delete unprocessed artifacts (no Sidekiq queue manipulation)
+  - [ ] 5.3 On second Ctrl-C: force quit after best-effort cleanup
+- [ ] 5.4 Add specs for graceful vs forceful interrupts (prefer Active Job test helpers and stubbing Redis/filesystem; avoid Sidekiq-specific APIs)
 
-- [ ] 6. Tests and quality
-  - [ ] 6.1 Add integration specs: enqueue + parallel fetch + single writer writes
-  - [ ] 6.2 Add strict-mode spec for job failures (fetch/write)
-  - [ ] 6.3 Lint (StandardRB/RuboCop) and full RSpec run (green)
+- [ ] 6. Docs and examples
+  - [ ] 6.1 Update README (job-mode quickstart, flags, compose services, interrupts)
+  - [ ] 6.2 Update AGENTS.md (job-mode guidance, testing patterns, interrupts)
+
+- [ ] 7. Tests and quality
+  - [ ] 7.1 Add integration specs: enqueue + parallel fetch + single writer writes
+  - [ ] 7.2 Add strict-mode spec for job failures (fetch/write)
+  - [ ] 7.3 Lint (StandardRB/RuboCop) and full RSpec run (green)

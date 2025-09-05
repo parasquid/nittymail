@@ -5,6 +5,7 @@ require "fileutils"
 require "json"
 require "time"
 require "nitty_mail"
+require "digest"
 
 # Fetch a batch of UIDs, write raw artifacts to disk, and enqueue write jobs
 class FetchJob < ActiveJob::Base
@@ -65,12 +66,15 @@ class FetchJob < ActiveJob::Base
         File.binwrite(tmp, raw)
         File.rename(tmp, final)
 
+        sha256 = Digest::SHA256.hexdigest(raw)
+
         WriteJob.perform_later(
           address: address,
           mailbox: mailbox,
           uidvalidity: uidvalidity,
           uid: uid,
           artifact_path: final,
+          sha256: sha256,
           internaldate_epoch: internal_epoch,
           from_email: from_email,
           rfc822_size: rfc822_size,
