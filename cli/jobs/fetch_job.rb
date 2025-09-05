@@ -15,7 +15,7 @@ class FetchJob < ActiveJob::Base
   # - uids: array of Integers
   # - settings: optional hash for NittyMail::Settings overrides
   # - artifact_dir: optional base dir for artifacts
-  def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil)
+  def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil, run_id: nil, strict: false)
     settings_args = {imap_address: address, imap_password: password}.merge(settings || {})
     settings_obj = NittyMail::Settings.new(**settings_args)
     mailbox_client = NittyMail::Mailbox.new(settings: settings_obj, mailbox_name: mailbox)
@@ -74,12 +74,14 @@ class FetchJob < ActiveJob::Base
           internaldate_epoch: internal_epoch,
           from_email: from_email,
           rfc822_size: rfc822_size,
-          labels: labels
+          labels: labels,
+          run_id: run_id,
+          strict: strict
         )
       end
     rescue => e
       warn "fetch job error: #{e.class}: #{e.message} addr=#{address} mb=#{mailbox} uv=#{uidvalidity} uids=#{uids.first}..#{uids.last}"
-      raise if ENV["NITTYMAIL_STRICT"] == "1"
+      raise if strict || ENV["NITTYMAIL_STRICT"] == "1"
     ensure
       begin
         mailbox_client&.logout if mailbox_client&.respond_to?(:logout)

@@ -14,11 +14,11 @@
   - [x] 2.3 Implement `WriteJob` (queue `write`, concurrency 1) to parse + upsert + cleanup
   - [x] 2.4 Ensure idempotency and error handling (`--strict` aware)
 
-- [ ] 3. CLI integration (default `--jobs`) and progress
-  - [ ] 3.1 Add flags: default `--jobs`, `--no-jobs` to force single-process, and job tuning flags
-  - [ ] 3.2 Enqueue UID batches and initialize Redis counters (total/processed/errors)
-  - [ ] 3.3 Poll counters and queue sizes; update progress bar until completion
-  - [ ] 3.4 Fallback to existing single-process flow when `--no-jobs` is set (default remains current mode)
+- [x] 3. CLI integration (default `--jobs`) and progress
+  - [x] 3.1 Add flags: default `--jobs`, `--no-jobs` to force single-process, and job tuning flags
+  - [x] 3.2 Enqueue UID batches and initialize Redis counters (total/processed/errors)
+  - [x] 3.3 Poll counters and queue sizes; update progress bar until completion
+  - [x] 3.4 Fallback to existing single-process flow when `--no-jobs` is set (or Redis unavailable)
 
 - [ ] 4. Serialization and safety
   - [ ] 4.1 Store only file paths and small JSON payloads in Redis
