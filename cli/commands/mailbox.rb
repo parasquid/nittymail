@@ -103,11 +103,16 @@ module NittyMail
         processed = 0
 
         to_fetch.each_slice(settings.max_fetch_size) do |uid_batch|
-          fetch_response = mailbox_client.fetch(uids: uid_batch)
+          fetch_response = begin
+            mailbox_client.fetch(uids: uid_batch)
+          rescue => e
+            warn "imap fetch error: #{e.class}: #{e.message} batch=#{uid_batch.first}..#{uid_batch.last} (skipping)"
+            next
+          end
           rows = []
           fetch_response.each do |msg|
             uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
+            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
             raw = raw.to_s.dup
             raw.force_encoding("BINARY")
             safe = begin
@@ -135,10 +140,10 @@ module NittyMail
               nil
             end
 
-            labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:"X-GM-LABELS"] || msg.attr[:x_gm_labels]
+            labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
             labels = Array(labels_attr).map { |v| v.to_s }
 
-            size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"]
+            size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
             rfc822_size = size_attr.to_i
 
             subject = ""
@@ -156,8 +161,12 @@ module NittyMail
               else
                 ::ReverseMarkdown.convert(plain_text.to_s)
               end
+              # normalize encodings to UTF-8 for DB writes
+              subject = NittyMail::Enricher.normalize_utf8(subject)
+              plain_text = NittyMail::Enricher.normalize_utf8(plain_text)
+              markdown = NittyMail::Enricher.normalize_utf8(markdown)
             rescue => e
-              warn "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid}"
+              warn "parse error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping parse; storing raw only)"
             end
 
             rows << {
@@ -170,19 +179,31 @@ module NittyMail
               internaldate_epoch: internal_epoch,
               rfc822_size: rfc822_size,
               from_email: from_email,
-              labels_json: labels.to_json,
+              labels_json: JSON.generate(labels),
               raw: raw,
               plain_text: plain_text,
               markdown: markdown,
               created_at: Time.now,
               updated_at: Time.now
             }
+          rescue Encoding::CompatibilityError => e
+            warn "encoding error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
+            next
+          rescue ArgumentError => e
+            # invalid byte sequence etc.
+            warn "processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
+            next
+          rescue => e
+            warn "unexpected processing error: #{e.class}: #{e.message} uidvalidity=#{uidvalidity} uid=#{uid} (skipping message)"
+            next
           end
 
           rows.each_slice(batch_size) do |chunk|
             NittyMail::Email.upsert_all(chunk, unique_by: "index_emails_on_identity")
             processed += chunk.size
             progress.progress = [processed, total_to_process].min
+          rescue => e
+            warn "db upsert error: #{e.class}: #{e.message} (skipping chunk of #{chunk.size})"
           end
         end
 

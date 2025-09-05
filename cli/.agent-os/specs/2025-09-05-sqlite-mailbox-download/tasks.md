@@ -40,5 +40,10 @@
 - [ ] 5. Quality, lint, and integration checks
   - [ ] 5.1 Write integration spec: small inbox fetch scenario with mocked IMAP; verify resumability
   - [ ] 5.2 StandardRB auto-fix, RuboCop clean
-  - [ ] 5.3 Run full RSpec suite inside Docker; ensure green
+  - [x] 5.3 Run full RSpec suite inside Docker; ensure green
   - [ ] 5.4 Verify all tests pass
+
+- [x] 6. Error handling and resilience
+  - [x] 6.1 Skip per-message parse/encoding errors by default with warnings (uid shown)
+  - [x] 6.2 Skip failing IMAP fetch batches with warnings (range shown)
+  - [x] 6.3 Skip failing DB upsert chunks with warnings (size shown)
