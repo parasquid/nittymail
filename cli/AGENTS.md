@@ -1,71 +1,100 @@
 # Agent Guide (CLI)
 
-This guide covers how AI agents should work within the CLI folder: naming style, how to use the Chroma helper, and concurrency controls.
+This guide describes conventions and helpers for working in the `cli/` folder. The CLI now uses SQLite via ActiveRecord and the `nitty_mail` gem for IMAP — Chroma is no longer used.
 
-## Style Notes
+## Style & Safety
 
-- Prefer concise but descriptive variable names; avoid cryptic one-letter names in non-trivial scopes.
-- Examples: `mailbox_client` (not `mb`), `fetch_response` (not `fr`), `doc_ids`/`documents`/`metadata_list` (not `ids`/`docs`/`metas`).
-- Use `until interrupted` instead of `loop do` + `break if interrupted` when expressing interrupt-aware loops.
-- Rescue specific exceptions; log actionable context; avoid swallowing errors unless explicitly justified.
-- Do not swallow exceptions silently. If you skip or fall back, log a concise warning with the error class/message and enough identifiers (e.g., `uidvalidity`, `uid`, id range) to triage. Only suppress when there is a strong reason and you have an alternate path.
-- **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
+- Prefer concise, descriptive names (e.g., `mailbox_client`, `fetch_response`).
+- Use `until interrupted` rather than `loop do` for interrupt-aware loops.
+- Rescue specific exceptions; log actionable context; avoid silent failure.
+- When skipping or falling back, log class/message and identifiers (uidvalidity, uid, batch range).
+- Do not hide initialization failures; fail fast with clear errors.
+- Hash shorthand: `{foo:}` when key equals variable.
 
+## Database (ActiveRecord + SQLite)
 
-## Chroma Client (canonical helper)
+- Connection helper: `utils/db.rb`
+  - `NittyMail::DB.establish_sqlite_connection(database_path:, address:)` sets pragmas (WAL, synchronous=NORMAL, temp_store=MEMORY).
+  - Default DB path: `cli/data/[IMAP_ADDRESS].sqlite3` (override via `--database` or `NITTYMAIL_SQLITE_DB`).
+  - `NittyMail::DB.run_migrations!` runs AR migrations.
+- Model: `models/email.rb` defines validations and uses table `emails`.
+- Git hygiene: `data/*.sqlite3` (and `-wal`/`-shm`) are gitignored; `data/.keep` ensures the directory exists.
 
-Always configure Chroma through the shared helper and then use the returned collection.
+## Downloader Behavior
 
-```ruby
-require_relative "utils/db"
+- Command: `mailbox download`
+- Core flow:
+  - Preflight (via `nitty_mail`): get `uidvalidity` and `to_fetch` UIDs.
+  - Diff: determine missing UIDs vs. DB (`address`, `mailbox`, `uidvalidity`, `uid`).
+  - Fetch in slices; parse with `mail` and normalize to UTF-8.
+  - Upsert rows with `upsert_all` keyed by the composite unique index.
+  - Progress: `ruby-progressbar` shows counts; Ctrl-C gracefully interrupts.
+- Stored columns per email: raw (BLOB), plain_text, markdown, subject, internaldate, internaldate_epoch, rfc822_size, from_email, labels_json, to_emails, cc_emails, bcc_emails.
 
-collection = NittyMail::DB.chroma_collection(collection_name)
-# Env defaults read by the helper:
-# - NITTYMAIL_CHROMA_HOST (default http://chroma:8000)
-# - NITTYMAIL_CHROMA_API_BASE (optional)
-# - NITTYMAIL_CHROMA_API_VERSION (optional)
-```
+## Flags
 
-### Chroma Docs
+- `--mailbox`: mailbox name (default `INBOX`).
+- `--database`: override DB path.
+- `--batch-size`: DB upsert chunk size (typical 100–500).
+- `--max-fetch-size`: IMAP fetch slice size (typical 200–500; default from settings).
+- `--strict`: fail-fast instead of skip-on-error (fetch/parse/upsert).
+- `--recreate`: drop rows for current generation (address+mailbox+uidvalidity) and re-download (requires `--yes`/`--force` or prompt confirmation).
+- `--purge-uidvalidity <n>`: delete rows for a specific generation and exit (requires `--yes`/`--force` or prompt confirmation).
+- `--yes` / `--force`: auto-confirm destructive actions.
 
-- See `docs/chroma.md` for full Chroma details: metadata schema, naming rules, deduplication IDs, paging and batching examples, search across multiple embeddings, tuning/backpressure, health checks, and troubleshooting.
+## Error Handling
 
-### IDs and Metadata (quick rules)
+- Default: skip-on-error with warnings (parse/encoding/fetch/upsert). Per-chunk upsert falls back to per-row.
+- Strict: re-raise errors to abort the run; top-level handler exits with non-zero.
 
-- Use `"#{uidvalidity}:#{uid}"` as the document ID to align with IMAP semantics and deduplicate across syncs.
-- Store multiple representations per message with `item_type` metadata: `raw`, `plain_text`, `markdown`, `subject`.
-- Keep raw RFC822 pristine; normalize only non-raw variants on upload.
-- Include mailbox fields in metadata: `address`, `mailbox`, `uidvalidity`, `uid`, `internaldate_epoch`, `from_email`, `rfc822_size`, `labels`, `item_type`.
+## Performance & Resumability
 
-## Concurrency & Tuning
+- Resumable: only missing UIDs are fetched; re-running processes new mail only.
+- WAL enabled by default for better write throughput.
+- Tuning:
+  - Increase `--max-fetch-size` moderately if IMAP allows; watch server limits.
+  - Reduce `--batch-size` if DB is the bottleneck; WAL generally absorbs bursts.
 
-- Producer–consumer pipeline:
-  - Fetchers enqueue batches; upload workers call `collection.add` in parallel.
-- CLI flags:
-  - `--fetch-threads`: number of parallel IMAP fetchers (recommend 2–4).
-  - `--upload-threads`: number of parallel upload workers (recommend 2–4).
-  - `--max-fetch-size`: IMAP fetch slice size (defaults to `Settings#max_fetch_size`).
-  - `--upload-batch-size`: upload chunk size per HTTP request (typical 100–500).
-- Progress and interrupts:
-  - `ruby-progressbar` shows %/counts/ETA.
-  - First Ctrl-C: graceful stop; second Ctrl-C: force exit.
+## Lint & Commit
 
-## Persistence (Chroma)
-
-- Data persists under `cli/chroma-data` bind-mounted into the container.
-- See `docs/chroma.md` for full Chroma details and troubleshooting.
-
-## Lint Before Committing
-
-- Run StandardRB auto-fix and RuboCop inside Docker from the `cli/` folder:
+- Run inside Docker from `cli/`:
   - `docker compose run --rm cli bundle install`
   - `docker compose run --rm cli bundle exec standardrb --fix`
   - `docker compose run --rm cli bundle exec rubocop -A`
-- Ensure no offenses remain before committing.
+- Conventional Commits; use heredoc (`git commit -F - << 'EOF'`) to satisfy hooks.
 
 ## Tests
 
-- Write specs in rspec-given style for readability.
-- Require `rspec/given` via `spec/spec_helper.rb` (already set up here).
-- Run specs from `cli/` via Docker:
-  - `docker compose run --rm cli bundle exec rspec -fd -b`
+- Use rspec-given; see `spec/spec_helper.rb`.
+- Run: `docker compose run --rm cli bundle exec rspec -fd -b`.
+- Patterns:
+  - Stub `NittyMail::Mailbox` for IMAP interactions.
+  - Smoke specs for downloader (idempotency, parsed fields).
+  - Resumability: pre-seed DB; ensure only missing UIDs are fetched.
+  - Strict mode: expect fail-fast behavior (e.g., stub DB upsert failure).
+  - Recreate/Purge: verify generation delete and safe confirmations.
+
+## Adding Migrations & Flags
+
+### Migrations
+
+- Location: `db/migrate/` with incremental numeric prefixes (e.g., `002_add_email_indexes.rb`).
+- Version: use `ActiveRecord::Migration[8.0]` to match the current AR version.
+- Safety:
+  - Prefer additive, reversible changes via `change`.
+  - For destructive changes, provide explicit `up`/`down` and add tests.
+  - Scope data operations carefully; use `where(...).delete_all` rather than unscoped deletes.
+- Execution: `NittyMail::DB.run_migrations!` is invoked by the CLI before operations that need schema readiness.
+
+### Adding CLI Flags
+
+- Define with Thor `method_option` next to the command.
+- Include clear descriptions, sensible defaults, and env var references when applicable.
+- For destructive actions, require confirmation and support `--yes`/`--force`.
+- Keep behaviors consistent with existing flags (e.g., `--strict` toggles fail-fast across fetch/parse/upsert).
+
+### Tests for New Flags
+
+- Use rspec-given; stub `NittyMail::Mailbox` for deterministic preflight/fetch.
+- For maintenance flags, seed DB via `NittyMail::Email` and assert rows added/removed.
+- For strict mode or failure scenarios, stub underlying calls (e.g., `Email.upsert_all`) to raise and assert non-zero exit via `SystemExit`.
