@@ -4,15 +4,16 @@
 
 - [x] 1. CLI command and flags
   - [x] 1.1 Add `archive` subcommand to `cli mailbox`
-  - [x] 1.2 Flags: `--mailbox`, `--output`, `--no-jobs`, `--job_uid_batch_size`, `--strict`, `--max-fetch-size`
+  - [x] 1.2 Flags: `--mailbox`, `--output`, `--jobs` (optional), `--job_uid_batch_size`, `--strict`, `--max-fetch-size`
   - [x] 1.3 Default output folder to `cli/archives` and create `.keep`
+  - [ ] 1.4 Default execution is single‑process (no Redis); `--jobs` opt‑in
 
 - [x] 2. Single-process archiver
   - [x] 2.1 Preflight; compute `to_archive` (server UIDs minus existing files)
   - [x] 2.2 Fetch in slices; atomic write `<uid>.eml`; skip existing
   - [x] 2.3 Progress bar and summary; strict vs skip-on-error handling
 
-- [x] 3. Jobs mode (default)
+- [x] 3. Jobs mode (optional)
   - [x] 3.1 Implement `ArchiveFetchJob` (queue `fetch`)
   - [x] 3.2 Enqueue UID batches; initialize Redis counters `nm:arc:<run_id>:{total,processed,errors,aborted}`
   - [x] 3.3 Poll counters to update progress; completion when `processed+errors==total`

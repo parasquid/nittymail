@@ -5,7 +5,7 @@
 
 ## Overview
 
-Introduce a new `cli mailbox archive` command that downloads all messages from a mailbox into raw RFC822 files, naming them by UID. No parsing or database writes are performed. The command is resumable (skips already-archived UIDs), displays a progress bar, and uses a jobs mode (Active Job + Sidekiq adapter) by default with `--no-jobs` to run without Redis. Archives include a `.keep` file so the folder is tracked, and all other archived files are gitignored to avoid accidental commits.
+Introduce a new `cli mailbox archive` command that downloads all messages from a mailbox into raw RFC822 files, naming them by UID. No parsing or database writes are performed. The command is resumable (skips already-archived UIDs), displays a progress bar, and runs single‑process by default (no Redis). An optional jobs mode (Active Job + Sidekiq adapter) can be enabled with `--jobs`. Archives include a `.keep` file so the folder is tracked, and all other archived files are gitignored to avoid accidental commits.
 
 ## User Stories
 
@@ -15,8 +15,8 @@ Introduce a new `cli mailbox archive` command that downloads all messages from a
 2) Resumable & Idempotent
 - As a user, I want to safely re-run archiving and only fetch missing UIDs, so repeated runs are fast and safe.
 
-3) Jobs Mode by Default
-- As a user, I want parallelized fetches by default (Active Job + Sidekiq adapter) with a `--no-jobs` opt-out that runs without Redis for portability.
+3) Optional Jobs Mode
+- As a user, I want the option to parallelize fetches (Active Job + Sidekiq adapter) via `--jobs`, while defaulting to a portable single‑process mode.
 
 4) Progress & Summary
 - As a user, I want a progress bar and a final summary with counts for processed and errors.
@@ -30,14 +30,14 @@ Introduce a new `cli mailbox archive` command that downloads all messages from a
 - Flags:
   - `--mailbox` (default `INBOX`)
   - `--output` base directory (default `cli/archives`)
-  - `--no-jobs` to force single‑process mode
+  - `--jobs` to enable jobs mode; default is single‑process (no Redis)
   - `--job_uid_batch_size` (default 200)
   - `--strict` fail-fast instead of skip-on-error
   - `--max-fetch-size` override IMAP fetch slice size
 - Output layout: `cli/archives/<address>/<sanitized-mailbox>/<uidvalidity>/<uid>.eml`; ensure a `.keep` exists under `cli/archives/` so the directory is tracked.
 - Resumability: skip if `<uid>.eml` exists.
 
-2. Jobs Mode (default)
+2. Jobs Mode (optional)
 - Active Job (Sidekiq adapter) with a new `ArchiveFetchJob` on the `fetch` queue:
   - Fetches UIDs in batches and writes `.eml` files atomically (`.tmp` → rename).
   - Increments Redis counters per saved UID (`processed`) and per error (`errors`).
@@ -49,7 +49,7 @@ Introduce a new `cli mailbox archive` command that downloads all messages from a
   - On first Ctrl‑C: set abort flag and stop enqueues/polling; jobs check flag and self-terminate. Second Ctrl‑C: force exit.
 - Prefer Active Job–level APIs in code and tests; avoid Sidekiq-specific queue inspection.
 
-3. Single‑Process Mode (`--no-jobs`)
+3. Single‑Process Mode (default)
 - Similar to the current download flow but without parsing/DB writes:
   - Fetch in slices, write `.eml` files (atomic writes), track progress.
   - Skip existing files for resumability.
@@ -73,5 +73,5 @@ Introduce a new `cli mailbox archive` command that downloads all messages from a
 - Cross-host artifact coordination beyond the shared local folder.
 
 ## Deliverable
-1. `mailbox archive` command that produces `.eml` files named by UID, with progress bar, resumability, jobs mode default, and single-process fallback.
+1. `mailbox archive` command that produces `.eml` files named by UID, with progress bar, resumability, single‑process default, and optional jobs mode.
 2. Working specs and updated docs.

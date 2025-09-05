@@ -8,7 +8,7 @@ This is the technical specification for the spec detailed in @.agent-os/specs/20
 - Flags:
   - `--mailbox` (String, default `INBOX`)
   - `--output` (String, default `cli/archives`)
-  - `--no-jobs` (Boolean): force single-process mode
+  - `--jobs` (Boolean): enable jobs mode (default is single-process)
   - `--job_uid_batch_size` (Integer, default 200)
   - `--max-fetch-size` (Integer, optional override for settings)
   - `--strict` (Boolean): fail-fast on errors
@@ -19,7 +19,7 @@ This is the technical specification for the spec detailed in @.agent-os/specs/20
 - Preflight via `NittyMail::Mailbox#preflight` to get `uidvalidity` and `to_fetch`.
 - Determine `to_archive` = server UIDs minus existing files in the target folder.
 
-## Jobs Mode (default)
+## Jobs Mode (optional)
 
 - Adapter: Active Job with the Sidekiq adapter (existing setup). Prefer Active Job–level APIs where possible.
 - New job: `ArchiveFetchJob` (queue: `fetch`).
@@ -43,7 +43,7 @@ This is the technical specification for the spec detailed in @.agent-os/specs/20
   - Poll counters to update progress bar until `processed + errors == total` or aborted.
   - Interrupts: first Ctrl‑C sets abort flag and stops enqueues/polling; second Ctrl‑C exits immediately. Best-effort sweeping of `.tmp` files; already written `.eml` files remain as partial progress.
 
-## Single-Process Mode (`--no-jobs`)
+## Single-Process Mode (default)
 
 - Loop through `to_archive` in slices of `settings.max_fetch_size`.
 - For each fetched message:
