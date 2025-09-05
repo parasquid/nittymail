@@ -30,14 +30,21 @@ module NittyMail
                   item_type = meta && (meta[:item_type] || meta["item_type"]) || nil
                   doc = doc_batch[idx]
                   # Only normalize non-raw variants; keep raw RFC822 pristine
-                  out_doc = (item_type == "raw") ? doc.to_s : NittyMail::Enricher.normalize_utf8(doc)
+                  out_doc = if item_type == "raw"
+                    doc.to_s
+                  else
+                    NittyMail::Enricher.normalize_utf8(doc)
+                  end
                   norm_meta = normalize_meta(meta)
                   ::Chroma::Resources::Embedding.new(id: idv, document: out_doc, metadata: norm_meta)
                 end
                 @collection.add(embeddings)
                 # Progress counts messages, not embeddings: count 'raw' items in this batch
-                raw_count = meta_batch.count { |m| (m && ((m[:item_type] || m["item_type"])) == "raw") }
-                incr = raw_count > 0 ? raw_count : 0
+                raw_count = meta_batch.count do |m|
+                  itype = m && (m[:item_type] || m["item_type"]) # may be nil
+                  itype == "raw"
+                end
+                incr = raw_count.positive? ? raw_count : 0
                 @on_progress&.call(incr)
               rescue => e
                 id_range = [id_batch.first, id_batch.last]

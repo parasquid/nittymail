@@ -72,7 +72,7 @@ module NittyMail
         candidates = collection.get(
           page: 1,
           page_size: 10,
-          where: {'$and': [
+          where: {"$and": [
             {uidvalidity: uidvalidity},
             {internaldate_epoch: max_epoch}
           ]}
@@ -82,9 +82,9 @@ module NittyMail
           near = collection.get(
             page: 1,
             page_size: 200,
-            where: {'$and': [
+            where: {"$and": [
               {uidvalidity: uidvalidity},
-              {internaldate_epoch: {'$gt': max_epoch - window, '$lte': max_epoch}}
+              {internaldate_epoch: {"$gt": max_epoch - window, "$lte": max_epoch}}
             ]}
           )
           if near.empty?
@@ -207,7 +207,7 @@ module NittyMail
         cpage = 1
         loop do
           cemb = if uv
-            collection.get(page: cpage, page_size: page_size, where: {'$and': [{uidvalidity: uv}, {item_type: "raw"}]})
+            collection.get(page: cpage, page_size: page_size, where: {"$and": [{uidvalidity: uv}, {item_type: "raw"}]})
           else
             collection.get(page: cpage, page_size: page_size)
           end
@@ -223,7 +223,7 @@ module NittyMail
         page = 1
         loop do
           embeddings = if uv
-            collection.get(page: page, page_size: page_size, where: {'$and': [{uidvalidity: uv}, {item_type: "raw"}]})
+            collection.get(page: page, page_size: page_size, where: {"$and": [{uidvalidity: uv}, {item_type: "raw"}]})
           else
             collection.get(page: page, page_size: page_size)
           end
@@ -432,9 +432,9 @@ module NittyMail
             res = collection.get(
               page: 1,
               page_size: 1,
-              where: {'$and': [
+              where: {"$and": [
                 {uidvalidity: uidvalidity},
-                {internaldate_epoch: {'$gte': ts}}
+                {internaldate_epoch: {"$gte": ts}}
               ]}
             )
             !res.empty?
@@ -463,8 +463,8 @@ module NittyMail
           rescue => e
             warn "neighbor uid suggestion failed: #{e.class}: #{e.message}"
             []
+          end
         end
-      end
       end
     end
   end

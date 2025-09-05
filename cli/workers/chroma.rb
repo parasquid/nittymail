@@ -34,8 +34,13 @@ module NittyMail
                 mutex.synchronize { ids.each { |i| existing << i } }
               rescue => e
                 # Log and continue to allow other batches to proceed
-                first = id_batch.first rescue nil
-                last = id_batch.last rescue nil
+                first = nil
+                last = nil
+                begin
+                  first = id_batch.first
+                  last = id_batch.last
+                rescue
+                end
                 warn "chroma existing_ids error: #{e.class}: #{e.message} ids=#{first}..#{last}"
               end
             end

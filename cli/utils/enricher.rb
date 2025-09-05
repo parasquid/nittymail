@@ -97,7 +97,7 @@ module NittyMail
       rescue ::Mail::UnknownEncodingType => e
         warn "enrich decode error: #{e.class}: #{e.message} (UnknownEncodingType). Using raw body."
         part.respond_to?(:body) ? part.body.to_s : part.to_s
-      rescue StandardError => e
+      rescue => e
         warn "enrich decode error: #{e.class}: #{e.message}. Using raw body."
         part.respond_to?(:body) ? part.body.to_s : part.to_s
       end
