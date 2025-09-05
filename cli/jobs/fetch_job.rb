@@ -17,9 +17,13 @@ class FetchJob < ActiveJob::Base
   # - settings: optional hash for NittyMail::Settings overrides
   # - artifact_dir: optional base dir for artifacts
   def perform(address:, password:, mailbox:, uidvalidity:, uids:, settings: {}, artifact_dir: nil, run_id: nil, strict: false)
-    # Add delay in test environment to allow interrupt testing
-    if ENV["RAILS_ENV"] == "test" || ENV["RACK_ENV"] == "test"
-      sleep 0.5
+    # Add small delay when using ActiveJob TestAdapter to allow interrupt trap to set abort flag
+    begin
+      aj_adapter = ActiveJob::Base.queue_adapter
+      if aj_adapter && aj_adapter.class.name =~ /TestAdapter/i
+        sleep 0.5
+      end
+    rescue
     end
     # Respect abort flag if present
     if run_id && aborted?(run_id)

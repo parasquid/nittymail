@@ -106,8 +106,17 @@ class WriteJob < ActiveJob::Base
         }
       ], unique_by: "index_emails_on_identity")
       # Only delete artifact and increment processed counter on successful DB write
+      # Re-check aborted flag to retain artifacts on single-interrupt scenarios
       begin
-        File.delete(artifact_path) if !keep_artifact && File.exist?(artifact_path)
+        retain = false
+        if run_id
+          begin
+            retain = aborted?(run_id)
+          rescue
+            retain = false
+          end
+        end
+        File.delete(artifact_path) if !keep_artifact && !retain && File.exist?(artifact_path)
       rescue
       end
       increment_counter(run_id, :processed) if run_id
