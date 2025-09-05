@@ -2,6 +2,9 @@
 
 require "thor"
 require "nitty_mail"
+require "active_job"
+require "sidekiq"
+require "redis"
 require "json"
 require "mail"
 require "reverse_markdown"
@@ -67,6 +70,8 @@ module NittyMail
       method_option :yes, type: :boolean, default: false, desc: "Auto-confirm destructive actions"
       method_option :force, type: :boolean, default: false, desc: "Alias for --yes"
       method_option :purge_uidvalidity, type: :numeric, required: false, desc: "Delete rows for a specific UIDVALIDITY and exit"
+      method_option :no_jobs, type: :boolean, default: false, desc: "Force single-process mode (default is job mode)"
+      method_option :job_uid_batch_size, type: :numeric, default: 200, desc: "UID batch size per fetch job"
       def download
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -134,6 +139,55 @@ module NittyMail
         total_to_process = to_fetch.size
         if total_to_process <= 0
           puts "Nothing to download. Database is up to date."
+          return
+        end
+
+        # Job-mode integration (default), fallback to local if Redis unreachable
+        want_jobs = !options[:no_jobs]
+        if want_jobs
+          url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+          begin
+            redis = ::Redis.new(url: url, timeout: 1.0)
+            redis.ping
+          rescue StandardError => e
+            warn "jobs disabled: redis not reachable (#{e.class}: #{e.message}); falling back to local mode"
+            redis = nil
+          end
+        end
+
+        if want_jobs && redis
+          ActiveJob::Base.queue_adapter = :sidekiq
+          require_relative "../jobs/fetch_job"
+          require_relative "../jobs/write_job"
+          run_id = "#{address}:#{mailbox}:#{uidvalidity}:#{Time.now.to_i}"
+          redis.set("nm:dl:#{run_id}:total", total_to_process)
+          redis.set("nm:dl:#{run_id}:processed", 0)
+          redis.set("nm:dl:#{run_id}:errors", 0)
+          batch_size_jobs = options[:job_uid_batch_size].to_i
+          batch_size_jobs = settings.max_fetch_size if batch_size_jobs <= 0
+          to_fetch.each_slice(batch_size_jobs) do |uid_batch|
+            FetchJob.perform_later(
+              address: address,
+              password: password,
+              mailbox: mailbox,
+              uidvalidity: uidvalidity,
+              uids: uid_batch,
+              settings: ((max_fetch_override && max_fetch_override > 0) ? {max_fetch_size: max_fetch_override} : {}),
+              artifact_dir: File.expand_path("../job-data", __dir__),
+              run_id: run_id,
+              strict: options[:strict]
+            )
+          end
+          progress = NittyMail::Utils.progress_bar(title: "Download(jobs)", total: total_to_process)
+          loop do
+            processed = redis.get("nm:dl:#{run_id}:processed").to_i
+            errs = redis.get("nm:dl:#{run_id}:errors").to_i
+            progress.progress = [processed + errs, total_to_process].min
+            break if processed + errs >= total_to_process
+            sleep 1
+          end
+          progress.finish unless progress.finished?
+          puts "Download complete: processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
           return
         end
 

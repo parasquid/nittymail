@@ -16,7 +16,7 @@ class WriteJob < ActiveJob::Base
   # - from_email: String (optional)
   # - rfc822_size: Integer (optional)
   # - labels: Array<String>
-  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [])
+  def perform(address:, mailbox:, uidvalidity:, uid:, artifact_path:, internaldate_epoch:, from_email: nil, rfc822_size: nil, labels: [], run_id: nil, strict: false)
     raw = File.binread(artifact_path)
     raw.force_encoding("BINARY")
 
@@ -48,7 +48,12 @@ class WriteJob < ActiveJob::Base
       bcc_emails = JSON.generate(bcc_list) unless bcc_list.empty?
     rescue => e
       warn "write parse error: #{e.class}: #{e.message} uv=#{uidvalidity} uid=#{uid}"
-      raise if ENV["NITTYMAIL_STRICT"] == "1"
+      if strict || ENV["NITTYMAIL_STRICT"] == "1"
+        raise
+      else
+        increment_counter(run_id, :errors) if run_id
+        return
+      end
     end
 
     begin
@@ -76,12 +81,30 @@ class WriteJob < ActiveJob::Base
       ], unique_by: "index_emails_on_identity")
     rescue => e
       warn "write db error: #{e.class}: #{e.message} uv=#{uidvalidity} uid=#{uid}"
-      raise if ENV["NITTYMAIL_STRICT"] == "1"
+      if strict || ENV["NITTYMAIL_STRICT"] == "1"
+        raise
+      elsif run_id
+        increment_counter(run_id, :errors)
+      end
     ensure
       begin
         File.delete(artifact_path) if File.exist?(artifact_path)
       rescue
       end
+    end
+    increment_counter(run_id, :processed) if run_id
+  end
+
+  private
+
+  def increment_counter(run_id, key)
+    return unless run_id
+    begin
+      require "redis"
+      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
+      r = ::Redis.new(url: url)
+      r.incr("nm:dl:#{run_id}:#{key}")
+    rescue
     end
   end
 end
