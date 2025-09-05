@@ -52,6 +52,11 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   - `--max-fetch-size` IMAP fetch slice size (typical 200–500)
   - `--batch-size` DB upsert batch size (typical 100–500)
 
+### Resumability and WAL
+
+- Resumable runs: the command diffs server UIDs against rows already in `emails` by (`address`, `mailbox`, `uidvalidity`, `uid`) and fetches only missing ones. Re-running only processes new mail.
+- SQLite WAL: journaling is enabled with reasonable pragmas for higher write throughput during bulk inserts while maintaining durability. This is configured automatically in the ActiveRecord connector.
+
 - Troubleshooting tips:
   - Ensure IMAP is enabled for your account; app password may be required.
   - Set `NITTYMAIL_SQLITE_DB` or use `--database` to control DB location.
