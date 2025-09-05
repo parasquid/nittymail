@@ -128,6 +128,16 @@ module NittyMail
             list_earliest_emails(args)
           when "db.search_emails"
             [] # stubbed for now
+          when "db.filter_emails"
+            filter_emails(args)
+          when "db.get_top_senders"
+            get_top_senders(args)
+          when "db.get_largest_emails"
+            get_largest_emails(args)
+          when "db.get_mailbox_stats"
+            get_mailbox_stats(args)
+          when "db.execute_sql_query"
+            execute_sql_query(args)
           else
             raise ToolError, "Unknown tool: #{name}"
           end
@@ -160,6 +170,124 @@ module NittyMail
           ds = NittyMail::Email
           ds = ds.where(mailbox: args["mailbox"]) if args["mailbox"]
           {count: ds.count}
+        end
+
+        def filter_emails(args)
+          ds = NittyMail::Email
+          if (mb = args["mailbox"]) && !mb.to_s.empty?
+            ds = ds.where(mailbox: mb)
+          end
+          if (fc = args["from_contains"]) && !fc.to_s.empty?
+            ds = ds.where("LOWER(from) LIKE ? ESCAPE '\\' OR LOWER(from_email) LIKE ? ESCAPE '\\'", like(fc), like(fc))
+          end
+          if (fd = args["from_domain"]) && !fd.to_s.empty?
+            dom = fd.to_s.start_with?("@") ? fd.to_s[1..] : fd.to_s
+            ds = ds.where("LOWER(from_email) LIKE ? ESCAPE '\\'", like("@#{dom}"))
+          end
+          if (sc = args["subject_contains"]) && !sc.to_s.empty?
+            ds = ds.where("LOWER(subject) LIKE ? ESCAPE '\\'", like(sc))
+          end
+          if (df = args["date_from"]) && !df.to_s.empty?
+            begin
+              t = Time.parse(df.to_s)
+              ds = ds.where("internaldate_epoch >= ?", t.to_i)
+            rescue
+            end
+          end
+          if (dt = args["date_to"]) && !dt.to_s.empty?
+            begin
+              t = Time.parse(dt.to_s)
+              ds = ds.where("internaldate_epoch <= ?", t.to_i)
+            rescue
+            end
+          end
+          order = args["order"].to_s
+          if order == "date_asc"
+            ds = ds.order(:internaldate_epoch)
+          else
+            ds = begin
+              ds.order(Sequel.desc(:internaldate_epoch))
+            rescue
+              ds.order(internaldate_epoch: :desc)
+            end
+            ds = ds.order(internaldate_epoch: :desc) # ActiveRecord fallback
+          end
+          limit = clamp_limit(args["limit"], default: 100)
+          rows = ds.limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_top_senders(args)
+          limit = clamp_limit(args["limit"], default: 20)
+          ds = NittyMail::Email.where.not(from_email: [nil, ""]).group(:from_email).order("COUNT(*) DESC").limit(limit).count
+          # ActiveRecord group(...).count returns {"from_email"=>count} or { [colvals]=>count }
+          ds.map { |k, v| {from: (k.is_a?(Array) ? k.first : k), count: v.to_i} }
+        end
+
+        def get_largest_emails(args)
+          limit = clamp_limit(args["limit"], default: 5)
+          ds = NittyMail::Email
+          case args["attachments"].to_s
+          when "with"
+            ds = ds.where(has_attachments: true)
+          when "without"
+            ds = ds.where(has_attachments: false)
+          end
+          if (mb = args["mailbox"]) && !mb.to_s.empty?
+            ds = ds.where(mailbox: mb)
+          end
+          if (fd = args["from_domain"]) && !fd.to_s.empty?
+            dom = fd.to_s.start_with?("@") ? fd.to_s[1..] : fd.to_s
+            ds = ds.where("LOWER(from_email) LIKE ? ESCAPE '\\'", like("@#{dom}"))
+          end
+          rows = ds.select("emails.*", "LENGTH(raw) AS size_bytes").order("size_bytes DESC").limit(limit).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_mailbox_stats(_args)
+          ds = NittyMail::Email.group(:mailbox).order("COUNT(*) DESC").count
+          ds.map { |k, v| {mailbox: (k.is_a?(Array) ? k.first : k), count: v.to_i} }
+        end
+
+        def execute_sql_query(args)
+          sql = (args["sql_query"] || "").to_s.strip
+          raise ToolError, "sql_query is required" if sql.empty?
+          safe_sql = ensure_readonly_sql(sql)
+          # enforce limit
+          unless /\blimit\b/i.match?(safe_sql)
+            safe_sql = safe_sql.sub(/;\s*\z/, "")
+            safe_sql += " LIMIT #{@max_limit}"
+          end
+          rows = []
+          conn = ActiveRecord::Base.connection
+          res = conn.select_all(safe_sql)
+          res.each do |r|
+            rows << r
+          end
+          {query: safe_sql, row_count: rows.size, rows: rows}
+        end
+
+        def ensure_readonly_sql(sql)
+          s = sql.dup
+          s = s.strip
+          s = s.sub(/;\s*\z/, "")
+          # Single statement basic check
+          raise ToolError, "multiple statements not allowed" if s.split(";").size > 1
+          start = s[/\A\s*(\w+)/, 1].to_s.downcase
+          unless %w[select with].include?(start)
+            raise ToolError, "only SELECT/WITH allowed"
+          end
+          forbidden = %w[insert update delete drop create alter truncate pragma begin commit rollback vacuum attach detach]
+          if forbidden.any? { |kw| s =~ /\b#{Regexp.escape(kw)}\b/i }
+            raise ToolError, "forbidden keyword detected"
+          end
+          s
+        end
+
+        def like(term)
+          t = term.to_s.downcase
+          t = t.gsub("\\", "\\\\").gsub("%", "\\%").gsub("_", "\\_")
+          "%#{t}%"
         end
 
         def symbolize_and_normalize(h)
