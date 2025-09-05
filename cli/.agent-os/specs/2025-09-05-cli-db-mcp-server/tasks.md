@@ -26,12 +26,12 @@
   - [x] 3.4 Add minimal stderr logging (start/stop, tool durations), no sensitive payloads
   - [x] 3.5 Verify all tests pass
 
-- [ ] 4. Implement MCP tools (queries + safety)
+- [x] 4. Implement MCP tools (queries + safety)
   - [x] 4.1 Write tests for representative tools: `db.filter_emails`, `db.get_top_senders`, `db.get_largest_emails`, `db.get_mailbox_stats`, `db.execute_sql_query`
-  - [ ] 4.2 Implement remaining endpoints with parameter validation and defaults; clamp limits; sanitize LIKE patterns
-    - [ ] `db.get_email_stats`, `db.get_top_domains`, `db.get_emails_by_date_range`, `db.get_emails_with_attachments`, `db.get_email_thread`
-    - [ ] `db.get_email_activity_heatmap`, `db.get_response_time_stats`, `db.get_email_frequency_by_sender`, `db.get_seasonal_trends`
-    - [ ] `db.get_emails_by_size_range`, `db.get_duplicate_emails`, `db.search_email_headers`, `db.get_emails_by_keywords`
+  - [x] 4.2 Implement remaining endpoints with parameter validation and defaults; clamp limits; sanitize LIKE patterns
+    - [x] `db.get_email_stats`, `db.get_top_domains`, `db.get_emails_by_date_range`, `db.get_emails_with_attachments`, `db.get_email_thread`
+    - [x] `db.get_email_activity_heatmap`, `db.get_response_time_stats`, `db.get_email_frequency_by_sender`, `db.get_seasonal_trends`
+    - [x] `db.get_emails_by_size_range`, `db.get_duplicate_emails`, `db.search_email_headers`, `db.get_emails_by_keywords`
   - [x] 4.3 Ensure list-returning tools include: `{id, address, mailbox, uid, uidvalidity, message_id, x_gm_msgid, date, internaldate, internaldate_epoch, from, subject, rfc822_size}` (plus tool-specific fields)
   - [x] 4.4 Use `internaldate_epoch` for ordering/range filters; include `internaldate` as ISO8601 in output
   - [x] 4.5 Implement `db.execute_sql_query` with read-only validation (SELECT/WITH only) and auto-LIMIT

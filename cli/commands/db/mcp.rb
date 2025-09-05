@@ -126,6 +126,8 @@ module NittyMail
             count_emails(args)
           when "db.list_earliest_emails"
             list_earliest_emails(args)
+          when "db.get_email_full"
+            get_email_full(args)
           when "db.search_emails"
             [] # stubbed for now
           when "db.filter_emails"
@@ -138,6 +140,35 @@ module NittyMail
             get_mailbox_stats(args)
           when "db.execute_sql_query"
             execute_sql_query(args)
+          # Group 1: Basic analytics and filtering
+          when "db.get_email_stats"
+            get_email_stats(args)
+          when "db.get_top_domains"
+            get_top_domains(args)
+          when "db.get_emails_by_date_range"
+            get_emails_by_date_range(args)
+          when "db.get_emails_with_attachments"
+            get_emails_with_attachments(args)
+          when "db.get_email_thread"
+            get_email_thread(args)
+          # Group 2: Advanced analytics and patterns
+          when "db.get_email_activity_heatmap"
+            get_email_activity_heatmap(args)
+          when "db.get_response_time_stats"
+            get_response_time_stats(args)
+          when "db.get_email_frequency_by_sender"
+            get_email_frequency_by_sender(args)
+          when "db.get_seasonal_trends"
+            get_seasonal_trends(args)
+          # Group 3: Specialized search and filtering
+          when "db.get_emails_by_size_range"
+            get_emails_by_size_range(args)
+          when "db.get_duplicate_emails"
+            get_duplicate_emails(args)
+          when "db.search_email_headers"
+            search_email_headers(args)
+          when "db.get_emails_by_keywords"
+            get_emails_by_keywords(args)
           else
             raise ToolError, "Unknown tool: #{name}"
           end
@@ -164,6 +195,19 @@ module NittyMail
           # Prefer date ASC then internaldate_epoch ASC
           rows = ds.order(:date, :internaldate_epoch).limit(limit).select(*base_projection).map(&:attributes)
           rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_email_full(args)
+          email_id = args["id"]
+          raise ToolError, "id is required" if email_id.to_s.empty?
+
+          # Get full email record including raw content
+          email = NittyMail::Email.find_by(id: email_id.to_i)
+          raise ToolError, "email not found with id: #{email_id}" unless email
+
+          # Return all available fields
+          email_attrs = email.attributes
+          symbolize_and_normalize(email_attrs)
         end
 
         def count_emails(args)
@@ -265,6 +309,289 @@ module NittyMail
             rows << r
           end
           {query: safe_sql, row_count: rows.size, rows: rows}
+        end
+
+        # Group 1: Basic analytics and filtering
+        def get_email_stats(args)
+          total_emails = NittyMail::Email.count
+          unique_senders = NittyMail::Email.where.not(from_email: [nil, ""]).distinct.count(:from_email)
+          total_size = NittyMail::Email.sum("LENGTH(raw)")
+          avg_size = (total_emails > 0) ? total_size / total_emails : 0
+          mailbox_count = NittyMail::Email.distinct.count(:mailbox)
+          date_range = NittyMail::Email.select("MIN(internaldate_epoch) as earliest_epoch, MAX(internaldate_epoch) as latest_epoch").first
+          earliest = date_range.earliest_epoch ? Time.at(date_range.earliest_epoch).iso8601 : nil
+          latest = date_range.latest_epoch ? Time.at(date_range.latest_epoch).iso8601 : nil
+
+          {
+            total_emails:,
+            unique_senders:,
+            total_size_bytes: total_size,
+            average_size_bytes: avg_size,
+            mailbox_count:,
+            date_range: {earliest:, latest:}
+          }
+        end
+
+        def get_top_domains(args)
+          limit = clamp_limit(args["limit"], default: 10)
+          ds = NittyMail::Email.where.not(from_email: [nil, ""])
+            .select("SUBSTR(from_email, INSTR(from_email, '@') + 1) AS domain")
+            .group("domain")
+            .order(Arel.sql("COUNT(*) DESC"))
+            .limit(limit)
+            .count
+          ds.map { |domain, count| {domain: domain.to_s, count: count.to_i} }
+        end
+
+        def get_emails_by_date_range(args)
+          start_date = args["start_date"]
+          end_date = args["end_date"]
+          limit = clamp_limit(args["limit"], default: 100)
+
+          raise ToolError, "start_date is required" if start_date.to_s.empty?
+          raise ToolError, "end_date is required" if end_date.to_s.empty?
+
+          # Parse dates and convert to epoch
+          begin
+            start_epoch = Time.parse(start_date).to_i
+            end_epoch = Time.parse(end_date).to_i
+          rescue ArgumentError => e
+            raise ToolError, "invalid date format: #{e.message}"
+          end
+
+          ds = NittyMail::Email.where(internaldate_epoch: start_epoch..end_epoch)
+          rows = ds.order(:internaldate_epoch).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_emails_with_attachments(args)
+          limit = clamp_limit(args["limit"], default: 50)
+          ds = NittyMail::Email.where(has_attachments: true)
+          rows = ds.order(internaldate_epoch: :desc).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_email_thread(args)
+          x_gm_thrid = args["x_gm_thrid"]
+          raise ToolError, "x_gm_thrid is required" if x_gm_thrid.to_s.empty?
+
+          limit = clamp_limit(args["limit"], default: 50)
+          ds = NittyMail::Email.where(x_gm_thrid: x_gm_thrid.to_i)
+          rows = ds.order(:internaldate_epoch).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        # Group 2: Advanced analytics and patterns
+        def get_email_activity_heatmap(args)
+          # Return email counts by hour of day (0-23) and day of week (0-6, Sunday=0)
+          limit = clamp_limit(args["limit"], default: 168) # 24*7 max
+
+          # Use strftime to extract hour and weekday from internaldate_epoch
+          results = NittyMail::Email.select(
+            "strftime('%H', datetime(internaldate_epoch, 'unixepoch')) as hour_of_day",
+            "strftime('%w', datetime(internaldate_epoch, 'unixepoch')) as day_of_week",
+            "COUNT(*) as count"
+          ).group("hour_of_day, day_of_week")
+            .order("day_of_week, hour_of_day")
+            .limit(limit)
+
+          results.map do |row|
+            {
+              hour_of_day: row.hour_of_day.to_i,
+              day_of_week: row.day_of_week.to_i,
+              count: row.count.to_i
+            }
+          end
+        end
+
+        def get_response_time_stats(args)
+          # Basic response time analysis using x_gm_thrid for threads
+          limit = clamp_limit(args["limit"], default: 50)
+
+          # Find threads with multiple emails (conversations)
+          thread_data = NittyMail::Email.where.not(x_gm_thrid: [nil, 0])
+            .group(:x_gm_thrid)
+            .having("COUNT(*) > 1")
+            .select(
+              "x_gm_thrid",
+              "COUNT(*) as message_count",
+              "MIN(internaldate_epoch) as first_message_epoch",
+              "MAX(internaldate_epoch) as last_message_epoch",
+              "(MAX(internaldate_epoch) - MIN(internaldate_epoch)) as thread_duration_seconds"
+            ).order(Arel.sql("thread_duration_seconds DESC"))
+            .limit(limit)
+
+          thread_data.map do |row|
+            {
+              x_gm_thrid: row.x_gm_thrid.to_i,
+              message_count: row.message_count.to_i,
+              first_message: Time.at(row.first_message_epoch).iso8601,
+              last_message: Time.at(row.last_message_epoch).iso8601,
+              duration_seconds: row.thread_duration_seconds.to_i,
+              duration_hours: (row.thread_duration_seconds.to_f / 3600).round(2)
+            }
+          end
+        end
+
+        def get_email_frequency_by_sender(args)
+          sender_email = args["sender_email"]
+          raise ToolError, "sender_email is required" if sender_email.to_s.empty?
+
+          # Sanitize the sender email for LIKE query
+          safe_sender = like(sender_email)
+
+          # Get email frequency by date for this sender
+          results = NittyMail::Email.where("LOWER(from_email) LIKE ? ESCAPE '\\'", safe_sender.downcase)
+            .select(
+              "date(datetime(internaldate_epoch, 'unixepoch')) as email_date",
+              "COUNT(*) as count"
+            ).group("email_date")
+            .order("email_date")
+            .limit(clamp_limit(args["limit"], default: 365))
+
+          results.map do |row|
+            {
+              date: row.email_date,
+              count: row.count.to_i
+            }
+          end
+        end
+
+        def get_seasonal_trends(args)
+          # Show email volume trends by month and year
+          limit = clamp_limit(args["limit"], default: 24) # 2 years of months
+
+          results = NittyMail::Email.select(
+            "strftime('%Y', datetime(internaldate_epoch, 'unixepoch')) as year",
+            "strftime('%m', datetime(internaldate_epoch, 'unixepoch')) as month",
+            "COUNT(*) as count"
+          ).group("year, month")
+            .order("year, month")
+            .limit(limit)
+
+          results.map do |row|
+            {
+              year: row.year.to_i,
+              month: row.month.to_i,
+              month_name: Date::MONTHNAMES[row.month.to_i],
+              count: row.count.to_i
+            }
+          end
+        end
+
+        # Group 3: Specialized search and filtering
+        def get_emails_by_size_range(args)
+          min_size = args["min_size"].to_i
+          max_size = args["max_size"].to_i
+          limit = clamp_limit(args["limit"], default: 50)
+
+          raise ToolError, "min_size must be >= 0" if min_size < 0
+          raise ToolError, "max_size must be > min_size" if max_size <= min_size
+
+          # Use LENGTH(raw) to check size
+          ds = NittyMail::Email.where("LENGTH(raw) BETWEEN ? AND ?", min_size, max_size)
+          rows = ds.select(*base_projection, "LENGTH(raw) AS size_bytes")
+            .order(Arel.sql("size_bytes DESC"))
+            .limit(limit)
+            .map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_duplicate_emails(args)
+          # Find emails with identical message_id or x_gm_msgid
+          limit = clamp_limit(args["limit"], default: 50)
+          field = args["field"] || "message_id"
+
+          unless %w[message_id x_gm_msgid].include?(field)
+            raise ToolError, "field must be 'message_id' or 'x_gm_msgid'"
+          end
+
+          # Find duplicates based on the field
+          duplicates_query = NittyMail::Email.where.not(field => [nil, ""])
+            .group(field)
+            .having("COUNT(*) > 1")
+            .select(field)
+            .limit(limit / 2) # Get fewer groups to stay within limit
+
+          duplicate_ids = duplicates_query.pluck(field.to_sym)
+          return [] if duplicate_ids.empty?
+
+          # Get all emails with these duplicate IDs
+          ds = NittyMail::Email.where(field => duplicate_ids)
+          rows = ds.order(:internaldate_epoch).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def search_email_headers(args)
+          query = args["query"]
+          header_field = args["header_field"] || "subject"
+          limit = clamp_limit(args["limit"], default: 50)
+
+          raise ToolError, "query is required" if query.to_s.empty?
+
+          # Supported header fields that we have in the database
+          valid_fields = %w[subject from to_emails cc_emails bcc_emails message_id]
+          unless valid_fields.include?(header_field)
+            raise ToolError, "header_field must be one of: #{valid_fields.join(", ")}"
+          end
+
+          # Sanitize query for LIKE
+          safe_query = like(query)
+          header_field.to_sym
+
+          ds = NittyMail::Email.where("LOWER(#{header_field}) LIKE ? ESCAPE '\\'", safe_query.downcase)
+          rows = ds.order(internaldate_epoch: :desc).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
+        end
+
+        def get_emails_by_keywords(args)
+          keywords = args["keywords"]
+          search_field = args["search_field"] || "plain_text"
+          match_all = args["match_all"] == true # default false (OR search)
+          limit = clamp_limit(args["limit"], default: 50)
+
+          raise ToolError, "keywords is required" if keywords.to_s.empty?
+
+          # Parse keywords (comma-separated or array)
+          keyword_list = case keywords
+          when Array
+            keywords.map(&:to_s).map(&:strip).reject(&:empty?)
+          else
+            keywords.to_s.split(",").map(&:strip).reject(&:empty?)
+          end
+
+          raise ToolError, "at least one keyword required" if keyword_list.empty?
+
+          # Supported search fields
+          valid_fields = %w[plain_text markdown subject raw]
+          unless valid_fields.include?(search_field)
+            raise ToolError, "search_field must be one of: #{valid_fields.join(", ")}"
+          end
+
+          # Build query conditions
+          ds = NittyMail::Email.where.not(search_field => [nil, ""])
+
+          if match_all
+            # AND search - all keywords must be present
+            keyword_list.each do |keyword|
+              safe_keyword = like(keyword)
+              ds = ds.where("LOWER(#{search_field}) LIKE ? ESCAPE '\\'", safe_keyword.downcase)
+            end
+          else
+            # OR search - any keyword can match
+            conditions = keyword_list.map do |keyword|
+              safe_keyword = like(keyword)
+              ["LOWER(#{search_field}) LIKE ? ESCAPE '\\'", safe_keyword.downcase]
+            end
+
+            # Combine with OR
+            where_clause = conditions.map(&:first).join(" OR ")
+            values = conditions.map(&:last)
+            ds = ds.where(where_clause, *values)
+          end
+
+          rows = ds.order(internaldate_epoch: :desc).limit(limit).select(*base_projection).map(&:attributes)
+          rows.map { |h| symbolize_and_normalize(h) }
         end
 
         def ensure_readonly_sql(sql)
