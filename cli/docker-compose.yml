@@ -10,3 +10,41 @@ services:
       - .env
     entrypoint: ["bash", "/app/cli/entrypoint.sh"]
     command: ["bash"]
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no"]
+
+  worker_fetch:
+    platform: linux/amd64
+    image: ruby:3.4.4
+    working_dir: /app/cli
+    volumes:
+      - ..:/app
+      - ./.bundle:/usr/local/bundle
+      - ./job-data:/app/cli/job-data
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq.yml", "-q", "fetch"]
+    depends_on:
+      - redis
+
+  worker_write:
+    platform: linux/amd64
+    image: ruby:3.4.4
+    working_dir: /app/cli
+    volumes:
+      - ..:/app
+      - ./.bundle:/usr/local/bundle
+      - ./job-data:/app/cli/job-data
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    command: ["bundle", "exec", "sidekiq", "-r", "./sidekiq_boot.rb", "-C", "./config/sidekiq.yml", "-q", "write", "-c", "1"]
+    depends_on:
+      - redis
