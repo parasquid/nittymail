@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "thor"
+require "nitty_mail"
 require "json"
 require "mail"
 require "reverse_markdown"

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "active_record"
+
 module NittyMail
   class Email < ActiveRecord::Base
     self.table_name = "emails"

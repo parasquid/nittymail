@@ -43,38 +43,13 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
 
 ### Progress indicators
 
-- Download (`mailbox download`) progress title shows live status:
-  - `f:X/Y`: producer threads alive/total
-  - `u:X/Y`: consumer threads alive/total
-  - `jq:N`: job queue size (pending uploads)
-  - `fq:N`: fetch queue size (pending IMAP batches)
+- The progress bar displays processed vs. total messages for the current download run.
 
-- Backfill (`db backfill`) progress title shows:
-  - `add:N`: pending variant embeddings to upload for the current page
-  - `page:P`: current page index
-  - `rq:N`: raw documents processed in the current page
-  - `added:N`: total variants uploaded so far
+### Performance tuning
 
-### Tuning & backpressure
-
-- Bounded queues with backpressure are enabled by default:
-  - Fetch queue (`fq`) is a small buffer of pending IMAP batches (capacity ≈ `fetch_threads*4`).
-  - Job queue (`jq`) is a small buffer of pending upload chunks (capacity ≈ `upload_threads*4`).
-- Reading the gauges:
-  - `jq` consistently high → uploads are the bottleneck (increase `--upload-threads` or reduce fetch rate).
-  - `fq` consistently at capacity → fetchers are the bottleneck (increase `--fetch-threads` or `--max-fetch-size`).
-  - If both are low and progress is slow, consider raising both thread counts (watch CPU and IMAP limits).
-- Practical starting points:
-  - `--fetch-threads 4` and `--max-fetch-size 200–500` for larger mailboxes.
-  - `--upload-threads 2–4` and `--upload-batch-size 200–500` for stable Chroma uploads.
-
-
-
-- Performance tuning (flags):
-  - `--upload-batch-size 200` (upload chunk size)
-  - `--upload-threads 4` (concurrent upload workers)
-  - `--fetch-threads 2` (concurrent IMAP fetchers)
-  - `--max-fetch-size 50` (IMAP fetch slice size)
+- Flags:
+  - `--max-fetch-size` IMAP fetch slice size (typical 200–500)
+  - `--batch-size` DB upsert batch size (typical 100–500)
 
 - Troubleshooting tips:
   - Ensure IMAP is enabled for your account; app password may be required.
