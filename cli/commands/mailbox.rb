@@ -231,7 +231,7 @@ module NittyMail
                   redis.set("nm:dl:#{run_id}:aborted", 1)
                 rescue
                 end
-                puts "\nAborting... stopping enqueues and polling; cleaning up artifacts."
+                puts "\nAborting... stopping enqueues and polling; artifacts will be retained for inspection."
               end
             end
             trap("INT", &trap_handler)
@@ -273,31 +273,9 @@ module NittyMail
             end
             progress.finish unless progress.finished?
             if aborted
-              # Best-effort cleanup: delete remaining artifact files
               uv_dir = File.join(artifact_base, safe_address, safe_mailbox, uidvalidity.to_s)
-              puts "DEBUG: cleanup dir = #{uv_dir}"
-              puts "DEBUG: files in dir = #{Dir.glob(File.join(uv_dir, "*"))}"
-              begin
-                # target expected UID files
-                to_fetch.each do |uid|
-                  path = File.join(uv_dir, "#{uid}.eml")
-                  puts "DEBUG: trying to delete #{path}, exists: #{File.exist?(path)}"
-                  File.delete(path) if File.exist?(path)
-                end
-                # and sweep any stray .eml files for this run scope
-                Dir.glob(File.join(uv_dir, "*.eml")).each do |path|
-                  File.delete(path)
-                rescue
-                  nil
-                end
-                # remove empty directories for tidiness
-                begin
-                  Dir.rmdir(uv_dir)
-                rescue
-                end
-              rescue
-              end
               puts "Aborted. processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."
+              puts "Artifacts retained at: #{uv_dir}"
               exit 130 if second_interrupt
             else
               puts "Download complete: processed #{redis.get("nm:dl:#{run_id}:processed")} message(s), errors #{redis.get("nm:dl:#{run_id}:errors")}."

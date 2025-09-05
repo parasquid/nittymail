@@ -92,7 +92,7 @@ RSpec.describe "Jobs mode interrupts" do
   rescue
   end
 
-  it "handles single Ctrl-C by setting abort flag and cleaning artifacts" do
+  it "handles single Ctrl-C by setting abort flag and retaining artifacts" do
     cli = NittyMail::Commands::Mailbox.new
     thr = Thread.new do
       sleep 0.3
@@ -106,9 +106,9 @@ RSpec.describe "Jobs mode interrupts" do
     expect(aborted_keys.size).to be >= 1
     expect(@redis.get(aborted_keys.first)).to eq("1")
 
-    # Artifact files should be removed
+    # Artifact files should be retained for inspection
     uids.each do |u|
-      expect(File.exist?(File.join(uv_dir, "#{u}.eml"))).to eq(false)
+      expect(File.exist?(File.join(uv_dir, "#{u}.eml"))).to eq(true)
     end
   end
 
