@@ -1,0 +1,6 @@
+:concurrency: 5
+:queues:
+  - [fetch, 5]
+  - [write, 1]
+
+# Log format can be adjusted as needed; keep defaults for now.
