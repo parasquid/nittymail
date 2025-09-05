@@ -14,54 +14,32 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
    # Edit .env and set NITTYMAIL_IMAP_ADDRESS and NITTYMAIL_IMAP_PASSWORD
    ```
 
-2. Start Chroma (vector DB) locally via Compose:
-   ```bash
-   docker compose up -d chroma
-   ```
-
-3. Dependencies install automatically on first run (bundle install is run by the entrypoint). You can still run it manually if desired:
+2. Dependencies install automatically on first run (bundle install is run by the entrypoint). You can still run it manually if desired:
    ```bash
    docker compose run --rm cli bundle install
    ```
 
 ## Usage
 
-### Chroma Quickstart
+### SQLite Quickstart
 
-- Configure env (host + IMAP credentials):
+- Configure env (IMAP credentials and optional SQLite path):
   ```bash
   cp .env.sample .env
   # Edit .env and set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD
-  # Optional: NITTYMAIL_CHROMA_HOST (default works with Compose): http://chroma:8000
+  # Optional: NITTYMAIL_SQLITE_DB to override the default DB file path
   ```
 
-- Start Chroma DB:
+- Download messages into a local SQLite database:
   ```bash
-  docker compose up -d chroma
-  ```
-
-- Download messages into a Chroma collection:
-  ```bash
-  docker compose run --rm cli mailbox download
-  # or with options
   docker compose run --rm cli mailbox download \
     --mailbox INBOX \
-    --collection my-mails
+    --database ./nittymail.sqlite3
   ```
 
-### DB utilities
+### Notes on stored columns
 
-- Show a specific email by UID (provide uidvalidity or the command will list options):
-  ```bash
-  docker compose run --rm cli db show --uid 177077 --uidvalidity 2
-  ```
-
-- Show the latest email (by INTERNALDATE):
-  ```bash
-  docker compose run --rm cli db latest
-  # or constrain to a specific generation
-  docker compose run --rm cli db latest --uidvalidity 2
-  ```
+- Each email row stores: address, mailbox, uidvalidity, uid, subject, internaldate, internaldate_epoch, rfc822_size, from_email, labels_json, raw (BLOB), plain_text, markdown. Indexes include a composite unique key and internaldate_epoch.
 
 ### Progress indicators
 
@@ -99,9 +77,8 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
   - `--max-fetch-size 50` (IMAP fetch slice size)
 
 - Troubleshooting tips:
-  - Use Docker service host: `http://chroma:8000` (not localhost)
-  - Check server: `docker compose run --rm cli curl -i http://chroma:8000/api/v1/version`
-  - Enable client logs: `CHROMA_LOG=1 docker compose run --rm cli mailbox download`
+  - Ensure IMAP is enabled for your account; app password may be required.
+  - Set `NITTYMAIL_SQLITE_DB` or use `--database` to control DB location.
 
 - List mailboxes for your account. Flags are optional if env vars are set:
   ```bash
@@ -113,26 +90,6 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     -a "$NITTYMAIL_IMAP_ADDRESS" -p "$NITTYMAIL_IMAP_PASSWORD"
   ```
 
-- Download new emails into a Chroma collection (uses preflight + Chroma check):
-  ```bash
-  # Defaults: mailbox INBOX, collection name derived from address+mailbox, host from NITTYMAIL_CHROMA_HOST
-  docker compose run --rm cli mailbox download
-
-  # Custom mailbox / collection
-  docker compose run --rm cli mailbox download \
-    --mailbox "[Gmail]/All Mail" \
-    --collection "custom-collection-name"
-  ```
-
-Tip: The default `NITTYMAIL_CHROMA_HOST` in `.env.sample` points to the bundled `chroma` service (`http://chroma:8000`).
-
-Persistence:
-- Chroma data persists in `cli/chroma-data` (bind-mounted to `/chroma/chroma` in the container).
-- Do not use `docker compose down -v` unless you want to delete data; `-v` removes volumes including bind targets.
-- Avoid mounting `/chroma` root; it overlays the app code and breaks startup.
-- Verify persistence: `docker compose run --rm cli ls -la chroma-data`.
-
-Chroma docs: See `docs/chroma.md` for using the `chroma-db` gem in code (collections, paging, batching, and troubleshooting).
 Agent guide: See `AGENTS.md` for CLI agent conventions and style.
 
 - Open an interactive shell in the CLI container:

@@ -10,12 +10,3 @@ services:
       - .env
     entrypoint: ["bash", "/app/cli/entrypoint.sh"]
     command: ["bash"]
-
-  chroma:
-    platform: linux/amd64
-    image: chromadb/chroma:0.5.4
-    ports:
-      - "8000:8000"
-    volumes:
-      # Persist Chroma data without overlaying the app code
-      - ./chroma-data:/chroma/chroma
