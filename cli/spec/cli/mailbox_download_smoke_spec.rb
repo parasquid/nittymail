@@ -1,13 +1,15 @@
 require "spec_helper"
 
 class StubMsg
-  def initialize(uid:, internaldate:, raw:, size: 123, labels: [], envelope_from: nil)
+  def initialize(uid:, internaldate:, raw:, size: 123, labels: [], envelope_from: nil, thrid: nil, msgid: nil)
     @uid = uid
     @internaldate = internaldate
     @raw = raw
     @size = size
     @labels = labels
     @envelope_from = envelope_from
+    @thrid = thrid
+    @msgid = msgid
   end
 
   def attr
@@ -25,7 +27,13 @@ class StubMsg
       :x_gm_labels => @labels,
       "ENVELOPE" => @envelope_from,
       :ENVELOPE => @envelope_from,
-      :envelope => @envelope_from
+      :envelope => @envelope_from,
+      "X-GM-THRID" => @thrid,
+      :"X-GM-THRID" => @thrid,
+      :x_gm_thrid => @thrid,
+      "X-GM-MSGID" => @msgid,
+      :"X-GM-MSGID" => @msgid,
+      :x_gm_msgid => @msgid
     }
   end
 end
@@ -63,12 +71,41 @@ RSpec.describe "CLI mailbox smoke" do
     allow(mailbox_stub).to receive(:preflight).and_return({uidvalidity: 7, to_fetch: [1, 2], server_size: 2})
 
     @t = Time.at(1_700_000_000)
-    raw1 = "Subject: Hello A\n\nBody A"
-    raw2 = "Subject: Hello B\n\nBody B"
+    raw1 = <<~RAW
+      Date: Tue, 01 Aug 2023 10:00:00 -0000
+      From: Alice <from@test.dev>
+      Reply-To: reply@test.dev
+      Message-ID: <m1@test.dev>
+      To: one@test.dev
+      Subject: Hello A
+
+      Body A
+    RAW
+    raw2 = <<~RAW
+      Date: Tue, 01 Aug 2023 10:01:00 -0000
+      From: Bob <from@test.dev>
+      In-Reply-To: <m1@test.dev>
+      References: <m1@test.dev> <m0@test.dev>
+      Message-ID: <m2@test.dev>
+      To: two@test.dev
+      Subject: Hello B
+      Content-Type: multipart/mixed; boundary=abc
+
+      --abc
+      Content-Type: text/plain
+
+      Body B
+      --abc
+      Content-Type: text/plain
+      Content-Disposition: attachment; filename="a.txt"
+
+      file
+      --abc--
+    RAW
     @env = StubEnvelope.new("from@test.dev")
     @msgs = [
-      StubMsg.new(uid: 1, internaldate: @t, raw: raw1, envelope_from: @env),
-      StubMsg.new(uid: 2, internaldate: @t + 60, raw: raw2, envelope_from: @env)
+      StubMsg.new(uid: 1, internaldate: @t, raw: raw1, envelope_from: @env, thrid: 1001, msgid: 9001),
+      StubMsg.new(uid: 2, internaldate: @t + 60, raw: raw2, envelope_from: @env, thrid: 1001, msgid: 9002)
     ]
     allow(mailbox_stub).to receive(:fetch) do |uids:|
       @msgs.select { |m| uids.include?(m.attr["UID"]) }
@@ -97,6 +134,18 @@ RSpec.describe "CLI mailbox smoke" do
       expect(emails.first.internaldate_epoch).to eq(1_700_000_000)
       expect(emails.first.rfc822_size).to be_a(Integer)
       expect { JSON.parse(emails.first.labels_json.to_s) }.not_to raise_error
+      # new fields
+      expect(emails.first.message_id).to eq("m1@test.dev")
+      expect(emails.last.message_id).to eq("m2@test.dev")
+      expect(emails.first.x_gm_thrid).to eq(1001)
+      expect(emails.last.x_gm_msgid).to eq(9002)
+      expect(emails.first.from).to include("from@test.dev")
+      expect(emails.first.envelope_reply_to).to include("reply@test.dev")
+      expect(emails.last.envelope_in_reply_to).to eq("m1@test.dev")
+      refs = JSON.parse(emails.last.envelope_references)
+      expect(refs).to include("m1@test.dev", "m0@test.dev")
+      expect([true, false]).to include(emails.first.has_attachments)
+      expect(emails.last.has_attachments).to eq(true)
 
       # run again; should upsert and keep count stable
       expect { cli.invoke(:download, [], {mailbox: "INBOX"}) }.not_to raise_error

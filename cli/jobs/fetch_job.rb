@@ -76,6 +76,10 @@ class FetchJob < ActiveJob::Base
         size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"]
         rfc822_size = size_attr.to_i
 
+        # Gmail X-GM attributes (thread/message ids)
+        x_gm_thrid = msg.attr["X-GM-THRID"] || msg.attr[:"X-GM-THRID"] || msg.attr[:x_gm_thrid]
+        x_gm_msgid = msg.attr["X-GM-MSGID"] || msg.attr[:"X-GM-MSGID"] || msg.attr[:x_gm_msgid]
+
         # Write atomically
         tmp = File.join(root, ".#{uid}.eml.tmp")
         final = File.join(root, "#{uid}.eml")
@@ -95,6 +99,8 @@ class FetchJob < ActiveJob::Base
           from_email: from_email,
           rfc822_size: rfc822_size,
           labels: labels,
+          x_gm_thrid: x_gm_thrid,
+          x_gm_msgid: x_gm_msgid,
           run_id: run_id,
           strict: strict
         )
