@@ -7,21 +7,24 @@ class InMemoryRedis2
   def initialize
     @data = {}
   end
+
   def ping
     "PONG"
   end
+
   def set(k, v)
     @data[k] = v.to_s
   end
+
   def get(k)
     @data[k]
   end
+
   def incr(k)
     @data[k] = (@data[k].to_i + 1).to_s
   end
-  def data
-    @data
-  end
+
+  attr_reader :data
 end
 
 class JIMsg
@@ -30,6 +33,7 @@ class JIMsg
     @t = t
     @raw = "Subject: #{subj}\n\n#{body}"
   end
+
   def attr
     {
       "UID" => @uid,

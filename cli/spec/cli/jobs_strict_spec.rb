@@ -4,10 +4,18 @@ require "redis"
 require "active_job"
 
 class InMemoryRedis3
-  def ping; "PONG"; end
-  def set(*) end
-  def get(*) end
-  def incr(*) end
+  def ping
+    "PONG"
+  end
+
+  def set(*)
+  end
+
+  def get(*)
+  end
+
+  def incr(*)
+  end
 end
 
 class JMS
@@ -15,6 +23,7 @@ class JMS
     @uid = uid
     @t = t
   end
+
   def attr
     {
       "UID" => @uid,
