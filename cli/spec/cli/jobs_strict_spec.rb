@@ -31,9 +31,9 @@ class JMS
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => "Subject: X\n\nBody",
-      :'BODY[]' => "Subject: X\n\nBody",
+      :"BODY[]" => "Subject: X\n\nBody",
       "RFC822.SIZE" => 10,
-      :'RFC822.SIZE' => 10
+      :"RFC822.SIZE" => 10
     }
   end
 end
