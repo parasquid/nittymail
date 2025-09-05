@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "→ standardrb"
+bundle exec standardrb
+
+echo "→ rspec"
+bundle exec rspec -fd -b
+
+echo "✓ lint + tests OK"

@@ -1,9 +1,0 @@
-services:
-  ruby:
-    platform: linux/amd64
-    image: ruby:3.4.4
-    volumes:
-      - ./:/app
-      - ./core/.bundle:/usr/local/bundle
-    working_dir: /app/core
-    command: "bin/console"
