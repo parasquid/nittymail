@@ -43,7 +43,7 @@ class FetchJob < ActiveJob::Base
           break
         end
         uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-        raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
+        raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
         raw = raw.to_s.dup
         raw.force_encoding("BINARY")
 
@@ -66,10 +66,10 @@ class FetchJob < ActiveJob::Base
           nil
         end
 
-        labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
+        labels_attr = msg.attr["X-GM-LABELS"] || msg.attr[:"X-GM-LABELS"] || msg.attr[:x_gm_labels]
         labels = Array(labels_attr).map { |v| v.to_s }
 
-        size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
+        size_attr = msg.attr["RFC822.SIZE"] || msg.attr[:"RFC822.SIZE"]
         rfc822_size = size_attr.to_i
 
         # Write atomically
@@ -94,9 +94,6 @@ class FetchJob < ActiveJob::Base
           run_id: run_id,
           strict: strict
         )
-        
-        # Increment fetched counter to show progress
-        increment_counter(run_id, :fetched) if run_id
       end
     rescue => e
       warn "fetch job error: #{e.class}: #{e.message} addr=#{address} mb=#{mailbox} uv=#{uidvalidity} uids=#{uids.first}..#{uids.last}"
@@ -110,17 +107,6 @@ class FetchJob < ActiveJob::Base
   end
 
   private
-
-  def increment_counter(run_id, key)
-    return unless run_id
-    begin
-      require "redis"
-      url = ENV["REDIS_URL"] || "redis://redis:6379/0"
-      r = ::Redis.new(url: url)
-      r.incr("nm:dl:#{run_id}:#{key}")
-    rescue
-    end
-  end
 
   def aborted?(run_id)
     require "redis"
