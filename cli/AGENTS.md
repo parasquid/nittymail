@@ -28,7 +28,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
   - Diff: determine missing UIDs vs. DB (`address`, `mailbox`, `uidvalidity`, `uid`).
   - Fetch in slices; parse with `mail` and normalize to UTF-8.
   - Upsert rows with `upsert_all` keyed by the composite unique index.
-  - Progress: `ruby-progressbar` shows counts; Ctrl-C gracefully interrupts.
+- Progress: `ruby-progressbar` shows counts; Ctrl-C gracefully interrupts.
 - Stored columns per email: raw (BLOB), plain_text, markdown, subject, internaldate, internaldate_epoch, rfc822_size, from_email, labels_json, to_emails, cc_emails, bcc_emails.
 
 ## Flags
@@ -41,6 +41,23 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - `--recreate`: drop rows for current generation (address+mailbox+uidvalidity) and re-download (requires `--yes`/`--force` or prompt confirmation).
 - `--purge-uidvalidity <n>`: delete rows for a specific generation and exit (requires `--yes`/`--force` or prompt confirmation).
 - `--yes` / `--force`: auto-confirm destructive actions.
+
+## Jobs Mode (Active Job + Sidekiq)
+
+- Adapter: Active Job with the Sidekiq adapter. Prefer Active Job–level APIs when possible.
+- Queues:
+  - `fetch`: parallel workers fetch IMAP UIDs in batches, write `.eml` artifacts, and enqueue `WriteJob`.
+  - `write`: single-concurrency worker parses artifacts and upserts to SQLite, then deletes artifacts.
+- Artifacts: stored under `cli/job-data/<address>/<mailbox>/<uidvalidity>/<uid>.eml` with an SHA256 for integrity.
+- Counters (Redis): `nm:dl:<run_id>:total|processed|errors` and `nm:dl:<run_id>:aborted`.
+- CLI behavior:
+  - Default uses jobs; `--no-jobs` forces single-process.
+  - Polls counters to render progress; does not rely on adapter-specific queue inspection.
+  - First Ctrl-C: sets abort flag, stops enqueues/polling, cleans artifacts. Second Ctrl-C: exits immediately.
+- Tests:
+  - Prefer Active Job’s `:test` adapter for unit/integration tests.
+  - Stub Redis via a minimal in-memory object or mock; avoid Sidekiq-API-specific assertions.
+  - Simulate interrupts by sending `INT` to the current process in specs.
 
 ## Error Handling
 
@@ -61,6 +78,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
   - `docker compose run --rm cli bundle install`
   - `docker compose run --rm cli bundle exec standardrb --fix`
   - `docker compose run --rm cli bundle exec rubocop -A`
+  - `docker compose up -d redis worker_fetch worker_write` to run job workers locally
 - Conventional Commits; use heredoc (`git commit -F - << 'EOF'`) to satisfy hooks.
 
 ## Tests
