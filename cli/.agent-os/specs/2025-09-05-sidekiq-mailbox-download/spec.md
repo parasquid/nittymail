@@ -35,10 +35,11 @@ Detailed workflow: The CLI sets Redis counters for total enqueued and increments
    - FetchWorker (concurrent): connects to IMAP with given settings, fetches UID batches, writes raw RFC822 to files under `job-data/` (e.g., `<address>/<mailbox>/<uidvalidity>/<uid>.eml`), and enqueues a lightweight WriteJob with metadata + file path.
    - WriteWorker (serialized): Sidekiq `write` queue with concurrency 1 to parse files, derive subject/plain/markdown/etc., and upsert rows into SQLite; deletes artifact files after successful write.
 4. **Serialization Strategy**: Avoid shipping raw RFC822 in Redis; pass only small JSON metadata and filesystem paths. The shared `job-data` folder is bind-mounted into both CLI and worker containers.
-5. **Progress Reporting**: CLI initializes Redis counters (total, processed, errors), enqueues Active Job fetch jobs, and polls: counters + queue sizes until done; renders progress bar similar to current behavior.
+5. **Progress Reporting**: CLI initializes Redis counters (total, processed, errors), enqueues Active Job fetch jobs, and polls counters until done; renders progress bar similar to current behavior. Prefer Active Job–level APIs where possible rather than Sidekiq-specific queue inspection.
+6. **Graceful Interrupts**: In jobs mode, first Ctrl-C triggers a graceful shutdown: stop polling/enqueuing, set an abort flag for the current run (e.g., `nm:dl:<run_id>:aborted=1` in Redis), and best‑effort remove any unprocessed artifact files for that run; second Ctrl-C forces an immediate exit. Jobs check the abort flag at start and self‑terminate without processing when set. Do not rely on Sidekiq-specific queue clearing; use run-scoped abort flags and idempotent job starts.
 6. **Safety & Error Handling**: Respect `--strict` in job mode by failing jobs fast (retry strategy configurable); default skips and increments error counters. Ensure idempotent writes using the existing unique index.
 7. **Config**: Flags for job-mode tuning: number of fetch workers, UID batch size for enqueues, and optional write batch size. Sensible defaults.
-8. **Docs & Tests**: Update README and AGENTS for job mode; add smoke/integration specs with mocked IMAP that verify parallel fetching + single-writer semantics and progress polling.
+8. **Docs & Tests**: Update README and AGENTS for job mode; add smoke/integration specs with mocked IMAP that verify parallel fetching + single-writer semantics and progress polling. Prefer Active Job test helpers where possible; avoid Sidekiq-specific APIs in tests.
 
 ## Out of Scope
 

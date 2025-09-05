@@ -20,11 +20,20 @@ This is the technical specification for the spec detailed in @.agent-os/specs/20
   - Use a shared bind-mounted `job-data` directory across CLI and worker services; subfolders by `address/mailbox/uidvalidity/`.
   - For safety, include a simple checksum in metadata (optional) to detect truncated files.
 
- - CLI changes:
+- CLI changes:
   - Flags: default is `--jobs` (job mode), `--no-jobs` forces single-process mode; job tuning flags: `--job-fetch-threads`, `--job-uid-batch-size`, `--job-write-batch-size` (optional).
-  - Progress: initialize Redis keys: `jobs:total`, `jobs:processed`, `jobs:errors`, `jobs:queued` (optional) per run-id; update progress bar by polling.
+  - Progress: initialize Redis keys: `jobs:total`, `jobs:processed`, `jobs:errors` per run-id; update progress bar by polling counters only (prefer Active Job–level APIs and avoid adapter-specific queue inspection).
   - Enqueue: preflight to get `uidvalidity` and list of UIDs; chunk by `--job-uid-batch-size` and enqueue FetchJob; set `jobs:total` to the total UID count.
-  - Complete: poll until `processed + errors == total` and Sidekiq queue sizes for `fetch` and `write` are 0.
+  - Complete: poll until `processed + errors == total`. Prefer adapter-agnostic logic and do not depend on queue size inspection; jobs should be idempotent and increment counters upon completion.
+
+- Graceful interrupts (jobs mode):
+  - First SIGINT (Ctrl-C):
+    - Stop enqueuing further jobs and stop progress polling loop.
+    - Set a Redis flag `nm:dl:<run_id>:aborted=1`; jobs check this at start and self-terminate early without work.
+    - Remove artifact files under `job-data/<address>/<mailbox>/<uidvalidity>/` that have not yet been processed (best-effort; match known `to_fetch` set).
+    - Prefer Active Job–compatible approaches; use run-scoped abort semantics and avoid direct Sidekiq queue manipulation.
+  - Second SIGINT: force exit immediately after best-effort cleanup attempt.
+  - Implementation note: ensure jobs carry `run_id` in arguments so they can quickly exit when an abort flag is set and so artifact paths are namespaced.
 
  - Writer serialization:
   - Sidekiq concurrency for `write` queue set to 1; this provides single-writer semantics with SQLite.
