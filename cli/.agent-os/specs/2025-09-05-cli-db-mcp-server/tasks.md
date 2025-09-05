@@ -3,10 +3,10 @@
 ## Tasks
 
 - [ ] 1. Database schema and model wiring
-  - [ ] 1.1 Write tests for migration creating `emails` with all required columns and indexes
-  - [ ] 1.2 Ensure migration defines: address, mailbox, uidvalidity, uid, message_id, x_gm_thrid (int64), x_gm_msgid (int64), subject, internaldate, internaldate_epoch, rfc822_size, from, from_email, to_emails, cc_emails, bcc_emails, envelope_reply_to, envelope_in_reply_to, envelope_references, date, has_attachments, labels_json, raw, plain_text, markdown, timestamps
-  - [ ] 1.3 Ensure indexes: composite identity, internaldate_epoch, subject, message_id, x_gm_thrid, x_gm_msgid, from_email, date
-  - [ ] 1.4 Validate ActiveRecord model maps fields and validations (presence for core identity + internaldate/internaldate_epoch/raw)
+  - [x] 1.1 Write tests for migration creating `emails` with all required columns and indexes
+  - [x] 1.2 Ensure migration defines: address, mailbox, uidvalidity, uid, message_id, x_gm_thrid (int64), x_gm_msgid (int64), subject, internaldate, internaldate_epoch, rfc822_size, from, from_email, to_emails, cc_emails, bcc_emails, envelope_reply_to, envelope_in_reply_to, envelope_references, date, has_attachments, labels_json, raw, plain_text, markdown, timestamps
+  - [x] 1.3 Ensure indexes: composite identity, internaldate_epoch, subject, message_id, x_gm_thrid, x_gm_msgid, from_email, date
+  - [x] 1.4 Validate ActiveRecord model maps fields and validations (presence for core identity + internaldate/internaldate_epoch/raw)
   - [ ] 1.5 Verify all tests pass
 
 - [ ] 2. Downloader/parser enrichment (populate new columns via nitty_mail)

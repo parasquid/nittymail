@@ -44,7 +44,7 @@ end
 begin
   require "active_support/log_subscriber"
   ActiveSupport::LogSubscriber.log_subscribers.each do |subscriber|
-    if subscriber.class.name == "ActiveJob::Logging::LogSubscriber"
+    if subscriber.instance_of?(ActiveJob::Logging::LogSubscriber)
       ActiveSupport::Notifications.unsubscribe(subscriber)
     end
   end

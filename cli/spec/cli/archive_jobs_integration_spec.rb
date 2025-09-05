@@ -1,4 +1,4 @@
-require "spec_helper"
+require_relative "../spec_helper"
 require "fileutils"
 require "redis"
 require "active_job"
