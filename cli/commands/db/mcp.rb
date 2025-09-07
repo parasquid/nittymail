@@ -50,7 +50,7 @@ module NittyMail
             end
             id = req["id"]
             is_notification = id.nil?
-            
+
             case req["method"]
             when "initialize"
               write(io_out, {

@@ -71,7 +71,7 @@ module NittyMail
             end
             fetch_response.each do |msg|
               uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-              raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
+              raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
               raw = raw.to_s.dup
               raw.force_encoding("BINARY")
               final = File.join(uv_dir, "#{uid}.eml")
@@ -123,7 +123,7 @@ module NittyMail
           end
           fetch_response.each do |msg|
             uid = msg.attr["UID"] || msg.attr[:UID] || msg.attr[:uid]
-            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:'BODY[]']
+            raw = msg.attr["BODY[]"] || msg.attr["BODY"] || msg.attr[:BODY] || msg.attr[:"BODY[]"]
             raw = raw.to_s.dup
             raw.force_encoding("BINARY")
             final = File.join(uv_dir, "#{uid}.eml")
