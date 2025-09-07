@@ -496,6 +496,7 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive [option
 - `--output PATH`: Output directory (default: `cli/archives/`)
 - `--max-fetch-size N`: IMAP fetch batch size
 - `--strict`: Fail-fast on errors
+- `--only-preflight`: Only list UIDs to be archived (no files created)
 
 ### Database Commands
 
@@ -538,6 +539,10 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download \
 # Archive sent mail
 docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
   --mailbox "[Gmail]/Sent Mail"
+
+# List UIDs that would be archived (no files created)
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
+  --mailbox INBOX --only-preflight
 
 # Start MCP server
 docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp \

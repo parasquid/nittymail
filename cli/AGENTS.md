@@ -55,6 +55,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
   - `cli/archives/.keep` is tracked; all other files are gitignored.
 - Resumability: skip existing files; atomic write (`.tmp` then rename).
 - Single-process mode: simple, no external dependencies
+- Preflight mode: `--only-preflight` lists UIDs that would be archived without creating files
 - Interrupts: first Ctrl‑C sets abort flag and stops processing; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
 - Testing patterns: focus on single-process behavior and error handling
 

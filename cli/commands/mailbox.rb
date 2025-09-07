@@ -374,6 +374,7 @@ module NittyMail
       method_option :address, aliases: "-a", type: :string, required: false, desc: "IMAP account (email) (or env NITTYMAIL_IMAP_ADDRESS)"
       method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
+      method_option :only_preflight, type: :boolean, default: false, desc: "Only perform preflight and list UIDs to be archived (no files created)"
       def archive
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -393,10 +394,12 @@ module NittyMail
           puts "      --output PATH            Archive output directory (default: cli/archives)"
           puts "      --max-fetch-size SIZE    IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE)"
           puts "      --strict                 Fail-fast on errors instead of skipping"
+          puts "      --only-preflight         Only list UIDs to be archived (no files created)"
           puts
           puts "EXAMPLES:"
           puts "  cli mailbox archive --mailbox INBOX"
           puts "  cli mailbox archive --address user@gmail.com --password pass --output /path/to/archive"
+          puts "  cli mailbox archive --mailbox INBOX --only-preflight  # List UIDs only"
           puts
           raise ArgumentError, "Missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
@@ -420,6 +423,18 @@ module NittyMail
         uidvalidity = preflight[:uidvalidity]
         server_uids = Array(preflight[:to_fetch])
         puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+
+        # Handle only-preflight mode
+        if options[:only_preflight]
+          puts "Preflight complete. UIDs that would be archived:"
+          puts "Total UIDs on server: #{server_uids.size}"
+          if server_uids.empty?
+            puts "(no UIDs found)"
+          else
+            puts "UIDs: #{server_uids.join(", ")}"
+          end
+          return
+        end
 
         # Determine which UIDs need archiving by checking for existing files
         safe_address = address.to_s.downcase
