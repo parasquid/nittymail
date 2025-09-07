@@ -20,11 +20,12 @@ bundle exec rspec -fd -b
 # Single test file
 bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
 
-# Specific test pattern
-bundle exec rspec -fd -b --pattern "**/*mailbox*"
-
 # From project root (using Docker)
 docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
+
+# Using gem's Docker Compose (recommended)
+docker compose run --rm gem bundle exec rspec -fd -b
+docker compose run --rm gem bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
 ```
 
 ### Linting & Quality
@@ -32,10 +33,30 @@ docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
 - StandardRB only: `bundle exec standardrb`
 - RuboCop only: `bundle exec rubocop`
 
+### Docker Development Workflow
+```bash
+# Interactive shell
+docker compose run --rm gem
+
+# Run tests
+docker compose run --rm gem bundle exec rspec -fd -b
+
+# Run rake tasks
+docker compose run --rm gem rake
+
+# Development console
+docker compose run --rm gem bin/console
+
+# Linting
+docker compose run --rm gem bundle exec standardrb --fix
+docker compose run --rm gem bundle exec rubocop -A
+```
+
 ### Troubleshooting
-- **Missing dependencies**: Run `bundle install` first
+- **Missing dependencies**: Run `bundle install` first or use Docker (auto-installs)
 - **Test failures**: Check Ruby version compatibility (requires Ruby 3.4+)
 - **Load path issues**: Ensure you're in the correct directory when running commands
+- **Docker issues**: Make sure you're running commands from the `gem/` directory
 
 ## Coding Style & Naming Conventions
 - Style: StandardRB is canonical; RuboCop config aligns with it.

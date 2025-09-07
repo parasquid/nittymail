@@ -1,35 +1,172 @@
-# NittyMail
+# NittyMail Gem
 
-TODO: Delete this and the text below, and describe your gem
+A Ruby gem providing core IMAP operations and email processing functionality for the NittyMail CLI application. This gem handles Gmail/IMAP connections, email parsing, and metadata extraction.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/NittyMail`. To experiment with that code, run `bin/console` for an interactive prompt.
+## Features
+
+- **IMAP Operations**: Connect to Gmail/IMAP servers and fetch emails
+- **Email Parsing**: Extract metadata from raw RFC822 email messages
+- **Settings Management**: Configuration handling for IMAP connections
+- **Error Handling**: Comprehensive exception handling for IMAP operations
+- **Docker Workflow**: Complete Docker-based development environment
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Add this line to your application's Gemfile:
 
-Install the gem and add to the application's Gemfile by executing:
-
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+```ruby
+gem 'nitty_mail'
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+And then execute:
 
 ```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+bundle install
 ```
 
-## Usage
+Or install it yourself as:
 
-TODO: Write usage instructions here
+```bash
+gem install nitty_mail
+```
+
+## Docker Development Workflow
+
+This gem uses Docker Compose for development, similar to the CLI. No local Ruby installation required.
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+
+### Setup
+
+1. **Configure Environment** (optional):
+   ```bash
+   cp .env.sample .env
+   # Edit .env if you need IMAP credentials for testing
+   ```
+
+2. **Dependencies install automatically** on first run via the entrypoint script.
+
+### Usage
+
+#### Interactive Shell
+```bash
+docker compose run --rm gem
+```
+
+#### Run Tests
+```bash
+# Full test suite
+docker compose run --rm gem bundle exec rspec -fd -b
+
+# Single test file
+docker compose run --rm gem bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
+```
+
+#### Run Rake Tasks
+```bash
+# Run all rake tasks (specs + linting)
+docker compose run --rm gem rake
+
+# Build gem
+docker compose run --rm gem rake build
+
+# Install locally
+docker compose run --rm gem rake install
+```
+
+#### Development Console
+```bash
+docker compose run --rm gem bin/console
+```
+
+#### Linting
+```bash
+# Auto-fix
+docker compose run --rm gem bundle exec standardrb --fix
+docker compose run --rm gem bundle exec rubocop -A
+
+# Check only
+docker compose run --rm gem bundle exec standardrb
+docker compose run --rm gem bundle exec rubocop
+```
+
+## Architecture
+
+### Core Modules
+
+- **`NittyMail::Mailbox`**: IMAP client operations and email fetching
+- **`NittyMail::Enricher`**: Email parsing and metadata extraction
+- **`NittyMail::Settings`**: Configuration management
+- **`NittyMail::Utils`**: Shared utility functions
+- **`NittyMail::Errors`**: Custom exception classes
+
+### Key Classes
+
+```ruby
+# IMAP operations
+mailbox = NittyMail::Mailbox.new(settings: settings)
+emails = mailbox.fetch(uids: [1, 2, 3])
+
+# Email parsing
+enriched = NittyMail::Enricher.enrich(raw_email_content)
+
+# Configuration
+settings = NittyMail::Settings.new(
+  imap_address: "user@gmail.com",
+  imap_password: "app-password"
+)
+```
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+### Testing
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+The gem uses RSpec with `rspec-given` for BDD-style tests:
+
+```ruby
+describe NittyMail::Utils do
+  Given(:input) { "test@example.com" }
+
+  When(:result) { described_class.sanitize_collection_name(input) }
+
+  Then { expect(result).to eq("test-example-com") }
+end
+```
+
+### Code Style
+
+- **StandardRB**: Primary linting tool
+- **RuboCop**: Additional style enforcement
+- **Hash Shorthand**: Use `{key:}` when key matches variable
+- **Method Names**: `snake_case` for methods, `CamelCase` for classes
+
+### Building & Releasing
+
+```bash
+# Build the gem
+rake build
+
+# Install locally for testing
+rake install
+
+# Release to RubyGems (requires credentials)
+rake release
+```
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/NittyMail.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with tests
+4. Run the full test suite: `docker compose run --rm gem rake`
+5. Submit a pull request
+
+## License
+
+The gem is available as open source under the terms of the [LICENSE](LICENSE).
+
+## Agent Guide
+
+See `AGENTS.md` for AI agent development guidelines and conventions.
