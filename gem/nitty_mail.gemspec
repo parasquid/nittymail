@@ -37,6 +37,8 @@ Gem::Specification.new do |spec|
   # Uncomment to register a new dependency of your gem
   # spec.add_dependency "example-gem", "~> 1.0"
   spec.add_dependency "net-imap", "~> 0.2"
+  spec.add_dependency "mail", "~> 2.8"
+  spec.add_dependency "reverse_markdown", "~> 3.0"
 
   spec.add_development_dependency "rspec", "~> 3.0"
   spec.add_development_dependency "rspec-given"
