@@ -26,7 +26,7 @@ RSpec.describe "Archive smoke" do
   Given(:address) { "archive@example.com" }
   Given(:password) { "pw" }
   Given(:mailbox) { "INBOX" }
-  Given(:archive_base) { File.expand_path("../../archives", __dir__) }
+  Given(:archive_base) { "/app/archives" }
   Given(:uv_dir) do
     require_relative "../../utils/utils"
     File.join(archive_base, address.downcase, NittyMail::Utils.sanitize_collection_name(mailbox), "77")
@@ -54,7 +54,7 @@ RSpec.describe "Archive smoke" do
 
   Then "archives files and is idempotent" do
     cli = NittyMail::Commands::Mailbox.new
-    expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
+    expect { cli.invoke(:archive, [], {mailbox: mailbox, address: address}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "11.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "12.eml"))).to eq(true)
     raw = File.binread(File.join(uv_dir, "11.eml"))

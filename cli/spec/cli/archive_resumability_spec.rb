@@ -23,7 +23,7 @@ RSpec.describe "Archive resumability" do
   Given(:address) { "resume-arc@example.com" }
   Given(:password) { "pw" }
   Given(:mailbox) { "INBOX" }
-  Given(:archive_base) { File.expand_path("../../archives", __dir__) }
+  Given(:archive_base) { "/app/archives" }
   Given(:uv_dir) do
     require_relative "../../utils/utils"
     File.join(archive_base, address.downcase, NittyMail::Utils.sanitize_collection_name(mailbox), "88")
