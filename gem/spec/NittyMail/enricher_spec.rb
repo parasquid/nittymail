@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "spec_helper"
-# Enricher is now loaded through the nitty_mail gem
 
 RSpec.describe NittyMail::Enricher do
   def base_meta

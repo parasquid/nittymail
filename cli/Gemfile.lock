@@ -2,7 +2,9 @@ PATH
   remote: ../gem
   specs:
     nitty_mail (0.1.0)
+      mail (~> 2.8)
       net-imap (~> 0.2)
+      reverse_markdown (~> 3.0)
 
 GEM
   remote: https://rubygems.org/
