@@ -38,6 +38,33 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     # --database ./path/to/custom.sqlite3
   ```
 
+#### Download Command Options
+
+```bash
+docker compose run --rm cli mailbox download [options]
+```
+
+**Required Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `-a, --address ADDRESS` - IMAP account email (or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (or env: `NITTYMAIL_IMAP_PASSWORD`)
+
+**Optional Flags:**
+- `--database PATH` - SQLite database path (default: `NITTYMAIL_SQLITE_DB` or `cli/data/[ADDRESS].sqlite3`)
+- `--batch-size SIZE` - DB upsert batch size (default: 200)
+- `--max-fetch-size SIZE` - IMAP max fetch size (env: `NITTYMAIL_MAX_FETCH_SIZE`, default: Settings#max_fetch_size)
+- `--strict` - Fail-fast on errors instead of skipping
+- `--recreate` - Drop and recreate rows for this mailbox+uidvalidity
+- `-y, --yes` - Auto-confirm destructive actions
+- `--force` - Alias for `--yes`
+- `--purge-uidvalidity ID` - Delete rows for a specific UIDVALIDITY and exit
+
+**Environment Variables:**
+- `NITTYMAIL_IMAP_ADDRESS` - IMAP account email
+- `NITTYMAIL_IMAP_PASSWORD` - IMAP password/app password
+- `NITTYMAIL_SQLITE_DB` - SQLite database path
+- `NITTYMAIL_MAX_FETCH_SIZE` - IMAP max fetch size
+
 
 
 Mailbox examples (Gmail names often include brackets and spaces; be sure to quote):
@@ -60,17 +87,29 @@ docker compose run --rm cli mailbox download --mailbox "Receipts"
 
 Archive saves raw RFC822 email files named by UID without parsing or database writes. It runs in single-process mode.
 
-- Run archive:
-  ```bash
-  docker compose run --rm cli mailbox archive --mailbox INBOX
-  # Optional flags:
-  #   --output ./path/to/archives  # base output (default cli/archives)
-  #   --max-fetch-size 200         # IMAP fetch slice
-  #   --strict                     # fail‑fast on errors
-  #   --only-preflight             # list UIDs only (no files created)
-  #   --only-ids 123,456,789       # download specific UIDs only
-  #   --yes                        # auto-confirm overwriting existing files
-  ```
+#### Command Options
+
+```bash
+docker compose run --rm cli mailbox archive [options]
+```
+
+**Required Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `-a, --address ADDRESS` - IMAP account email (or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (or env: `NITTYMAIL_IMAP_PASSWORD`)
+
+**Optional Flags:**
+- `--output PATH` - Archive output base directory (default: `cli/archives`)
+- `--max-fetch-size SIZE` - IMAP max fetch size (env: `NITTYMAIL_MAX_FETCH_SIZE`, default: Settings#max_fetch_size)
+- `--strict` - Fail-fast on errors instead of skipping
+- `--only-preflight` - Only perform preflight and list UIDs to be archived (no files created)
+- `--only-ids UID1,UID2` - Skip preflight and only download specific UIDs (comma-separated list)
+- `-y, --yes` - Auto-confirm overwriting existing files
+
+**Environment Variables:**
+- `NITTYMAIL_IMAP_ADDRESS` - IMAP account email
+- `NITTYMAIL_IMAP_PASSWORD` - IMAP password/app password
+- `NITTYMAIL_MAX_FETCH_SIZE` - IMAP max fetch size
 
 Mailbox examples for archive:
 
@@ -95,15 +134,35 @@ docker compose run --rm cli mailbox archive --mailbox INBOX --yes
 
 Run a local Model Context Protocol (MCP) server that exposes email database tools over stdio. This allows MCP-compatible AI agents to query your local email database without requiring cloud access or IMAP connections.
 
-- Run the MCP server:
-  ```bash
-  docker compose run --rm cli db mcp
-  # Optional flags:
-  #   --database ./path/to/db.sqlite3   # SQLite database path (env: NITTYMAIL_SQLITE_DB)
-  #   --address user@example.com        # Email address context (env: NITTYMAIL_IMAP_ADDRESS)
-  #   --max-limit 500                   # Max rows for list endpoints (env: NITTYMAIL_MCP_MAX_LIMIT, default 1000)
-  #   --quiet                           # Reduce stderr logging (env: NITTYMAIL_QUIET)
-  ```
+#### MCP Server Command Options
+
+```bash
+docker compose run --rm cli db mcp [options]
+```
+
+**Optional Flags:**
+- `--database PATH` - SQLite database path (env: `NITTYMAIL_SQLITE_DB` or `cli/data/[ADDRESS].sqlite3`)
+- `--address ADDRESS` - Email address context (env: `NITTYMAIL_IMAP_ADDRESS`)
+- `--max-limit LIMIT` - Max rows for list endpoints (env: `NITTYMAIL_MCP_MAX_LIMIT`, default: 1000)
+- `--quiet` - Reduce stderr logging (env: `NITTYMAIL_QUIET`)
+
+**Environment Variables:**
+- `NITTYMAIL_SQLITE_DB` - SQLite database path
+- `NITTYMAIL_IMAP_ADDRESS` - Email address context
+- `NITTYMAIL_MCP_MAX_LIMIT` - Max rows for list endpoints (default: 1000)
+- `NITTYMAIL_QUIET` - Reduce stderr logging (set to "1" to enable)
+
+**Examples:**
+```bash
+# Start MCP server with default settings
+docker compose run --rm cli db mcp
+
+# Start with custom database and limits
+docker compose run --rm cli db mcp \
+  --database ./my-emails.sqlite3 \
+  --max-limit 500 \
+  --quiet
+```
 
 - **Available MCP Tools (23 total)**:
   - **Email Retrieval**: `db.list_earliest_emails`, `db.get_email_full`, `db.filter_emails`
@@ -182,14 +241,29 @@ docker compose run --rm cli mailbox download --mailbox INBOX --purge-uidvalidity
   - Ensure IMAP is enabled for your account; app password may be required.
   - Set `NITTYMAIL_SQLITE_DB` or use `--database` to control DB location.
 
-- List mailboxes for your account (uses credentials from .env):
-  ```bash
-  docker compose run --rm cli mailbox list
-  
-  # You can still override credentials if needed
-  docker compose run --rm cli mailbox list \
-    -a "your@email.com" -p "your-app-password"
-  ```
+#### List Command Options
+
+```bash
+docker compose run --rm cli mailbox list [options]
+```
+
+**Required Options:**
+- `-a, --address ADDRESS` - IMAP account email (or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (or env: `NITTYMAIL_IMAP_PASSWORD`)
+
+**Environment Variables:**
+- `NITTYMAIL_IMAP_ADDRESS` - IMAP account email
+- `NITTYMAIL_IMAP_PASSWORD` - IMAP password/app password
+
+**Examples:**
+```bash
+# List mailboxes using environment variables
+docker compose run --rm cli mailbox list
+
+# Override credentials
+docker compose run --rm cli mailbox list \
+  -a "your@email.com" -p "your-app-password"
+```
 
 Agent guide: See `AGENTS.md` for CLI agent conventions and style.
 
@@ -197,6 +271,73 @@ Agent guide: See `AGENTS.md` for CLI agent conventions and style.
   ```bash
   docker compose run --rm cli bash
   ```
+
+## Complete Command Reference
+
+### `mailbox list` - List IMAP Mailboxes
+Lists all available mailboxes on the IMAP server.
+
+**Usage:** `docker compose run --rm cli mailbox list [options]`
+
+**Options:**
+- `-a, --address ADDRESS` - IMAP account email (required, or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (required, or env: `NITTYMAIL_IMAP_PASSWORD`)
+
+### `mailbox download` - Download Emails to SQLite
+Downloads emails from IMAP server to local SQLite database.
+
+**Usage:** `docker compose run --rm cli mailbox download [options]`
+
+**Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `--database PATH` - SQLite database path (default: `cli/data/[ADDRESS].sqlite3`)
+- `--batch-size SIZE` - DB upsert batch size (default: 200)
+- `--max-fetch-size SIZE` - IMAP max fetch size (default: Settings#max_fetch_size)
+- `-a, --address ADDRESS` - IMAP account email (required, or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (required, or env: `NITTYMAIL_IMAP_PASSWORD`)
+- `--strict` - Fail-fast on errors instead of skipping
+- `--recreate` - Drop and recreate rows for this mailbox+uidvalidity
+- `-y, --yes` - Auto-confirm destructive actions
+- `--force` - Alias for `--yes`
+- `--purge-uidvalidity ID` - Delete rows for a specific UIDVALIDITY and exit
+
+### `mailbox archive` - Archive Emails to .eml Files
+Archives raw email files to local filesystem.
+
+**Usage:** `docker compose run --rm cli mailbox archive [options]`
+
+**Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `--output PATH` - Archive output base directory (default: `cli/archives`)
+- `--max-fetch-size SIZE` - IMAP max fetch size (default: Settings#max_fetch_size)
+- `-a, --address ADDRESS` - IMAP account email (required, or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (required, or env: `NITTYMAIL_IMAP_PASSWORD`)
+- `--strict` - Fail-fast on errors instead of skipping
+- `--only-preflight` - Only perform preflight and list UIDs (no files created)
+- `--only-ids UID1,UID2` - Skip preflight and download specific UIDs
+- `-y, --yes` - Auto-confirm overwriting existing files
+
+### `db mcp` - Start MCP Server
+Runs Model Context Protocol server for AI agent access.
+
+**Usage:** `docker compose run --rm cli db mcp [options]`
+
+**Options:**
+- `--database PATH` - SQLite database path (default: `cli/data/[ADDRESS].sqlite3`)
+- `--address ADDRESS` - Email address context (or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `--max-limit LIMIT` - Max rows for list endpoints (default: 1000)
+- `--quiet` - Reduce stderr logging
+
+## Environment Variables
+
+All commands support these environment variables:
+
+- `NITTYMAIL_IMAP_ADDRESS` - IMAP account email
+- `NITTYMAIL_IMAP_PASSWORD` - IMAP password/app password
+- `NITTYMAIL_SQLITE_DB` - SQLite database path
+- `NITTYMAIL_MAX_FETCH_SIZE` - IMAP max fetch size
+- `NITTYMAIL_MCP_MAX_LIMIT` - Max rows for MCP list endpoints (default: 1000)
+- `NITTYMAIL_QUIET` - Reduce stderr logging (set to "1" to enable)
 
 ## Notes
 
