@@ -22,7 +22,7 @@ end
 RSpec.describe "Strict mode" do
   Given(:address) { "strict@example.com" }
   Given(:password) { "pw" }
-  Given(:tmp_db) { File.expand_path("../../tmp/strict.sqlite3", __dir__) }
+  Given(:tmp_db) { "/tmp/test-strict-#{Process.pid}.sqlite3" }
   Given(:mailbox_stub) { instance_double("NittyMail::Mailbox") }
 
   before do

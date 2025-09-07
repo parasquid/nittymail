@@ -1,7 +1,7 @@
 require "spec_helper"
 
 RSpec.describe "DB MCP tools" do
-  Given(:db_path) { File.expand_path("../../tmp/mcp_tools.sqlite3", __dir__) }
+  Given(:db_path) { "/tmp/test-mcp-tools-#{Process.pid}.sqlite3" }
 
   before do
     ENV["NITTYMAIL_SQLITE_DB"] = db_path

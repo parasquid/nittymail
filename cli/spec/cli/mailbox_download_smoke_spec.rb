@@ -55,7 +55,7 @@ end
 RSpec.describe "CLI mailbox smoke" do
   Given(:address) { "smoke@example.com" }
   Given(:password) { "secret" }
-  Given(:tmp_db) { File.expand_path("../../tmp/smoke.sqlite3", __dir__) }
+  Given(:tmp_db) { "/tmp/test-smoke-#{Process.pid}.sqlite3" }
 
   Given(:mailbox_stub) { instance_double("NittyMail::Mailbox") }
 

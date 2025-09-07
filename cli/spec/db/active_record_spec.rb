@@ -1,12 +1,10 @@
 require "spec_helper"
 
 RSpec.describe "ActiveRecord SQLite setup" do
-  Given(:db_path) { File.expand_path("../../tmp/test.sqlite3", __dir__) }
+  Given(:db_path) { "/tmp/test-active-record-#{Process.pid}.sqlite3" }
 
   before do
     require_relative "../../utils/db"
-    require "fileutils"
-    FileUtils.mkdir_p(File.dirname(db_path))
     # Establish connection and run migrations against a test DB file
     NittyMail::DB.establish_sqlite_connection(database_path: db_path)
     NittyMail::DB.run_migrations!

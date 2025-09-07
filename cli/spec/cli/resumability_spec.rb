@@ -26,7 +26,7 @@ end
 RSpec.describe "Resumability" do
   Given(:address) { "resume@example.com" }
   Given(:password) { "pw" }
-  Given(:tmp_db) { File.expand_path("../../tmp/resume.sqlite3", __dir__) }
+  Given(:tmp_db) { "/tmp/test-resume-#{Process.pid}.sqlite3" }
   Given(:mailbox_stub) { instance_double("NittyMail::Mailbox") }
 
   before do
