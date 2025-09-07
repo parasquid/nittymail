@@ -47,8 +47,8 @@ init_queue_state() {
     local total_uids=$1
     local total_batches=$2
 
-    echo "DEBUG: Initializing queue state with $total_batches batches ($total_uids UIDs)"
-    echo "DEBUG: Writing to $QUEUE_DIR/queue_state.json"
+    debug "Initializing queue state with $total_batches batches ($total_uids UIDs)"
+    debug "Writing to $QUEUE_DIR/queue_state.json"
 
     cat > "$QUEUE_DIR/queue_state.json" << EOF
 {
@@ -65,17 +65,16 @@ init_queue_state() {
 }
 EOF
 
-    echo "DEBUG: Queue state file written, size: $(wc -c < "$QUEUE_DIR/queue_state.json") bytes"
-    cat "$QUEUE_DIR/queue_state.json"
+    debug "Queue state file written, size: $(wc -c < "$QUEUE_DIR/queue_state.json") bytes"
     debug "Initialized queue state with $total_batches batches ($total_uids UIDs)"
 }
 
 # Update queue state with file locking
 update_queue_state() {
-    local completed_batches=$1
-    local completed_uids=$2
-    local processing_batches=$3
-    local workers_active=$4
+    local delta_completed_batches=$1
+    local delta_completed_uids=$2
+    local delta_processing_batches=$3
+    local delta_workers_active=$4
 
     local lock_file="$QUEUE_DIR/queue_state.lock"
     local max_attempts=10
@@ -86,7 +85,7 @@ update_queue_state() {
         if (set -o noclobber; echo "$$" > "$lock_file") 2>/dev/null; then
             break
         fi
-        echo "DEBUG: Waiting for queue state lock (attempt $attempt/$max_attempts)"
+        debug "Waiting for queue state lock (attempt $attempt/$max_attempts)"
         sleep 0.1
         attempt=$((attempt + 1))
     done
@@ -98,6 +97,12 @@ update_queue_state() {
 
     # Ensure cleanup on exit
     trap "rm -f '$lock_file'" EXIT
+
+    # Read current values inside lock
+    local current_completed=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+    local current_completed_uids=$(jq -r '.completed_uids' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+    local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+    local current_workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
 
     local pending_batches=$(( $(ls "$QUEUE_DIR/pending"/*.job 2>/dev/null | wc -l) ))
 
@@ -114,6 +119,12 @@ update_queue_state() {
         return 1
     fi
 
+    # Calculate new values
+    local new_completed=$((current_completed + delta_completed_batches))
+    local new_completed_uids=$((current_completed_uids + delta_completed_uids))
+    local new_processing=$((current_processing + delta_processing_batches))
+    local new_workers=$((current_workers + delta_workers_active))
+
     # Calculate progress
     local total_batches=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null)
     local total_uids=$(jq -r '.total_uids' "$QUEUE_DIR/queue_state.json" 2>/dev/null)
@@ -125,17 +136,17 @@ update_queue_state() {
     fi
 
     # Update state file atomically
-    if jq --arg cb "$completed_batches" \
-          --arg cu "$completed_uids" \
-          --arg pb "$pending_batches" \
-          --arg prb "$processing_batches" \
-          --arg wa "$workers_active" \
-          '.completed_batches = ($cb | tonumber) |
-           .completed_uids = ($cu | tonumber) |
-           .pending_batches = ($pb | tonumber) |
-           .processing_batches = ($prb | tonumber) |
-           .workers_active = ($wa | tonumber)' \
-          "$QUEUE_DIR/queue_state.json" > "$QUEUE_DIR/queue_state.new" 2>/dev/null; then
+    if jq --arg cb "$new_completed" \
+           --arg cu "$new_completed_uids" \
+           --arg pb "$pending_batches" \
+           --arg prb "$new_processing" \
+           --arg wa "$new_workers" \
+           '.completed_batches = ($cb | tonumber) |
+            .completed_uids = ($cu | tonumber) |
+            .pending_batches = ($pb | tonumber) |
+            .processing_batches = ($prb | tonumber) |
+            .workers_active = ($wa | tonumber)' \
+           "$QUEUE_DIR/queue_state.json" > "$QUEUE_DIR/queue_state.new" 2>/dev/null; then
 
         mv "$QUEUE_DIR/queue_state.new" "$QUEUE_DIR/queue_state.json"
     else
@@ -147,7 +158,7 @@ update_queue_state() {
     # Release lock
     rm -f "$lock_file"
 
-    debug "Updated queue state: completed=$completed_batches, pending=$pending_batches, processing=$processing_batches, workers=$workers_active"
+    debug "Updated queue state: completed=$new_completed (+$delta_completed_batches), pending=$pending_batches, processing=$new_processing (+$delta_processing_batches), workers=$new_workers (+$delta_workers_active)"
 }
 
 # Create a job file for a batch of UIDs
@@ -255,6 +266,7 @@ create_jobs_from_uids() {
 worker_process() {
     local worker_id=$1
     local mailbox_args=("${@:2}")
+    local worker_started=false
 
     debug "Worker $worker_id started"
 
@@ -291,9 +303,12 @@ worker_process() {
         fi
 
         # Update queue state for job moved to processing
-        local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
-        local current_workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json")
-        update_queue_state 0 0 $((current_processing + 1)) $((current_workers + 1))
+        if [ "$worker_started" = "false" ]; then
+            update_queue_state 0 0 1 1
+            worker_started=true
+        else
+            update_queue_state 0 0 1 0
+        fi
 
         # Update job with worker info
         jq --arg pid "$$" --arg started "$(date -Iseconds)" \
@@ -313,8 +328,7 @@ worker_process() {
         if [ "$retry_count" -ge "$max_retries" ]; then
             echo "Worker $worker_id: Job $batch_id has failed $retry_count times, giving up"
             # Update queue state for permanently failed job
-            local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
-            update_queue_state 0 0 $((current_processing - 1)) 0
+            update_queue_state 0 0 -1 0
             # Move to a failed directory for manual inspection
             mkdir -p "$QUEUE_DIR/failed"
             mv "$processing_file" "$QUEUE_DIR/failed/${batch_id}.job"
@@ -324,16 +338,13 @@ worker_process() {
             if process_batch "$uids" "$uidvalidity" "${mailbox_args[@]}"; then
                 debug "Worker $worker_id completed $batch_id"
                 # Update queue state for completed job
-                local current_completed=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json")
-                local current_completed_uids=$(jq -r '.completed_uids' "$QUEUE_DIR/queue_state.json")
-                update_queue_state $((current_completed + 1)) $((current_completed_uids + uid_count)) 0 0
+                update_queue_state 1 "$uid_count" -1 0
                 # Delete completed job file
                 rm "$processing_file"
             else
                 debug "Worker $worker_id failed $batch_id (attempt $((retry_count + 1))/$max_retries)"
                 # Update queue state for failed job (back to pending)
-                local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
-                update_queue_state 0 0 $((current_processing - 1)) 0
+                update_queue_state 0 0 -1 0
                 # Move back to pending for retry and increment retry count
                 jq '.retry_count += 1' "$processing_file" > "${QUEUE_DIR}/pending/${batch_id}.job.tmp" && \
                 mv "${QUEUE_DIR}/pending/${batch_id}.job.tmp" "$QUEUE_DIR/pending/${batch_id}.job" && \
@@ -343,10 +354,7 @@ worker_process() {
     done
 
     # Update queue state when worker finishes
-    local current_workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json")
-    if [ "$current_workers" -gt 0 ]; then
-        update_queue_state 0 0 0 $((current_workers - 1))
-    fi
+    update_queue_state 0 0 0 -1
     debug "Worker $worker_id finished"
 }
 

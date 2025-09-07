@@ -165,8 +165,8 @@ main() {
     echo
 
     # Run preflight once to get all available UIDs
-    echo "DEBUG: About to run preflight with mailbox args: ${mailbox_args[*]}"
-    echo "DEBUG: Preflight will check for existing files in: ./archives"
+    debug "About to run preflight with mailbox args: ${mailbox_args[*]}"
+    debug "Preflight will check for existing files in: ./archives"
     echo "Running preflight to get all available UIDs..."
 
     local all_uids
@@ -179,7 +179,7 @@ main() {
         return
     fi
 
-    echo "DEBUG: First 20 UIDs from preflight: $(echo "$all_uids" | cut -d',' -f1-20)"
+    debug "First 20 UIDs from preflight: $(echo "$all_uids" | cut -d',' -f1-20)"
 
     # Convert to array
     IFS=',' read -ra ALL_UID_ARRAY <<< "$all_uids"
