@@ -1,331 +1,568 @@
-# Main Project Guide: core/README.md
+# NittyMail Project Guide for AI Agents
 
-Canonical user-facing guide is `core/README.md`.
+This comprehensive guide provides AI agents with detailed information about the NittyMail project structure, architecture, development workflow, and conventions. The project consists of a CLI application and supporting gem for email synchronization and analysis.
 
-This document provides a comprehensive overview of the NittyMail project, its architecture, and the primary commands and conventions required for development. For a strict set of rules for AI agent behavior, refer to `AGENTS.md`.
+## 1. Project Overview & Architecture
 
-## 1. Project Overview & Core Technologies
+NittyMail is a Ruby-based system for synchronizing Gmail/IMAP accounts to local SQLite databases and providing various email analysis tools.
 
-NittyMail is a set of command-line tools written in Ruby to synchronize a Gmail account to a local SQLite database and perform queries against it.
+### Project Structure
+```
+nittymail/
+├── cli/                    # Main CLI application
+│   ├── commands/          # Thor-based CLI commands
+│   │   ├── mailbox.rb     # Email download/archive commands
+│   │   └── db/            # Database/MCP server commands
+│   │       └── mcp.rb
+│   ├── models/            # ActiveRecord models
+│   │   └── email.rb
+│   ├── utils/             # CLI-specific utilities
+│   │   ├── db.rb          # Database connection helpers
+│   │   └── utils.rb       # General CLI utilities
+│   ├── spec/              # CLI-specific tests
+│   ├── .claude/           # AI agent configurations
+│   │   ├── agents/        # Specialized agent definitions
+│   │   └── commands/      # Agent command templates
+│   ├── docker-compose.yml # Docker services for CLI
+│   ├── cli.rb             # Main CLI entry point
+│   └── AGENTS.md          # CLI-specific agent guide
+├── gem/                   # NittyMail Ruby gem
+│   ├── lib/nitty_mail/    # Core gem code
+│   │   ├── mailbox.rb     # IMAP operations
+│   │   ├── enricher.rb    # Email parsing/enrichment
+│   │   ├── settings.rb    # Configuration
+│   │   ├── utils.rb       # Shared utilities
+│   │   └── errors.rb      # Custom exceptions
+│   ├── spec/              # Gem tests
+│   ├── nitty_mail.gemspec # Gem specification
+│   └── AGENTS.md          # Gem-specific agent guide
+├── docs/                  # Documentation
+├── archives/              # Gitignored email archives
+└── AGENTS.md              # This file - main agent guide
+```
 
-*   **Language/Runtime**: Ruby 3.4, executed exclusively via Docker.
-*   **Core Libraries**:
-    *   `thor`: For building the CLI interface.
-    *   `sequel`: As the ORM for the SQLite database.
-    *   `mail`: For all IMAP communication with Gmail.
-    *   `sqlite-vec`: To enable vector search capabilities within SQLite.
-*   **Natural Language Processing**: Uses a local LLM (e.g., `qwen2.5:7b-instruct`) via an Ollama server for parsing natural language queries.
-*   **Development Tools**:
-    *   `rspec`: For testing.
-    *   `standardrb` & `rubocop`: For linting and code style enforcement.
+### Core Technologies
+*   **Language/Runtime**: Ruby 3.4.4
+*   **Execution**: Docker-only workflow (no local Ruby required)
+*   **Database**: SQLite with ActiveRecord (WAL journaling, optimized pragmas)
+*   **CLI Framework**: Thor for command-line interface
+*   **IMAP Library**: `mail` gem for Gmail/IMAP communication
+*   **Job Processing**: Active Job + Sidekiq (optional, Redis-backed)
+*   **Testing**: RSpec with `rspec-given` for BDD-style tests
+*   **Linting**: StandardRB and RuboCop for code quality
+*   **Progress**: `ruby-progressbar` for CLI feedback
 
-## 2. Architecture & Key Concepts
+## 2. Architecture & Key Components
 
-### Sync Process (`sync`)
+### CLI Application (`cli/`)
 
-The sync process is the core feature. It connects to Gmail via IMAP and saves messages to the local SQLite DB.
-1.  **Preflight**: For each mailbox, it first determines the `UIDVALIDITY` and calculates the difference between UIDs on the server and UIDs in the local database to identify exactly which messages to fetch.
-2.  **Fetch**: It uses a multi-threaded approach to fetch the missing messages in batches.
-3.  **Store**: Messages are parsed and stored in the `email` table.
-4.  **Embeddings**: Sync downloads mail only. Use `./cli.rb embed` to generate vector embeddings after sync (requires `OLLAMA_HOST`).
+The main user interface built with Thor. Key components:
 
-### Query Process (`query`)
+#### Commands Structure
+- **`mailbox`**: Email operations (download, archive, list)
+  - `mailbox download`: Sync emails to SQLite database
+  - `mailbox archive`: Save raw .eml files
+  - `mailbox list`: List available IMAP mailboxes
+- **`db`**: Database operations
+  - `db mcp`: Start MCP server for AI agent access
 
-The query command translates natural language questions into SQL queries.
-1.  **Tool-Based LLM**: It sends the user's prompt to an Ollama model that has been given a set of tools (functions) for searching the database (e.g., by date, sender, or vector similarity).
-2.  **SQL Generation**: The LLM decides which tool to use and generates the appropriate parameters, which the application then uses to construct and execute a SQL query.
-3.  **No Fallback**: This process requires a functioning Ollama instance with a tool-capable model. There is no non-LLM fallback.
+#### Database Layer
+- **Model**: `cli/models/email.rb` - ActiveRecord model for emails table
+- **Connection**: `cli/utils/db.rb` - SQLite connection with optimized pragmas
+- **Schema**: `cli/db/migrate/001_create_emails.rb` - Database migrations
 
-### Vector Embeddings (`embed`)
+#### Processing Modes
+1. **Single-Process Mode** (default for archive, optional for download)
+   - Direct IMAP fetch → parse → SQLite upsert
+   - Simple, no external dependencies
 
-Vector embeddings allow for semantic search (i.e., finding emails "about" a certain topic).
-*   **Storage**: Embeddings are stored as `BLOB` data in a virtual table (`email_vec`) powered by the `sqlite-vec` extension.
-*   **Default Model**: The default embedding model is `mxbai-embed-large` (1024 dimensions).
-*   **Backfilling**: The `embed` command can be used to generate embeddings for emails that were synced before the embedding feature was enabled.
+2. **Jobs Mode** (default for download, optional for archive)
+   - IMAP fetch jobs → Redis queue → SQLite writer jobs
+   - Parallel processing with Sidekiq + Redis
+   - Artifact-based: `.eml` files stored temporarily
+
+### NittyMail Gem (`gem/`)
+
+Core library providing IMAP operations and email processing:
+
+#### Key Modules
+- **`NittyMail::Mailbox`**: IMAP client operations
+- **`NittyMail::Enricher`**: Email parsing and metadata extraction
+- **`NittyMail::Settings`**: Configuration management
+- **`NittyMail::Utils`**: Shared utility functions
+
+#### Integration Points
+- CLI uses gem for IMAP operations
+- Gem provides low-level email processing
+- Clean separation: CLI handles UI/jobs, gem handles core logic
+
+### Data Flow
+
+#### Email Download Process
+1. **Preflight**: Discover mailbox UIDVALIDITY and missing UIDs
+2. **Fetch**: Download raw RFC822 messages in batches
+3. **Parse**: Extract metadata (subject, from, date, etc.)
+4. **Store**: Upsert to SQLite with conflict resolution
+5. **Progress**: Real-time progress bars and counters
+
+#### Archive Process
+1. **Preflight**: Same UID discovery as download
+2. **Fetch**: Download raw messages
+3. **Save**: Write `.eml` files to `cli/archives/`
+4. **Resume**: Skip existing files on re-run
+
+#### MCP Server Process
+1. **Connect**: Open SQLite database read-only
+2. **Listen**: Accept MCP tool calls over stdio
+3. **Query**: Execute safe SQL queries with limits
+4. **Respond**: Return structured JSON results
 
 ## 3. Development Workflow & Commands
 
-**MANDATORY**: All commands must be run from the project root via Docker Compose.
+### Environment Setup
 
-### Setup
+1. **Configure CLI Environment**:
+   ```bash
+   cd cli
+   cp .env.sample .env
+   # Edit .env to set:
+   # - NITTYMAIL_IMAP_ADDRESS=your@email.com
+   # - NITTYMAIL_IMAP_PASSWORD=your-app-password
+   # - NITTYMAIL_SQLITE_DB=./data/emails.sqlite3 (optional)
+   ```
 
-1.  **Configure Environment**: Create the environment file from the sample.
-    ```bash
-    cp core/config/.env.sample core/config/.env
-    ```
-    Then, **you must edit `core/config/.env`** to set your `ADDRESS`, `PASSWORD`, and `DATABASE` path.
+2. **Install Dependencies** (automatic on first run):
+   ```bash
+   # CLI dependencies (from cli/ directory)
+   docker compose run --rm cli bundle install
 
-2.  **Install Dependencies**:
-    ```bash
-    docker compose run --rm ruby bundle install
-    ```
+   # Gem dependencies (from gem/ directory)
+   cd gem && bundle install
+   ```
 
-### Linting & Testing (Ruby changes only)
+### Development Commands
 
-Only run StandardRB/RuboCop/RSpec when Ruby code changes or behavior changes.
+#### CLI Development (from project root)
+```bash
+# Run CLI commands
+docker compose run --rm ruby bundle exec ruby cli/cli.rb [command]
 
-- Skip for non-Ruby-only changes (e.g., Markdown docs, .env samples, JSON, YAML, text files).
-- Run for any `.rb` edits or behavior-affecting changes.
+# Interactive shell
+docker compose run --rm ruby bash
 
-1.  **Lint Ruby** (when applicable): applies safe auto-fixes and verifies StandardRB and RuboCop.
-    ```bash
-    ./bin/lint
-    ```
-
-2.  **Run RSpec** (when applicable): Canonical command — do not improvise other invocations.
-    ```bash
-    # Always run from the repo root; Docker working_dir is /app/core
-    docker compose run --rm ruby bundle exec rspec -fd -b
-
-    # Run a single file (example):
-    docker compose run --rm ruby bundle exec rspec -fd -b spec/mcp_server_spec.rb
-    ```
-
-    Notes:
-    - Do not use host Ruby. Always go through Docker Compose as above.
-    - Keep `bundle exec` and the `-fd -b` flags (formatter + backtraces) for consistent, debuggable output.
-    - MCP specs manage their own environment; you should not need to export `DATABASE` to run them.
-
-3.  **RSpec style (AI agents):** Prefer `rspec-given` for new specs.
-    - Use Given/When/Then/And macros from `rspec-given` for readability.
-    - Require `rspec/given` via `spec_helper` (already configured).
-    - Existing non-Given specs may remain as-is; do not rewrite unless necessary.
-
-#### Stubbing reporter events in tests
-
-Use a simple collecting reporter that records every `event(type, payload)` call. Example:
-
-```ruby
-class CollectingReporter < NittyMail::Reporting::BaseReporter
-  attr_reader :events
-  def initialize(*)
-    super
-    @events = []
-  end
-  def event(type, payload = {})
-    @events << [type.to_sym, payload]
-    super
-  end
-end
-
-Given(:rep) { CollectingReporter.new }
-When  { NittyMail::Enrich.perform(database_path: db_path, quiet: true, reporter: rep) }
-Then  { rep.events.map(&:first).include?(:enrich_finished) }
+# View CLI help
+docker compose run --rm ruby bundle exec ruby cli/cli.rb --help
 ```
 
-### Committing
+#### Gem Development (from gem/ directory)
+```bash
+# Run gem console
+bundle exec bin/console
 
-1.  **Format**: Use Conventional Commits (`type(scope): subject`).
-2.  **Multi-line Messages**: **MUST** use the heredoc format to prevent git hook failures:
-    ```bash
-    git commit -F - << 'EOF'
-    feat(sync): Add a new feature
+# Build gem
+bundle exec rake build
 
-    Why:
-    - Motivation for the changes.
+# Install locally
+bundle exec rake install
+```
 
-    What:
-    - Description of what was changed.
-    EOF
-    ```
-3.  **Co-Author Lines**: Do **NOT** include co-author lines (e.g., `Co-Authored-By: Claude <noreply@anthropic.com>`) or generated lines (e.g., `🤖 Generated with [Claude Code]`) in commit messages.
+### Testing Procedures
 
-### Ruby Style Guidelines (AI Agents)
+#### CLI Tests (from project root)
+```bash
+# Full CLI test suite
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/
 
-- **Hash Shorthand**: Use Ruby hash shorthand syntax when the key matches the variable name (e.g., `{foo:}` instead of `{foo: foo}`).
+# Single CLI test file
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/cli/utils_spec.rb
 
-### Development Workflow (AI Agents)
+# Run from cli/ directory
+cd cli && docker compose run --rm cli bundle exec rspec -fd -b spec/cli/utils_spec.rb
+```
 
-- **Working Directory**: Always execute file operations from the project root directory, not from the `core/` subdirectory. Commands like `./bin/lint`, `git add`, `git commit` should be run from the parent directory where these tools are located.
+#### Gem Tests (from gem/ directory)
+```bash
+# Full gem test suite
+bundle exec rspec -fd -b
 
-### Exception Handling (AI Agents)
+# Single gem test file
+bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
 
-- Do not swallow exceptions unless the maintainer explicitly requests it or there is a compelling, documented reason.
-- Prefer rescuing specific error classes; avoid `rescue => e` without re‑raise.
-- Do not use rescue modifiers (e.g., `call rescue nil`). Use explicit `begin/rescue` blocks and either re‑raise or handle with clear remediation.
-- If a rescue is necessary (e.g., to continue a batch process), log the error with actionable context and surface failures (e.g., via return values or counters). Add a short justification in the PR/commit body.
-- Never hide initialization failures that would leave the process in an unusable state. Fail fast with a clear, user‑facing error message.
+# From project root
+docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
+```
 
-### sqlite-vec Troubleshooting (AI Agents)
+#### Test Guidelines
+- **Framework**: RSpec with `rspec-given` for BDD-style tests
+- **CLI Tests**: Focus on integration, command behavior, job processing
+- **Gem Tests**: Unit tests for core IMAP/email processing logic
+- **Mocking**: Use real IMAP connections sparingly; prefer VCR for integration tests
+- **Patterns**: Given/When/Then for readability, descriptive test names
 
-When working with sqlite-vec vector search functionality, be aware of these common issues:
+### Linting & Code Quality
 
-**Binary Data Encoding Issues**: The most common problem is encoding errors like `"\xC8" from ASCII-8BIT to UTF-8` when passing vector embeddings to queries.
+#### CLI Linting (from cli/ directory)
+```bash
+# Auto-fix and lint
+docker compose run --rm cli bundle exec standardrb --fix
+docker compose run --rm cli bundle exec rubocop -A
 
-- **Root Cause**: Sequel's query interface doesn't properly handle binary blob data for sqlite-vec MATCH operations
-- **Symptoms**: `Encoding::UndefinedConversionError` when executing vector search queries, even though embeddings exist in database
-- **Solution**: Use Sequel's `synchronize` method to get direct access to the underlying SQLite3 connection, following the sqlite-vec Ruby example pattern
+# Check only
+docker compose run --rm cli bundle exec standardrb
+docker compose run --rm cli bundle exec rubocop
+```
 
-**SQL Syntax Issues**: Reserved keywords in column aliases cause parsing errors.
+#### Gem Linting (from gem/ directory)
+```bash
+# Auto-fix and lint
+bundle exec standardrb --fix
+bundle exec rubocop -A
 
-- **Symptoms**: `near "from": syntax error` in vector search queries
-- **Root Cause**: Using `e."from" as from` creates invalid SQL syntax with reserved keyword
-- **Solution**: Remove problematic aliases or use different column names
+# Check only
+bundle exec standardrb
+bundle exec rubocop
+```
 
-**Working Code Pattern**:
+### Git Workflow & Committing
+
+#### Commit Message Format
+Use Conventional Commits with heredoc format:
+```bash
+git commit -F - << 'EOF'
+feat(cli): Add new mailbox command
+
+Why:
+- Users need to archive emails locally
+- Current download only supports database storage
+
+What:
+- Add mailbox archive subcommand
+- Save raw .eml files to cli/archives/
+- Support resumable downloads
+EOF
+```
+
+#### Commit Guidelines
+- **Format**: `type(scope): subject` (e.g., `feat(cli)`, `fix(gem)`, `docs(agents)`)
+- **Heredoc**: Always use heredoc format to satisfy git hooks
+- **No Co-authors**: Do not include `Co-Authored-By` lines
+- **No AI mentions**: Do not include generated-by lines
+- **Atomic**: Keep commits focused on single changes
+
+#### Working Directory
+- **File Operations**: Always work from project root
+- **Git Commands**: Run from project root
+- **CLI Development**: May need to work in `cli/` subdirectory
+- **Gem Development**: Work in `gem/` subdirectory
+
+## 5. AI Agent Guidelines & Conventions
+
+### Code Style Guidelines
+
+#### Ruby Style
+- **Hash Shorthand**: Use `{key:}` when key matches variable name
+- **String Interpolation**: Prefer `"#{var}"` over `'#{var}'` for consistency
+- **Method Names**: `snake_case` for methods/variables, `CamelCase` for classes
+- **Constants**: `UPPER_SNAKE_CASE` for constants
+- **Indentation**: 2 spaces, no tabs
+- **Line Length**: Keep lines readable; break long lines appropriately
+
+#### CLI-Specific Conventions
+- **Thor Commands**: Use `method_option` for CLI flags with clear descriptions
+- **Error Handling**: Fail fast with clear user messages for setup issues
+- **Progress Bars**: Use `ruby-progressbar` for long-running operations
+- **Logging**: Use appropriate log levels; prefer structured output
+
+#### Testing Conventions
+- **RSpec-Given**: Use Given/When/Then/And for BDD-style tests
+- **Test Names**: Descriptive, explain what behavior is being tested
+- **Mocking**: Mock external services (IMAP, Redis) to keep tests fast
+- **Fixtures**: Use realistic test data that matches production scenarios
+
+### Exception Handling Guidelines
+
+#### General Rules
+- **Specific Rescue**: Always rescue specific exception classes, never bare `rescue`
+- **No Modifiers**: Avoid `rescue` modifiers; use explicit `begin/rescue` blocks
+- **Fail Fast**: Never hide initialization failures that leave system unusable
+- **Log Context**: When rescuing, log actionable error context and user impact
+- **Surface Failures**: Return error indicators or raise with clear messages
+
+#### CLI-Specific Handling
 ```ruby
-# Use direct SQLite3 connection through Sequel
-rows = db.synchronize do |conn|
-  stmt = conn.prepare(sql)
-  stmt.bind_params(packed_vector, limit1, limit2)  # packed_vector from vector.pack("f*")
-  results = []
-  stmt.execute do |result_set|
-    result_set.each do |row|
-      results << Hash[result_set.columns.zip(row)]
-    end
-  end
-  stmt.close
-  results
+# Good: Specific rescue with context
+begin
+  imap_operation
+rescue Net::IMAP::NoResponseError => e
+  logger.error "IMAP authentication failed for #{address}: #{e.message}"
+  raise ArgumentError, "Invalid IMAP credentials. Check address/password."
+end
+
+# Bad: Bare rescue
+begin
+  risky_operation
+rescue => e  # Too broad, hides real issues
+  puts "Something went wrong"
 end
 ```
 
-**Reference**: See https://github.com/asg017/sqlite-vec/blob/main/examples/simple-ruby/demo.rb for canonical Ruby integration patterns.
+### Database Guidelines
 
-### Event Schema (Reference for Agents)
+#### SQLite Optimization
+- **WAL Mode**: Enabled by default for concurrent reads/writes
+- **Pragmas**: Optimized via `cli/utils/db.rb` (synchronous=NORMAL, temp_store=MEMORY)
+- **Indexing**: Composite unique index on `(address, mailbox, uidvalidity, uid)`
+- **Connection**: Single connection per CLI run; reuse for all operations
 
-Library code reports progress exclusively via a single hook: `reporter.event(type, payload)`. The CLI adapts these into progress bars/logs. When writing code or tests, use these events and payloads.
+#### Migration Practices
+- **Version**: Use `ActiveRecord::Migration[8.0]` for current AR version
+- **Safety**: Prefer additive changes; document destructive operations
+- **Naming**: `001_create_emails.rb` with incremental numeric prefixes
+- **Reversible**: Provide `up`/`down` methods for all migrations
 
-Sync Events
+### Job Processing Guidelines
 
-| Event | Key payload keys |
-|---|---|
-| `preflight_started` | `total_mailboxes`, `threads` |
-| `preflight_mailbox` | `mailbox`, `uidvalidity`, `to_fetch`, `to_prune`, `server_size`, `db_size`, `uids_preview` |
-| `preflight_finished` | `mailboxes` |
-| `mailbox_started` | `mailbox`, `uidvalidity`, `total`, `threads`, `thread_word` |
-| `mailbox_skipped` | `mailbox`, `reason` |
-| `sync_worker_started/stopped` | `mailbox`, `thread` |
-| `sync_writer_started/stopped` | `mailbox`, `thread` |
-| `sync_fetch_started/finished` | `mailbox`, `batch_size` / `count` |
-| `sync_message_processed` | `mailbox`, `uid` |
-| `prune_candidates_present` | `mailbox`, `uidvalidity`, `candidates` |
-| `pruned_missing` | `mailbox`, `uidvalidity`, `pruned` |
-| `purge_old_validity` | `mailbox`, `uidvalidity`, `purged` |
-| `purge_skipped` | `mailbox`, `uidvalidity` |
-| `mailbox_summary` | `mailbox`, `uidvalidity`, `total`, `prune_candidates`, `pruned`, `purged`, `processed`, `errors`, `result` |
-| `mailbox_finished` | `mailbox`, `uidvalidity`, `processed`, `result` |
+#### Sidekiq/Redis Integration
+- **Queues**: `fetch` (parallel IMAP workers), `write` (single SQLite writer)
+- **Artifacts**: Temporary `.eml` files in `cli/job-data/` with SHA256 integrity
+- **Progress**: Redis counters for real-time progress tracking
+- **Interrupts**: Graceful shutdown with cleanup on first Ctrl-C
 
-Enrich Events
+#### Single-Process Mode
+- **Default**: For archive operations (simpler, no Redis dependency)
+- **Fallback**: Used when Redis unavailable in jobs mode
+- **Direct Processing**: IMAP fetch → parse → SQLite upsert in sequence
 
-| Event | Key payload keys |
-|---|---|
-| `enrich_started` | `total`, `address` |
-| `enrich_field_error` | `id`, `field`, `error`, `message` |
-| `enrich_error` | `id`, `error`, `message` |
-| `enrich_progress` | `current`, `total`, `delta` |
-| `enrich_interrupted` | `processed`, `total`, `errors` |
-| `enrich_finished` | `processed`, `total`, `errors` |
+### Security Considerations
 
-Embed Events
+#### IMAP Credentials
+- **App Passwords**: Required for Gmail 2FA accounts
+- **Environment**: Store in `.env` files, never in code
+- **Validation**: Verify credentials before long-running operations
 
-| Event | Key payload keys |
-|---|---|
-| `embed_scan_started` | `total_emails`, `address`, `model`, `dimension`, `host` |
-| `embed_started` | `estimated_jobs` |
-| `embed_jobs_enqueued` | `count` |
-| `embed_worker_started/stopped` | `thread` |
-| `embed_writer_started/stopped` | `thread` |
-| `embed_status` | `job_queue`, `write_queue` |
-| `embed_error` | `email_id`, `error`, `message` |
-| `embed_db_error` | `email_id`, `error`, `message` |
-| `embed_batch_written` | `count` |
-| `embed_interrupted` | `processed`, `total`, `errors`, `job_queue`, `write_queue` |
-| `embed_finished` | `processed`, `total`, `errors` |
-| `db_checkpoint_complete` | `mode` |
+#### Database Security
+- **Read-Only**: MCP server provides read-only database access
+- **SQL Injection**: Parameter binding for all queries
+- **Limits**: Row limits and query timeouts to prevent abuse
+- **Sanitization**: LIKE pattern cleaning to prevent wildcard abuse
 
-### IMAP Cassettes (Integration Guidance)
+### File Organization
 
-- Record vs replay:
-  - On the first run there is no cassette; the replay example will fail. Set `INTEGRATION_RECORD=1` to record, then re-run to replay offline.
-  - Use `ONLY_MAILBOXES` or the Rake task argument to limit recording to a small mailbox (e.g., `INBOX`).
-- Expected logs:
-  - Filtering logs like `including 1 mailbox(es) via --only: INBOX (was 8)` and `skipping 7 mailbox(es) due to --only` are normal and indicate the include filter is applied.
-- Credentials:
-  - Tests run under Docker and load `core/config/.env` (via `dotenv/load`). Ensure `ADDRESS`, `PASSWORD`, `DATABASE` are set.
-  - Gmail App Password is required if 2FA is enabled; IMAP must be enabled in Gmail settings.
+#### CLI Structure
+- **Commands**: `cli/commands/` - Thor command classes
+- **Models**: `cli/models/` - ActiveRecord models
+- **Utils**: `cli/utils/` - Shared utilities and database helpers
+- **Specs**: `cli/spec/` - CLI-specific tests
+- **Data**: `cli/data/` - SQLite databases (gitignored)
+- **Archives**: `cli/archives/` - Raw email files (gitignored)
+
+#### Gem Structure
+- **Core**: `gem/lib/nitty_mail/` - Main library code
+- **Specs**: `gem/spec/` - Unit tests for gem components
+- **Bin**: `gem/bin/` - Development utilities (console, setup)
+
+### Development Environment
+
+#### Docker Workflow
+- **No Local Ruby**: All development happens in Docker containers
+- **Volume Mounts**: Project root mounted for live development
+- **Bundle Path**: Persisted in `.bundle/` to avoid re-installation
+- **Environment**: `.env` files for configuration
+
+#### Git Hygiene
+- **Ignore Patterns**: SQLite files, email archives, bundle cache
+- **Hooks**: Commit message validation via `.githooks/`
+- **Conventional Commits**: Enforced by git hooks
+- **Working Directory**: Always commit from project root
+
+### Testing Best Practices
+
+#### Test Organization
+- **CLI Tests**: Integration-focused, test command behavior and job processing
+- **Gem Tests**: Unit-focused, test core IMAP and email processing logic
+- **Mocking Strategy**: Mock external services; use VCR for IMAP integration tests
+- **Test Data**: Use realistic fixtures that match production email structures
+
+#### Common Test Patterns
+```ruby
+# CLI Integration Test
+describe "mailbox download" do
+  Given(:settings) { NittyMail::Settings.new(imap_address: "test@example.com") }
+  Given(:mailbox_client) { instance_double(NittyMail::Mailbox) }
+
+  When { download_command.run }
+
+  Then { expect(database).to have_emails }
+end
+
+# Gem Unit Test
+describe NittyMail::Enricher do
+  Given(:raw_email) { File.read("spec/fixtures/raw_email.txt") }
+
+  When(:result) { described_class.enrich(raw_email) }
+
+  Then { expect(result[:subject]).to eq("Test Email") }
+  Then { expect(result[:from_email]).to eq("sender@example.com") }
+end
+```
+
+### Troubleshooting Guide
+
+#### Common Issues & Solutions
+
+**"Could not find X in locally installed gems"**
+```bash
+# From project root
+docker compose run --rm ruby bundle install
+
+# Or from cli directory
+cd cli && docker compose run --rm cli bundle install
+```
+
+**"no configuration file provided: not found"**
+- Run Docker commands from project root, not cli/ subdirectory
+- Ensure docker-compose.yml exists in the directory you're running from
+
+**IMAP Connection Issues**
+- Verify Gmail IMAP is enabled in account settings
+- Use app passwords for 2FA accounts
+- Check network connectivity and firewall rules
+
+**Database Lock Errors**
+- Close other SQLite connections
+- Check for long-running processes
+- Use WAL mode (enabled by default)
+
+**Redis Connection Issues**
+- Start Redis: `docker compose up -d redis`
+- Check Redis logs: `docker compose logs redis`
+- Jobs mode will fallback to single-process if Redis unavailable
+
+**Test Failures**
+- Ensure test database is clean between runs
+- Check for missing VCR cassettes
+- Verify environment variables are set correctly
+
+### Quick Reference
+
+#### Essential Commands
+```bash
+# Development setup
+cd cli && cp .env.sample .env  # Configure IMAP credentials
+
+# Run tests
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/
+
+# Download emails
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download --mailbox INBOX
+
+# Start MCP server
+docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp --database ./emails.sqlite3
+
+# Lint code
+docker compose run --rm ruby bundle exec standardrb --fix
+```
+
+#### Key Files
+- `cli/cli.rb` - Main CLI entry point
+- `cli/commands/mailbox.rb` - Email operations
+- `cli/models/email.rb` - Database model
+- `cli/utils/db.rb` - Database connection
+- `gem/lib/nitty_mail/` - Core library modules
+- `AGENTS.md` - This guide (also `cli/AGENTS.md`, `gem/AGENTS.md`)
+
+#### Environment Variables
+- `NITTYMAIL_IMAP_ADDRESS` - Gmail address
+- `NITTYMAIL_IMAP_PASSWORD` - Gmail password/app password
+- `NITTYMAIL_SQLITE_DB` - SQLite database path
+- `NITTYMAIL_QUIET` - Reduce logging (MCP server)
+
+This guide should provide AI agents with comprehensive knowledge of the NittyMail project structure, development workflow, and best practices. Refer to component-specific AGENTS.md files (`cli/AGENTS.md`, `gem/AGENTS.md`) for additional details.
 
 ## 4. CLI Commands Reference
 
-All commands are invoked via `docker compose run --rm ruby ./cli.rb <command>`.
+All commands are run from project root using Docker. The CLI uses subcommands under `mailbox` and `db`.
 
-### `sync`
+### Mailbox Commands
 
-Synchronizes Gmail messages to the local database.
+#### `mailbox list` - List IMAP Mailboxes
+```bash
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox list [options]
+```
+**Options:**
+- `-a, --address EMAIL`: IMAP account email (or `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASS`: IMAP password (or `NITTYMAIL_IMAP_PASSWORD`)
 
-*   **Command**:
-    ```bash
-    docker compose run --rm ruby ./cli.rb sync [options]
-    ```
-*   **Key Options**:
-    *   `--address <email>`: Gmail address to sync.
-    *   `--password <pass>`: Gmail password or app password.
-    *   `--database <path>`: SQLite database file path.
-    *   `--threads <n>`: Number of parallel threads for fetching messages.
-    *   `--mailbox_threads <n>`: Threads for mailbox preflight (UID discovery).
-    *   `--auto-confirm`: Skip the interactive confirmation prompt.
-    *   `--purge_old_validity`: Purge rows from older UIDVALIDITY generations after successful sync.
-    *   `--fetch_batch_size <n>`: UID FETCH batch size.
-    *   `--ignore-mailboxes "Spam,Trash"`: Comma-separated list of mailboxes to skip.
-    *   `--only <mailboxes>`: Comma-separated list of mailboxes to include (others are skipped).
-    *   `--strict_errors`: Raise exceptions instead of swallowing/logging certain recoverable errors.
-    *   `--retry_attempts <n>`: Max IMAP retry attempts per batch.
-    *   `--prune_missing`: Delete DB rows for UIDs missing on server.
-    *   `--quiet`: Quiet mode.
-    *   `--sqlite_wal`: Enable SQLite WAL journaling.
-    *   (Embeddings are not generated by sync; use `./cli.rb embed`.)
+#### `mailbox download` - Sync Emails to SQLite
+```bash
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download [options]
+```
+**Key Options:**
+- `--mailbox NAME`: Mailbox to download (default: INBOX)
+- `--database PATH`: SQLite database path (default: `cli/data/[ADDRESS].sqlite3`)
+- `--max-fetch-size N`: IMAP fetch batch size (default: 200)
+- `--batch-size N`: DB upsert batch size (default: 100)
+- `--jobs`: Enable parallel processing with Sidekiq/Redis
+- `--no-jobs`: Force single-process mode
+- `--strict`: Fail-fast on errors instead of skipping
+- `--recreate`: Drop and re-download current mailbox generation
+- `--purge-uidvalidity N`: Delete specific UIDVALIDITY generation
+- `--yes`: Skip confirmation prompts
 
-### `query`
+#### `mailbox archive` - Save Raw Email Files
+```bash
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive [options]
+```
+**Key Options:**
+- `--mailbox NAME`: Mailbox to archive
+- `--output PATH`: Output directory (default: `cli/archives/`)
+- `--max-fetch-size N`: IMAP fetch batch size
+- `--jobs`: Enable parallel processing
+- `--strict`: Fail-fast on errors
 
-Asks a natural language question about your email.
+### Database Commands
 
-*   **Command**:
-    ```bash
-    docker compose run --rm ruby ./cli.rb query "<your question>"
-    ```
-*   **Key Options**:
-    *   `--database <path>`: SQLite database file path.
-    *   `--address <email>`: Gmail address context.
-    *   `--ollama_host <url>`: Ollama base URL for chat.
-    *   `--model <name>`: The chat model to use (default: `qwen2.5:7b-instruct`).
-    *   `--limit <n>`: The default number of results to return.
-    *   `--quiet`: Reduce log output.
-    *   `--debug`: Show the requests and responses to/from Ollama.
+#### `db mcp` - Start MCP Server
+```bash
+docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp [options]
+```
+**Key Options:**
+- `--database PATH`: SQLite database path
+- `--address EMAIL`: Email address context
+- `--max-limit N`: Max rows per query (default: 1000)
+- `--quiet`: Reduce logging
 
-### `embed`
+**Available MCP Tools:**
+- Email retrieval: `get_email_full`, `filter_emails`, `list_earliest_emails`
+- Analytics: `get_email_stats`, `get_top_senders`, `get_mailbox_stats`
+- Search: `search_email_headers`, `get_emails_by_keywords`
+- Advanced: `execute_sql_query`, `get_emails_by_size_range`
 
-Backfills vector embeddings for existing emails.
+### Common Options (All Commands)
+- `--help`: Show command help
+- Environment variables override flags:
+  - `NITTYMAIL_IMAP_ADDRESS`
+  - `NITTYMAIL_IMAP_PASSWORD`
+  - `NITTYMAIL_SQLITE_DB`
 
-*   **Command**:
-    ```bash
-    docker compose run --rm ruby ./cli.rb embed [options]
-    ```
-*   **Key Options**:
-    *   `--database <path>`: SQLite database file path.
-    *   `--address <email>`: Optional filter: only embed rows for this Gmail address.
-    *   `--item_types <types>`: Comma-separated fields to embed (subject,body).
-    *   `--limit <n>`: Limit number of emails to process.
-    *   `--offset <n>`: Offset for pagination.
-    *   `--ollama_host <url>`: Ollama base URL for embeddings.
-    *   `--model <name>`: The embedding model to use (default: `mxbai-embed-large`).
-    *   `--dimension <n>`: Embedding dimension.
-    *   `--threads <n>`: Number of embedding worker threads.
-    *   `--retry_attempts <n>`: Max embedding retry attempts.
-    *   `--quiet`: Reduce log output.
-    *   `--batch_size <n>`: Emails-to-queue window during embed.
-    *   `--regenerate`: Regenerate ALL embeddings for the specified model.
-    *   `--no_search_prompt`: Disable search prompt optimization.
+### Command Examples
+```bash
+# List mailboxes
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox list
 
-### `enrich`
+# Download Gmail inbox
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download --mailbox INBOX
 
-Extract envelope/body metadata from stored raw messages and persist to the email table.
+# Download with custom database
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download \
+  --mailbox "[Gmail]/All Mail" \
+  --database ./my-emails.sqlite3
 
-*   **Command**:
-    ```bash
-    docker compose run --rm ruby ./cli.rb enrich [options]
-    ```
-*   **Key Options**:
-    *   `--database <path>`: SQLite database file path.
-    *   `--address <email>`: Optional filter: only process rows for this Gmail address.
-    *   `--limit <n>`: Limit number of emails to process.
-    *   `--offset <n>`: Offset for pagination.
-    *   `--quiet`: Reduce log output.
+# Archive sent mail
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
+  --mailbox "[Gmail]/Sent Mail"
+
+# Start MCP server
+docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp \
+  --database ./emails.sqlite3
+```
