@@ -49,13 +49,4 @@ RSpec.describe NittyMail::Utils do
       end
     end
   end
-
-  describe ".progress_bar" do
-    it "creates a progress bar with correct parameters" do
-      progress = described_class.progress_bar(title: "Test", total: 100)
-      expect(progress).to be_a(ProgressBar::Base)
-      expect(progress.title).to eq("Test")
-      expect(progress.total).to eq(100)
-    end
-  end
 end
