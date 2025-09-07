@@ -431,16 +431,22 @@ cd cli && docker compose run --rm cli bundle install
 cd cli && cp .env.sample .env  # Configure IMAP credentials
 
 # Run tests
-docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/
+docker compose run --rm cli bundle exec rspec -fd -b spec/
 
 # Download emails
-docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download --mailbox INBOX
+docker compose run --rm cli mailbox download --mailbox INBOX
+
+# Archive emails
+docker compose run --rm cli mailbox archive --mailbox INBOX
+
+# List mailboxes
+docker compose run --rm cli mailbox list
 
 # Start MCP server
-docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp --database ./emails.sqlite3
+docker compose run --rm cli db mcp --database ./emails.sqlite3
 
 # Lint code
-docker compose run --rm ruby bundle exec standardrb --fix
+docker compose run --rm cli bundle exec standardrb --fix
 ```
 
 #### Key Files
@@ -450,6 +456,62 @@ docker compose run --rm ruby bundle exec standardrb --fix
 - `cli/utils/db.rb` - Database connection
 - `gem/lib/nitty_mail/` - Core library modules
 - `AGENTS.md` - This guide (also `cli/AGENTS.md`, `gem/AGENTS.md`)
+
+## CLI Command Reference
+
+### mailbox list
+Lists all available IMAP mailboxes.
+
+**Options:**
+- `-a, --address ADDRESS` - IMAP account email (required)
+- `-p, --password PASSWORD` - IMAP password/app password (required)
+
+**Environment:** `NITTYMAIL_IMAP_ADDRESS`, `NITTYMAIL_IMAP_PASSWORD`
+
+### mailbox download
+Downloads emails from IMAP to SQLite database.
+
+**Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `--database PATH` - SQLite database path
+- `--batch-size SIZE` - DB upsert batch size (default: 200)
+- `--max-fetch-size SIZE` - IMAP fetch batch size
+- `-a, --address ADDRESS` - IMAP account email (required)
+- `-p, --password PASSWORD` - IMAP password/app password (required)
+- `--strict` - Fail-fast on errors
+- `--recreate` - Drop and recreate mailbox data
+- `-y, --yes` - Auto-confirm destructive actions
+- `--force` - Alias for --yes
+- `--purge-uidvalidity ID` - Delete specific UIDVALIDITY generation
+
+**Environment:** `NITTYMAIL_IMAP_ADDRESS`, `NITTYMAIL_IMAP_PASSWORD`, `NITTYMAIL_SQLITE_DB`, `NITTYMAIL_MAX_FETCH_SIZE`
+
+### mailbox archive
+Archives raw emails to .eml files.
+
+**Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `--output PATH` - Archive output directory (default: cli/archives)
+- `--max-fetch-size SIZE` - IMAP fetch batch size
+- `-a, --address ADDRESS` - IMAP account email (required)
+- `-p, --password PASSWORD` - IMAP password/app password (required)
+- `--strict` - Fail-fast on errors
+- `--only-preflight` - List UIDs only (no files created)
+- `--only-ids UID1,UID2` - Download specific UIDs only
+- `-y, --yes` - Auto-confirm overwriting files
+
+**Environment:** `NITTYMAIL_IMAP_ADDRESS`, `NITTYMAIL_IMAP_PASSWORD`, `NITTYMAIL_MAX_FETCH_SIZE`
+
+### db mcp
+Starts MCP server for AI agent access.
+
+**Options:**
+- `--database PATH` - SQLite database path
+- `--address ADDRESS` - Email address context
+- `--max-limit LIMIT` - Max rows per query (default: 1000)
+- `--quiet` - Reduce logging
+
+**Environment:** `NITTYMAIL_SQLITE_DB`, `NITTYMAIL_IMAP_ADDRESS`, `NITTYMAIL_MCP_MAX_LIMIT`, `NITTYMAIL_QUIET`
 
 #### Environment Variables
 - `NITTYMAIL_IMAP_ADDRESS` - Gmail address
