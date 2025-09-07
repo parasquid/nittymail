@@ -4,7 +4,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 
 ## Tech Stack
 
-- For the up‑to‑date stack used by this CLI (Ruby version, DB/ORM, jobs, monitoring, and tooling), see `.agent-os/standards/tech-stack.md`.
+- For the up‑to‑date stack used by this CLI (Ruby version, DB/ORM, monitoring, and tooling), see `.agent-os/standards/tech-stack.md`.
 
 ## Style & Safety
 
@@ -46,22 +46,7 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - `--purge-uidvalidity <n>`: delete rows for a specific generation and exit (requires `--yes`/`--force` or prompt confirmation).
 - `--yes` / `--force`: auto-confirm destructive actions.
 
-## Jobs Mode (Active Job + Sidekiq)
 
-- Adapter: Active Job with the Sidekiq adapter. Prefer Active Job–level APIs when possible.
-- Queues:
-  - `fetch`: parallel workers fetch IMAP UIDs in batches, write `.eml` artifacts, and enqueue `WriteJob`.
-  - `write`: single-concurrency worker parses artifacts and upserts to SQLite, then deletes artifacts.
-- Artifacts: stored under `cli/job-data/<address>/<mailbox>/<uidvalidity>/<uid>.eml` with an SHA256 for integrity.
-- Counters (Redis): `nm:dl:<run_id>:total|processed|errors` and `nm:dl:<run_id>:aborted`.
-- CLI behavior:
-  - Default uses jobs; `--no-jobs` forces single-process.
-  - Polls counters to render progress; does not rely on adapter-specific queue inspection.
-  - First Ctrl-C: sets abort flag, stops enqueues/polling, cleans artifacts. Second Ctrl-C: exits immediately.
-- Tests:
-  - Prefer Active Job’s `:test` adapter for unit/integration tests.
-  - Stub Redis via a minimal in-memory object or mock; avoid Sidekiq-API-specific assertions.
-  - Simulate interrupts by sending `INT` to the current process in specs.
 
 ## Archive Command
 
@@ -69,9 +54,9 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - Output: `cli/archives/<address>/<sanitized-mailbox>/<uidvalidity>/<uid>.eml`.
   - `cli/archives/.keep` is tracked; all other files are gitignored.
 - Resumability: skip existing files; atomic write (`.tmp` then rename).
-- Jobs Mode: single‑process is default; pass `--jobs` to enable Active Job (Sidekiq adapter) when Redis is reachable.
-- Interrupts: first Ctrl‑C sets abort flag `nm:arc:<run_id>:aborted=1` and stops enqueues/polling; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
-- Testing patterns: mirror jobs download approach (Active Job test adapter + Redis stubs); prefer adapter‑agnostic tests.
+- Single-process mode: simple, no external dependencies
+- Interrupts: first Ctrl‑C sets abort flag and stops processing; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
+- Testing patterns: focus on single-process behavior and error handling
 
 ## Error Handling
 
@@ -92,7 +77,6 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
   - `docker compose run --rm cli bundle install`
   - `docker compose run --rm cli bundle exec standardrb --fix`
   - `docker compose run --rm cli bundle exec rubocop -A`
-  - `docker compose up -d redis worker_fetch worker_write` to run job workers locally
 - Conventional Commits; use heredoc (`git commit -F - << 'EOF'`) to satisfy hooks.
 
 ## Tests
@@ -119,7 +103,7 @@ cd cli && docker compose run --rm cli bundle exec rspec -fd -b spec/cli/utils_sp
 #### Troubleshooting:
 - **"Could not find X in locally installed gems"**: Run `docker compose run --rm ruby bundle install`
 - **"no configuration file provided"**: Use Docker commands from project root, not cli/ subdirectory
-- **Test hangs**: May need VCR cassettes for IMAP tests or Redis for job tests
+- **Test hangs**: May need VCR cassettes for IMAP tests
 - **Missing dependencies**: Ensure `cli/.env` exists with IMAP credentials
 
 ### Test Patterns

@@ -38,30 +38,7 @@ This folder provides a Docker-only workflow for the NittyMail CLI. You do not ne
     # --database ./path/to/custom.sqlite3
   ```
 
-### Jobs Mode (Active Job + Sidekiq)
 
-Jobs mode parallelizes IMAP fetches via background workers while keeping a single, serialized writer to SQLite. It is the default; pass `--no-jobs` to force single‑process mode.
-
-1) Start Redis and workers:
-   ```bash
-   docker compose up -d redis worker_fetch worker_write
-   ```
-
-2) Run the download. The CLI will detect Redis; if unavailable, it falls back to single‑process mode and prints a warning.
-   ```bash
-   docker compose run --rm cli mailbox download --mailbox INBOX
-   # optional flags
-   #   --no-jobs                   # force single-process
-   #   --job_uid_batch_size 200    # UIDs per fetch job (default 200)
-   #   --strict                    # fail-fast in jobs and local modes
-  ```
-
-How it works:
-- The CLI enqueues `FetchJob` batches that write raw RFC822 artifacts under `cli/job-data/<address>/<mailbox>/<uidvalidity>/<uid>.eml`.
-- A `WriteJob` parses each artifact, upserts the row to SQLite, and deletes the artifact on success.
-- Integrity: each artifact includes an SHA256 checksum validated by the writer before parsing.
-- Progress: the CLI polls Redis counters and shows a progress bar; completion is when `processed + errors == total`.
-- Interrupts: first Ctrl‑C requests a graceful stop (sets an abort flag, stops enqueues/polling, and retains artifacts for inspection). A second Ctrl‑C forces exit.
 
 Mailbox examples (Gmail names often include brackets and spaces; be sure to quote):
 
@@ -81,15 +58,13 @@ docker compose run --rm cli mailbox download --mailbox "Receipts"
 
 ### Archive Raw Mail (.eml files)
 
-Archive saves raw RFC822 email files named by UID without parsing or database writes. It runs single‑process by default (no Redis required); you can opt into jobs mode with `--jobs`.
+Archive saves raw RFC822 email files named by UID without parsing or database writes. It runs in single-process mode.
 
-- Run archive (single‑process by default; add `--jobs` to enable jobs mode):
+- Run archive:
   ```bash
   docker compose run --rm cli mailbox archive --mailbox INBOX
   # Optional flags:
   #   --output ./path/to/archives  # base output (default cli/archives)
-  #   --jobs                       # enable jobs mode (requires Redis)
-  #   --job_uid_batch_size 200     # batch size for jobs mode
   #   --max-fetch-size 200         # IMAP fetch slice
   #   --strict                     # fail‑fast on errors
   ```
@@ -153,7 +128,6 @@ Run a local Model Context Protocol (MCP) server that exposes email database tool
 ### Progress indicators
 
 - The progress bar displays processed vs. total messages for the current download run.
-  - In jobs mode, progress is driven by Redis counters (total/processed/errors).
 
 ### Performance tuning
 

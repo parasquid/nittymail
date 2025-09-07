@@ -47,7 +47,7 @@ nittymail/
 *   **Database**: SQLite with ActiveRecord (WAL journaling, optimized pragmas)
 *   **CLI Framework**: Thor for command-line interface
 *   **IMAP Library**: `mail` gem for Gmail/IMAP communication
-*   **Job Processing**: Active Job + Sidekiq (optional, Redis-backed)
+
 *   **Testing**: RSpec with `rspec-given` for BDD-style tests
 *   **Linting**: StandardRB and RuboCop for code quality
 *   **Progress**: `ruby-progressbar` for CLI feedback
@@ -71,15 +71,9 @@ The main user interface built with Thor. Key components:
 - **Connection**: `cli/utils/db.rb` - SQLite connection with optimized pragmas
 - **Schema**: `cli/db/migrate/001_create_emails.rb` - Database migrations
 
-#### Processing Modes
-1. **Single-Process Mode** (default for archive, optional for download)
-   - Direct IMAP fetch → parse → SQLite upsert
-   - Simple, no external dependencies
-
-2. **Jobs Mode** (default for download, optional for archive)
-   - IMAP fetch jobs → Redis queue → SQLite writer jobs
-   - Parallel processing with Sidekiq + Redis
-   - Artifact-based: `.eml` files stored temporarily
+#### Processing Mode
+- **Single-Process Mode**: Direct IMAP fetch → parse → SQLite upsert
+- Simple, no external dependencies
 
 ### NittyMail Gem (`gem/`)
 
@@ -94,7 +88,7 @@ Core library providing IMAP operations and email processing:
 #### Integration Points
 - CLI uses gem for IMAP operations
 - Gem provides low-level email processing
-- Clean separation: CLI handles UI/jobs, gem handles core logic
+- Clean separation: CLI handles UI, gem handles core logic
 
 ### Data Flow
 
@@ -194,7 +188,7 @@ docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
 
 #### Test Guidelines
 - **Framework**: RSpec with `rspec-given` for BDD-style tests
-- **CLI Tests**: Focus on integration, command behavior, job processing
+- **CLI Tests**: Focus on integration, command behavior
 - **Gem Tests**: Unit tests for core IMAP/email processing logic
 - **Mocking**: Use real IMAP connections sparingly; prefer VCR for integration tests
 - **Patterns**: Given/When/Then for readability, descriptive test names
@@ -276,7 +270,7 @@ EOF
 #### Testing Conventions
 - **RSpec-Given**: Use Given/When/Then/And for BDD-style tests
 - **Test Names**: Descriptive, explain what behavior is being tested
-- **Mocking**: Mock external services (IMAP, Redis) to keep tests fast
+- **Mocking**: Mock external services (IMAP) to keep tests fast
 - **Fixtures**: Use realistic test data that matches production scenarios
 
 ### Exception Handling Guidelines
@@ -320,18 +314,7 @@ end
 - **Naming**: `001_create_emails.rb` with incremental numeric prefixes
 - **Reversible**: Provide `up`/`down` methods for all migrations
 
-### Job Processing Guidelines
 
-#### Sidekiq/Redis Integration
-- **Queues**: `fetch` (parallel IMAP workers), `write` (single SQLite writer)
-- **Artifacts**: Temporary `.eml` files in `cli/job-data/` with SHA256 integrity
-- **Progress**: Redis counters for real-time progress tracking
-- **Interrupts**: Graceful shutdown with cleanup on first Ctrl-C
-
-#### Single-Process Mode
-- **Default**: For archive operations (simpler, no Redis dependency)
-- **Fallback**: Used when Redis unavailable in jobs mode
-- **Direct Processing**: IMAP fetch → parse → SQLite upsert in sequence
 
 ### Security Considerations
 
@@ -378,7 +361,7 @@ end
 ### Testing Best Practices
 
 #### Test Organization
-- **CLI Tests**: Integration-focused, test command behavior and job processing
+- **CLI Tests**: Integration-focused, test command behavior
 - **Gem Tests**: Unit-focused, test core IMAP and email processing logic
 - **Mocking Strategy**: Mock external services; use VCR for IMAP integration tests
 - **Test Data**: Use realistic fixtures that match production email structures
@@ -433,10 +416,7 @@ cd cli && docker compose run --rm cli bundle install
 - Check for long-running processes
 - Use WAL mode (enabled by default)
 
-**Redis Connection Issues**
-- Start Redis: `docker compose up -d redis`
-- Check Redis logs: `docker compose logs redis`
-- Jobs mode will fallback to single-process if Redis unavailable
+
 
 **Test Failures**
 - Ensure test database is clean between runs
@@ -502,8 +482,6 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox download [optio
 - `--database PATH`: SQLite database path (default: `cli/data/[ADDRESS].sqlite3`)
 - `--max-fetch-size N`: IMAP fetch batch size (default: 200)
 - `--batch-size N`: DB upsert batch size (default: 100)
-- `--jobs`: Enable parallel processing with Sidekiq/Redis
-- `--no-jobs`: Force single-process mode
 - `--strict`: Fail-fast on errors instead of skipping
 - `--recreate`: Drop and re-download current mailbox generation
 - `--purge-uidvalidity N`: Delete specific UIDVALIDITY generation
@@ -517,7 +495,6 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive [option
 - `--mailbox NAME`: Mailbox to archive
 - `--output PATH`: Output directory (default: `cli/archives/`)
 - `--max-fetch-size N`: IMAP fetch batch size
-- `--jobs`: Enable parallel processing
 - `--strict`: Fail-fast on errors
 
 ### Database Commands
