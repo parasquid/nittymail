@@ -55,14 +55,14 @@ RSpec.describe "Archive smoke" do
   Then "archives files and is idempotent" do
     require_relative "../../commands/mailbox/archive"
     cli = NittyMail::Commands::MailboxArchive.new
-    expect { cli.invoke(:archive, [], {mailbox: mailbox, no_jobs: true}) }.not_to raise_error
+    expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "11.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "12.eml"))).to eq(true)
     raw = File.binread(File.join(uv_dir, "11.eml"))
     expect(raw).to include("Subject: A")
 
     # run again should not duplicate or error
-    expect { cli.invoke(:archive, [], {mailbox: mailbox, no_jobs: true}) }.not_to raise_error
+    expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(Dir.children(uv_dir).grep(/\.eml\z/).size).to eq(2)
   end
 end

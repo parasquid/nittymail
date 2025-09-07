@@ -58,7 +58,7 @@ RSpec.describe "Archive resumability" do
   Then "skips existing UID files and writes missing ones" do
     require_relative "../../commands/mailbox/archive"
     cli = NittyMail::Commands::MailboxArchive.new
-    expect { cli.invoke(:archive, [], {mailbox: mailbox, no_jobs: true}) }.not_to raise_error
+    expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "21.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "22.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "23.eml"))).to eq(true)
