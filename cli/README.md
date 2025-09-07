@@ -130,6 +130,124 @@ docker compose run --rm cli mailbox archive --mailbox INBOX --only-ids 123,456,7
 docker compose run --rm cli mailbox archive --mailbox INBOX --yes
 ```
 
+### Download Raw Email Data to SQLite
+
+Download saves email data to a local SQLite database without creating .eml files. It runs in single-process mode.
+
+#### Command Options
+
+```bash
+docker compose run --rm cli mailbox download [options]
+```
+
+**Required Options:**
+- `-m, --mailbox MAILBOX` - Mailbox name (default: INBOX)
+- `-a, --address ADDRESS` - IMAP account email (or env: `NITTYMAIL_IMAP_ADDRESS`)
+- `-p, --password PASSWORD` - IMAP password/app password (or env: `NITTYMAIL_IMAP_PASSWORD`)
+
+**Optional Flags:**
+- `--database PATH` - SQLite database path (default: `cli/data/[ADDRESS].sqlite3`)
+- `--batch-size SIZE` - DB upsert batch size (default: 200)
+- `--max-fetch-size SIZE` - IMAP max fetch size (env: `NITTYMAIL_MAX_FETCH_SIZE`)
+- `--strict` - Fail-fast on errors instead of skipping
+- `--recreate` - Drop and recreate mailbox data
+- `-y, --yes` - Auto-confirm destructive actions
+- `--force` - Alias for `--yes`
+- `--purge-uidvalidity ID` - Delete rows for specific UIDVALIDITY
+- `--only-preflight` - Only perform preflight and list UIDs (no messages downloaded)
+- `--only-ids UID1,UID2` - Skip preflight and download specific UIDs
+- `--uidvalidity ID` - Pre-known UIDVALIDITY to avoid IMAP lookup
+
+**Environment Variables:**
+- `NITTYMAIL_IMAP_ADDRESS` - IMAP account email
+- `NITTYMAIL_IMAP_PASSWORD` - IMAP password/app password
+- `NITTYMAIL_SQLITE_DB` - SQLite database path
+
+Mailbox examples for download:
+
+```bash
+# Download Sent Mail (uses credentials from .env)
+docker compose run --rm cli mailbox download --mailbox "[Gmail]/Sent Mail"
+
+# Download a custom label
+docker compose run --rm cli mailbox download --mailbox "Receipts"
+
+# List UIDs that would be downloaded (no messages downloaded)
+docker compose run --rm cli mailbox download --mailbox INBOX --only-preflight
+
+# Download specific UIDs only
+docker compose run --rm cli mailbox download --mailbox INBOX --only-ids 123,456,789
+
+# Download with auto-confirmation for destructive actions
+docker compose run --rm cli mailbox download --mailbox INBOX --yes
+```
+
+### Parallel Download Script
+
+For faster downloading of large mailboxes, use the parallel download script:
+
+```bash
+./cli/bin/download.sh [options] -- [mailbox arguments]
+```
+
+**Features:**
+- Runs preflight once to discover all UIDs
+- Splits UIDs into batches for parallel processing
+- Multiple processes download simultaneously
+- Saves to SQLite database
+
+**Examples:**
+```bash
+# Basic parallel download
+./cli/bin/download.sh -- --mailbox INBOX
+
+# Debug mode
+./cli/bin/download.sh --debug -- --mailbox "[Gmail]/All Mail"
+```
+
+### Async Job Queue Download (Recommended for Large Mailboxes)
+
+For large mailboxes, use the async job queue download script for better performance and resumability:
+
+```bash
+./cli/bin/download_async.sh [options] -- [mailbox arguments]
+```
+
+**Features:**
+- 🚀 **Parallel Processing**: Multiple workers process jobs simultaneously
+- 🔄 **Resumable**: Continue after interruptions without re-running preflight
+- 📊 **Progress Tracking**: Real-time progress monitoring
+- 💾 **Persistent Queue**: Job queue survives script restarts
+- 🧹 **Auto Cleanup**: Fresh starts clear previous job queues
+
+**Examples:**
+```bash
+# Fresh download with job queue
+./cli/bin/download_async.sh -- --mailbox INBOX
+
+# Resume interrupted download (skips preflight!)
+./cli/bin/download_async.sh --resume -- --mailbox INBOX
+
+# Debug mode with custom mailbox
+./cli/bin/download_async.sh --debug -- --mailbox "[Gmail]/All Mail"
+
+# Clean up job queue
+./cli/bin/download_async.sh --cleanup
+```
+
+**How It Works:**
+1. **Fresh Start**: Runs preflight once, creates job queue, starts workers
+2. **Resume**: Loads existing jobs, continues processing (no preflight needed)
+3. **Workers**: Multiple parallel processes handle batches of emails
+4. **Queue**: Jobs persist to disk and survive interruptions
+
+**Benefits:**
+- Faster downloading with parallel workers
+- True resumability without re-preflighting
+- Zero IMAP calls during resume operations
+- Persistent job queue survives interruptions
+- Clean separation of fresh start vs resume modes
+
 ### Async Job Queue Archive (Recommended for Large Mailboxes)
 
 For large mailboxes, use the async job queue archive script for better performance and resumability:

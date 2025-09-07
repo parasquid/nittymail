@@ -265,6 +265,80 @@ Archives emails using an asynchronous job queue system for continuous processing
 - 💾 **Persistent**: Job queue survives script restarts
 - 🧹 **Clean**: Automatic queue cleanup for fresh starts
 
+### `download.sh` - Parallel Download Script
+
+Downloads emails using multiple parallel processes for faster performance.
+
+```bash
+./cli/bin/download.sh [options] -- [mailbox arguments]
+```
+
+**Options:**
+- `--debug` - Enable debug logging
+
+**Examples:**
+```bash
+# Basic parallel download
+./cli/bin/download.sh -- --mailbox INBOX
+
+# Debug mode
+./cli/bin/download.sh --debug -- --mailbox "[Gmail]/All Mail"
+```
+
+**Features:**
+- Runs preflight once to discover all UIDs
+- Splits UIDs into batches for parallel processing
+- Multiple processes download simultaneously
+- Saves to SQLite database (not .eml files)
+
+### `download_async.sh` - Async Job Queue Download
+
+Downloads emails using an asynchronous job queue system for continuous processing and resumability.
+
+```bash
+./cli/bin/download_async.sh [options] -- [mailbox arguments]
+```
+
+**Options:**
+- `--debug` - Enable debug logging
+- `--resume` - Resume from previous interrupted session
+- `--cleanup` - Clean up job queue and exit
+
+**Features:**
+- **Parallel Processing**: Multiple workers process jobs simultaneously
+- **Resumability**: Continue after interruptions without re-running preflight
+- **Job Queue**: Persistent queue survives script restarts
+- **Progress Tracking**: Real-time progress monitoring
+- **Automatic Cleanup**: Fresh starts clear previous job queues
+
+**Examples:**
+```bash
+# Fresh download with job queue
+./cli/bin/download_async.sh -- --mailbox INBOX
+
+# Resume interrupted download (skips preflight!)
+./cli/bin/download_async.sh --resume -- --mailbox INBOX
+
+# Debug mode with custom mailbox
+./cli/bin/download_async.sh --debug -- --mailbox "[Gmail]/All Mail"
+
+# Clean up job queue
+./cli/bin/download_async.sh --cleanup
+```
+
+**How It Works:**
+1. **Fresh Start**: Runs preflight once, creates job queue, starts workers
+2. **Resume**: Loads existing jobs, continues processing (no preflight needed)
+3. **Workers**: Multiple parallel processes handle batches of emails
+4. **Queue**: Jobs persist to disk and survive interruptions
+
+**Benefits:**
+- 🚀 **Faster**: Parallel processing with multiple workers
+- 🔄 **Resumable**: Continue after network issues or interruptions
+- 📊 **Progress**: Real-time progress tracking
+- 💾 **Persistent**: Job queue survives script restarts
+- 🧹 **Clean**: Automatic queue cleanup for fresh starts
+
 ### Parallel Processing
 Use the parallel archive script for faster archiving:
 ```bash
@@ -316,8 +390,10 @@ cli/
 │   ├── MCP_TOOLS.md       # MCP tools reference
 │   └── chroma.md          # Chroma integration docs
 ├── bin/               # Scripts
-│   ├── archive.sh      # Parallel archive script
-│   └── archive_async.sh # Async job queue archive script
+│   ├── archive.sh         # Parallel archive script
+│   ├── archive_async.sh   # Async job queue archive script
+│   ├── download.sh        # Parallel download script
+│   └── download_async.sh  # Async job queue download script
 ├── commands/          # CLI command classes
 ├── models/            # ActiveRecord models
 ├── utils/             # Utility classes

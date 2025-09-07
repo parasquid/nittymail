@@ -11,6 +11,8 @@ A Ruby-based system for synchronizing Gmail/IMAP accounts to local SQLite databa
 - **Gmail Extensions**: Support for X-GM-LABELS, X-GM-MSGID, X-GM-THRID
 - **Parallel Archive Script**: Bash script for parallel email archiving
 - **Async Job Queue Archive**: Advanced async job queue with resumability and progress tracking
+- **Parallel Download Script**: Bash script for parallel email downloading to SQLite
+- **Async Job Queue Download**: Advanced async job queue for downloading with resumability
 
 ## Quick Start
 
@@ -33,8 +35,14 @@ docker compose run --rm cli mailbox download --mailbox INBOX
 # Archive emails to .eml files
 docker compose run --rm cli mailbox archive --mailbox INBOX
 
+# Download emails to SQLite database
+docker compose run --rm cli mailbox download --mailbox INBOX
+
 # Async job queue archive (recommended for large mailboxes)
 ./cli/bin/archive_async.sh -- --mailbox INBOX
+
+# Async job queue download (recommended for large mailboxes)
+./cli/bin/download_async.sh -- --mailbox INBOX
 
 # Start MCP server for AI agent access
 docker compose run --rm cli db mcp
@@ -52,7 +60,9 @@ nittymail/
 │   │   └── MCP_TOOLS.md      # MCP tools documentation
 │   ├── bin/
 │   │   ├── archive.sh         # Parallel archive script
-│   │   └── archive_async.sh   # Async job queue archive script
+│   │   ├── archive_async.sh   # Async job queue archive script
+│   │   ├── download.sh        # Parallel download script
+│   │   └── download_async.sh  # Async job queue download script
 ├── gem/                   # NittyMail Ruby gem
 │   └── lib/nitty_mail/    # Core IMAP/email processing
 ├── docs/                  # Project documentation
