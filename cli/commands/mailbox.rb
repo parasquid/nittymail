@@ -473,6 +473,10 @@ module NittyMail
             x_gm_thrid = msg.attr["X-GM-THRID"] || msg.attr[:'X-GM-THRID'] || msg.attr[:x_gm_thrid]
             x_gm_msgid = msg.attr["X-GM-MSGID"] || msg.attr[:'X-GM-MSGID'] || msg.attr[:x_gm_msgid]
             x_gm_labels = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
+            
+            # Extract IMAP metadata for preservation
+            internal = msg.attr["INTERNALDATE"] || msg.attr[:INTERNALDATE] || msg.attr[:internaldate]
+            rfc822_size = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
 
             # Check if Gmail headers are missing from raw message and add them
             raw_str = raw.dup.force_encoding("UTF-8")
@@ -489,6 +493,16 @@ module NittyMail
             unless raw_str.include?("X-GM-LABELS:") || x_gm_labels.nil? || x_gm_labels.empty?
               labels_str = Array(x_gm_labels).map(&:to_s).join(" ")
               headers_to_add << "X-GM-LABELS: #{labels_str}" unless labels_str.empty?
+            end
+
+            # Add IMAP metadata headers if missing
+            unless raw_str.include?("X-IMAP-INTERNALDATE:") || internal.nil?
+              internal_time = internal.is_a?(Time) ? internal : Time.parse(internal.to_s) rescue nil
+              headers_to_add << "X-IMAP-INTERNALDATE: #{internal_time.strftime('%a, %d %b %Y %H:%M:%S %z')}" if internal_time
+            end
+
+            unless raw_str.include?("X-RFC822-SIZE:") || rfc822_size.nil?
+              headers_to_add << "X-RFC822-SIZE: #{rfc822_size}"
             end
 
             # If we have headers to add, insert them after the main headers
