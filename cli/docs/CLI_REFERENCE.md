@@ -19,6 +19,9 @@ docker compose run --rm cli mailbox download --mailbox INBOX
 # Archive emails
 docker compose run --rm cli mailbox archive --mailbox INBOX
 
+# Async job queue archive (recommended for large mailboxes)
+./cli/bin/archive_async.sh -- --mailbox INBOX
+
 # Start MCP server
 docker compose run --rm cli db mcp
 ```
@@ -204,6 +207,55 @@ When the MCP server is running, these tools are available to AI agents:
 - Default: 200 messages per database batch
 - WAL mode enabled automatically for concurrent access
 
+### `archive_async.sh` - Async Job Queue Archive
+
+Archives emails using an asynchronous job queue system for continuous processing and resumability.
+
+```bash
+./cli/bin/archive_async.sh [options] -- [mailbox arguments]
+```
+
+**Options:**
+- `--debug` - Enable debug logging
+- `--resume` - Resume from previous interrupted session
+- `--cleanup` - Clean up job queue and exit
+- `--` - Separator for mailbox arguments
+
+**Features:**
+- **Parallel Processing**: Multiple workers process jobs simultaneously
+- **Resumability**: Can resume after interruption without re-running preflight
+- **Job Queue**: Persistent queue survives script restarts
+- **Progress Tracking**: Real-time progress monitoring
+- **Automatic Cleanup**: Fresh starts clear previous job queues
+
+**Examples:**
+```bash
+# Fresh archive with job queue
+./cli/bin/archive_async.sh -- --mailbox INBOX
+
+# Resume interrupted archive
+./cli/bin/archive_async.sh --resume -- --mailbox INBOX
+
+# Debug mode with custom mailbox
+./cli/bin/archive_async.sh --debug -- --mailbox "[Gmail]/All Mail"
+
+# Clean up job queue
+./cli/bin/archive_async.sh --cleanup
+```
+
+**How It Works:**
+1. **Fresh Start**: Runs preflight to discover UIDs, creates job queue, starts workers
+2. **Resume**: Skips preflight, loads existing jobs, continues processing
+3. **Workers**: Multiple parallel workers process batches of emails
+4. **Queue**: Jobs are persisted to disk and survive interruptions
+
+**Benefits:**
+- 🚀 **Faster**: Parallel processing with multiple workers
+- 🔄 **Resumable**: Continue after network issues or interruptions
+- 📊 **Progress**: Real-time progress tracking
+- 💾 **Persistent**: Job queue survives script restarts
+- 🧹 **Clean**: Automatic queue cleanup for fresh starts
+
 ### Parallel Processing
 Use the parallel archive script for faster archiving:
 ```bash
@@ -255,7 +307,8 @@ cli/
 │   ├── MCP_TOOLS.md       # MCP tools reference
 │   └── chroma.md          # Chroma integration docs
 ├── bin/               # Scripts
-│   └── archive.sh      # Parallel archive script
+│   ├── archive.sh      # Parallel archive script
+│   └── archive_async.sh # Async job queue archive script
 ├── commands/          # CLI command classes
 ├── models/            # ActiveRecord models
 ├── utils/             # Utility classes

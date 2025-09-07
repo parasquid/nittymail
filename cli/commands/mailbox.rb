@@ -377,6 +377,7 @@ module NittyMail
       method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
       method_option :only_preflight, type: :boolean, default: false, desc: "Only perform preflight and list UIDs to be archived (no files created)"
       method_option :only_ids, type: :array, required: false, desc: "Skip preflight and only download specific UIDs (comma-separated list)"
+      method_option :uidvalidity, type: :string, required: false, desc: "Pre-known UIDVALIDITY to avoid IMAP lookup (used by async script)"
       method_option :yes, type: :boolean, default: false, desc: "Auto-confirm overwriting existing files"
       def archive
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
@@ -399,6 +400,7 @@ module NittyMail
           puts "      --strict                 Fail-fast on errors instead of skipping"
           puts "      --only-preflight         Only list UIDs to be archived (no files created)"
           puts "      --only-ids UID1,UID2     Skip preflight and download specific UIDs"
+          puts "      --uidvalidity ID         Pre-known UIDVALIDITY to avoid IMAP lookup"
           puts "  -y, --yes                    Auto-confirm overwriting existing files"
           puts
           puts "EXAMPLES:"
@@ -426,18 +428,23 @@ module NittyMail
 
         # Handle only-ids mode - skip preflight and use specified UIDs
         if options[:only_ids]
-          specified_uids = Array(options[:only_ids]).flat_map { |id_list| id_list.to_s.split(",") }.map(&:strip).map(&:to_i).reject(&:zero?)
+          specified_uids = options[:only_ids].map(&:to_i)
           if specified_uids.empty?
             warn "error: --only-ids requires at least one valid UID"
             exit 1
           end
-          
-          # Get UIDVALIDITY without full preflight
-          puts "Getting mailbox info for '#{mailbox}'..."
-          preflight = mailbox_client.preflight(existing_uids: [])
-          uidvalidity = preflight[:uidvalidity]
+
+          # Use provided UIDVALIDITY or fetch from IMAP
+          if options[:uidvalidity]
+            uidvalidity = options[:uidvalidity].to_i
+            puts "Using provided UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
+          else
+            puts "Getting mailbox info for '#{mailbox}'..."
+            preflight = mailbox_client.preflight(existing_uids: [])
+            uidvalidity = preflight[:uidvalidity]
+            puts "UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
+          end
           server_uids = specified_uids
-          puts "UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
         else
           puts "Preflighting mailbox '#{mailbox}' for archive..."
           preflight = mailbox_client.preflight(existing_uids: [])
@@ -452,7 +459,7 @@ module NittyMail
             safe_mailbox = NittyMail::Utils.sanitize_collection_name(mailbox.to_s)
             uv_dir = File.join(out_base, safe_address, safe_mailbox, uidvalidity.to_s)
             FileUtils.mkdir_p(uv_dir)
-            
+
             # Optimized approach: check only server UIDs instead of reading entire directory
             # This is much faster when there are many existing files
             puts "DEBUG: Checking for existing files in: #{uv_dir}"
@@ -460,7 +467,7 @@ module NittyMail
               !File.exist?(File.join(uv_dir, "#{uid}.eml"))
             end
             existing_count = server_uids.size - uids_to_archive.size
-            
+
             puts "Preflight complete. UIDs that would be archived:"
             puts "Total UIDs on server: #{server_uids.size}"
             puts "UIDs already archived: #{existing_count}"
@@ -480,7 +487,7 @@ module NittyMail
         uv_dir = File.join(out_base, safe_address, safe_mailbox, uidvalidity.to_s)
         FileUtils.mkdir_p(uv_dir)
         existing = Dir.exist?(uv_dir) ? Dir.children(uv_dir).grep(/\.eml\z/).map { |f| f.sub(/\.eml\z/, "").to_i }.to_set : Set.new
-        
+
         if options[:only_ids]
           # For --only-ids mode, check for existing files and confirm overwrite
           existing_files = server_uids.select { |u| existing.include?(u) }
@@ -488,7 +495,7 @@ module NittyMail
             puts "The following UIDs already have .eml files:"
             puts existing_files.join(", ")
             answer = ask("Overwrite existing files? (y/N):")
-            unless answer.downcase == 'y'
+            unless answer.downcase == "y"
               puts "Archive cancelled."
               return
             end
@@ -498,7 +505,7 @@ module NittyMail
           # Normal mode: skip existing files
           to_archive = server_uids.reject { |u| existing.include?(u) }
         end
-        
+
         total_to_process = to_archive.size
         if total_to_process <= 0
           puts "Nothing to archive. Folder is up to date."
@@ -529,7 +536,7 @@ module NittyMail
             x_gm_thrid = msg.attr["X-GM-THRID"] || msg.attr[:'X-GM-THRID'] || msg.attr[:x_gm_thrid]
             x_gm_msgid = msg.attr["X-GM-MSGID"] || msg.attr[:'X-GM-MSGID'] || msg.attr[:x_gm_msgid]
             x_gm_labels = msg.attr["X-GM-LABELS"] || msg.attr[:'X-GM-LABELS'] || msg.attr[:x_gm_labels]
-            
+
             # Extract IMAP metadata for preservation
             internal = msg.attr["INTERNALDATE"] || msg.attr[:INTERNALDATE] || msg.attr[:internaldate]
             rfc822_size = msg.attr["RFC822.SIZE"] || msg.attr[:'RFC822.SIZE']
@@ -553,8 +560,12 @@ module NittyMail
 
             # Add IMAP metadata headers if missing
             unless raw_str.include?("X-IMAP-INTERNALDATE:") || internal.nil?
-              internal_time = internal.is_a?(Time) ? internal : Time.parse(internal.to_s) rescue nil
-              headers_to_add << "X-IMAP-INTERNALDATE: #{internal_time.strftime('%a, %d %b %Y %H:%M:%S %z')}" if internal_time
+              internal_time = begin
+                internal.is_a?(Time) ? internal : Time.parse(internal.to_s)
+              rescue
+                nil
+              end
+              headers_to_add << "X-IMAP-INTERNALDATE: #{internal_time.strftime("%a, %d %b %Y %H:%M:%S %z")}" if internal_time
             end
 
             unless raw_str.include?("X-RFC822-SIZE:") || rfc822_size.nil?

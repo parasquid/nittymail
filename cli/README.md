@@ -130,6 +130,42 @@ docker compose run --rm cli mailbox archive --mailbox INBOX --only-ids 123,456,7
 docker compose run --rm cli mailbox archive --mailbox INBOX --yes
 ```
 
+### Async Job Queue Archive (Recommended for Large Mailboxes)
+
+For large mailboxes, use the async job queue archive script for better performance and resumability:
+
+```bash
+./cli/bin/archive_async.sh [options] -- [mailbox arguments]
+```
+
+**Features:**
+- 🚀 **Parallel Processing**: Multiple workers process jobs simultaneously
+- 🔄 **Resumable**: Continue after interruptions without re-running preflight
+- 📊 **Progress Tracking**: Real-time progress monitoring
+- 💾 **Persistent Queue**: Job queue survives script restarts
+- 🧹 **Auto Cleanup**: Fresh starts clear previous job queues
+
+**Examples:**
+```bash
+# Fresh archive with job queue
+./cli/bin/archive_async.sh -- --mailbox INBOX
+
+# Resume interrupted archive (skips preflight!)
+./cli/bin/archive_async.sh --resume -- --mailbox INBOX
+
+# Debug mode with custom mailbox
+./cli/bin/archive_async.sh --debug -- --mailbox "[Gmail]/All Mail"
+
+# Clean up job queue
+./cli/bin/archive_async.sh --cleanup
+```
+
+**How It Works:**
+1. **Fresh Start**: Runs preflight once, creates job queue, starts parallel workers
+2. **Resume**: Loads existing jobs, continues processing (no preflight needed)
+3. **Workers**: Multiple parallel processes handle batches of emails
+4. **Queue**: Jobs persist to disk and survive interruptions
+
 ### MCP Server for Email Database
 
 Run a local Model Context Protocol (MCP) server that exposes email database tools over stdio. This allows MCP-compatible AI agents to query your local email database without requiring cloud access or IMAP connections.
