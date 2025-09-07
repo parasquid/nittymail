@@ -47,6 +47,9 @@ init_queue_state() {
     local total_uids=$1
     local total_batches=$2
 
+    echo "DEBUG: Initializing queue state with $total_batches batches ($total_uids UIDs)"
+    echo "DEBUG: Writing to $QUEUE_DIR/queue_state.json"
+
     cat > "$QUEUE_DIR/queue_state.json" << EOF
 {
   "total_batches": $total_batches,
@@ -62,35 +65,87 @@ init_queue_state() {
 }
 EOF
 
+    echo "DEBUG: Queue state file written, size: $(wc -c < "$QUEUE_DIR/queue_state.json") bytes"
+    cat "$QUEUE_DIR/queue_state.json"
     debug "Initialized queue state with $total_batches batches ($total_uids UIDs)"
 }
 
-# Update queue state
+# Update queue state with file locking
 update_queue_state() {
     local completed_batches=$1
     local completed_uids=$2
     local processing_batches=$3
     local workers_active=$4
 
+    local lock_file="$QUEUE_DIR/queue_state.lock"
+    local max_attempts=10
+    local attempt=1
+
+    # Acquire lock with retry
+    while [ $attempt -le $max_attempts ]; do
+        if (set -o noclobber; echo "$$" > "$lock_file") 2>/dev/null; then
+            break
+        fi
+        echo "DEBUG: Waiting for queue state lock (attempt $attempt/$max_attempts)"
+        sleep 0.1
+        attempt=$((attempt + 1))
+    done
+
+    if [ $attempt -gt $max_attempts ]; then
+        echo "ERROR: Could not acquire queue state lock after $max_attempts attempts"
+        return 1
+    fi
+
+    # Ensure cleanup on exit
+    trap "rm -f '$lock_file'" EXIT
+
     local pending_batches=$(( $(ls "$QUEUE_DIR/pending"/*.job 2>/dev/null | wc -l) ))
 
-    # Calculate progress
-    local total_batches=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json")
-    local total_uids=$(jq -r '.total_uids' "$QUEUE_DIR/queue_state.json")
+    # Check if queue_state.json exists and is readable
+    if [ ! -f "$QUEUE_DIR/queue_state.json" ]; then
+        echo "ERROR: queue_state.json does not exist!"
+        rm -f "$lock_file"
+        return 1
+    fi
 
-    # Update state file
-    jq --arg cb "$completed_batches" \
-       --arg cu "$completed_uids" \
-       --arg pb "$pending_batches" \
-       --arg prb "$processing_batches" \
-       --arg wa "$workers_active" \
-       '.completed_batches = ($cb | tonumber) |
-        .completed_uids = ($cu | tonumber) |
-        .pending_batches = ($pb | tonumber) |
-        .processing_batches = ($prb | tonumber) |
-        .workers_active = ($wa | tonumber)' \
-       "$QUEUE_DIR/queue_state.json" > "$QUEUE_DIR/queue_state.tmp" && \
-    mv "$QUEUE_DIR/queue_state.tmp" "$QUEUE_DIR/queue_state.json"
+    if [ ! -s "$QUEUE_DIR/queue_state.json" ]; then
+        echo "ERROR: queue_state.json is empty!"
+        rm -f "$lock_file"
+        return 1
+    fi
+
+    # Calculate progress
+    local total_batches=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null)
+    local total_uids=$(jq -r '.total_uids' "$QUEUE_DIR/queue_state.json" 2>/dev/null)
+
+    if [ -z "$total_batches" ] || [ "$total_batches" = "null" ]; then
+        echo "ERROR: Could not read total_batches from JSON"
+        rm -f "$lock_file"
+        return 1
+    fi
+
+    # Update state file atomically
+    if jq --arg cb "$completed_batches" \
+          --arg cu "$completed_uids" \
+          --arg pb "$pending_batches" \
+          --arg prb "$processing_batches" \
+          --arg wa "$workers_active" \
+          '.completed_batches = ($cb | tonumber) |
+           .completed_uids = ($cu | tonumber) |
+           .pending_batches = ($pb | tonumber) |
+           .processing_batches = ($prb | tonumber) |
+           .workers_active = ($wa | tonumber)' \
+          "$QUEUE_DIR/queue_state.json" > "$QUEUE_DIR/queue_state.new" 2>/dev/null; then
+
+        mv "$QUEUE_DIR/queue_state.new" "$QUEUE_DIR/queue_state.json"
+    else
+        echo "ERROR: Failed to update queue state with jq"
+        rm -f "$lock_file"
+        return 1
+    fi
+
+    # Release lock
+    rm -f "$lock_file"
 
     debug "Updated queue state: completed=$completed_batches, pending=$pending_batches, processing=$processing_batches, workers=$workers_active"
 }
@@ -323,13 +378,19 @@ monitor_progress() {
             break
         fi
 
-        local completed=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json")
-        local total=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json")
-        local processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
-        local workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json")
+        local completed=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+        local total=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+        local processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+        local workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
 
         local elapsed=$(( $(date +%s) - $(date -d "$start_time" +%s) ))
-        local progress=$(( completed * 100 / total ))
+
+        # Prevent division by zero
+        if [ "$total" -gt 0 ] 2>/dev/null; then
+            local progress=$(( completed * 100 / total ))
+        else
+            local progress=0
+        fi
 
         echo -ne "\rProgress: $completed/$total batches ($progress%) | Workers: $workers | Processing: $processing | Elapsed: ${elapsed}s"
 
@@ -554,8 +615,19 @@ main() {
 
     if [ "$remaining_jobs" -eq 0 ] && [ "$processing_jobs" -eq 0 ]; then
         echo "Archiving complete!"
-        local final_state=$(cat "$QUEUE_DIR/queue_state.json")
-        echo "Final stats: $(echo "$final_state" | jq -r '.completed_batches')/$(echo "$final_state" | jq -r '.total_batches') batches completed"
+
+        # Wait for any remaining locks to be released
+        local lock_file="$QUEUE_DIR/queue_state.lock"
+        local wait_count=0
+        while [ -f "$lock_file" ] && [ $wait_count -lt 50 ]; do
+            sleep 0.1
+            wait_count=$((wait_count + 1))
+        done
+
+        # Read final stats safely
+        local completed_batches=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+        local total_batches=$(jq -r '.total_batches' "$QUEUE_DIR/queue_state.json" 2>/dev/null || echo "0")
+        echo "Final stats: $completed_batches/$total_batches batches completed"
 
         if [ "$failed_jobs" -gt 0 ]; then
             echo "Warning: $failed_jobs jobs failed after maximum retries."
