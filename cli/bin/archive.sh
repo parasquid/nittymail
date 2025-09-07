@@ -12,7 +12,7 @@ set -e  # Exit on any error
 # Configuration
 MAX_PROCESSES=5
 BATCH_SIZE=100
-DOCKER_COMPOSE_CMD="docker compose run --rm -T cli bundle exec ruby cli.rb"
+DOCKER_COMPOSE_CMD="docker compose run --rm -T cli"
 DEBUG=false
 
 # Debug function
@@ -168,12 +168,12 @@ main() {
     echo "DEBUG: About to run preflight with mailbox args: ${mailbox_args[*]}"
     echo "DEBUG: Preflight will check for existing files in: ./archives"
     echo "Running preflight to get all available UIDs..."
-    
+
     local all_uids
     all_uids=$(get_uids_from_preflight "${mailbox_args[@]}")
 
     debug "Raw preflight output UIDs: '$all_uids'"
-    
+
     if [ -z "$all_uids" ] || [ "$all_uids" = "no UIDs found" ]; then
         echo "No UIDs available for archiving."
         return
@@ -184,7 +184,7 @@ main() {
     # Convert to array
     IFS=',' read -ra ALL_UID_ARRAY <<< "$all_uids"
     local total_uids=${#ALL_UID_ARRAY[@]}
-    
+
     echo "Found ${total_uids} UIDs total to process"
     echo "Processing in batches of ${BATCH_SIZE} UIDs..."
     echo
@@ -197,7 +197,7 @@ main() {
         if [ $batch_end -gt $total_uids ]; then
             batch_end=$total_uids
         fi
-        
+
         local batch_count=$((batch_end - batch_start))
         echo "Processing batch: UIDs $((batch_start + 1))-${batch_end} (${batch_count} UIDs)"
 
@@ -239,7 +239,7 @@ main() {
         total_processed=$((total_processed + batch_count))
         echo "Completed batch. Total processed so far: $total_processed/${total_uids}"
         echo "----------------------------------------"
-        
+
         batch_start=$batch_end
     done
 
