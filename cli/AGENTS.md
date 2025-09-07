@@ -61,6 +61,15 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - Interrupts: first Ctrl‑C sets abort flag and stops processing; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
 - Testing patterns: focus on single-process behavior and error handling
 
+### Troubleshooting Archive Issues
+
+**Common Issue: Preflight not detecting existing files**
+- **Symptom**: `--only-preflight` shows UIDs that already have `.eml` files, or script processes already-archived emails
+- **Root Cause**: Path mismatch between preflight and archive commands
+- **Diagnosis**: Look for "DEBUG: Checking for existing files in: [PATH]" output
+- **Solution**: Ensure both preflight and archive commands use the same `--output` path
+- **Prevention**: Always pass `--output` parameter consistently to both preflight and archive operations
+
 ## Error Handling
 
 - Default: skip-on-error with warnings (parse/encoding/fetch/upsert). Per-chunk upsert falls back to per-row.

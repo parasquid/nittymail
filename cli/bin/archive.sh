@@ -3,6 +3,9 @@
 # NittyMail Parallel Archive Script
 # This script parallelizes email archiving by spawning multiple processes
 # to download emails in batches, improving performance for large archives.
+#
+# Optimization: Runs preflight once to get all UIDs, then processes them
+# in batches without re-running IMAP queries for each batch.
 
 set -e  # Exit on any error
 
@@ -24,13 +27,13 @@ get_uids_from_preflight() {
     local output
     local cmd_result
 
-    debug "Running command: $DOCKER_COMPOSE_CMD mailbox archive --only-preflight" "$@"
+    debug "Running command: $DOCKER_COMPOSE_CMD mailbox archive --only-preflight --output ./archives" "$@"
 
     # Capture both stdout and stderr, and exit status
     if [ "$DEBUG" = "true" ]; then
-        output=$($DOCKER_COMPOSE_CMD mailbox archive --only-preflight "$@" 2>&1)
+        output=$($DOCKER_COMPOSE_CMD mailbox archive --only-preflight --output ./archives "$@" 2>&1)
     else
-        output=$($DOCKER_COMPOSE_CMD mailbox archive --only-preflight "$@" 2>/dev/null)
+        output=$($DOCKER_COMPOSE_CMD mailbox archive --only-preflight --output ./archives "$@" 2>/dev/null)
     fi
     cmd_result=$?
 
@@ -161,35 +164,47 @@ main() {
     echo "Mailbox args: ${mailbox_args[*]}"
     echo
 
-    while true; do
-        echo "Running preflight to check for available UIDs..."
+    # Run preflight once to get all available UIDs
+    echo "DEBUG: About to run preflight with mailbox args: ${mailbox_args[*]}"
+    echo "DEBUG: Preflight will check for existing files in: ./archives"
+    echo "Running preflight to get all available UIDs..."
+    
+    local all_uids
+    all_uids=$(get_uids_from_preflight "${mailbox_args[@]}")
 
-        # Get UIDs from preflight
-        local uids
-        uids=$(get_uids_from_preflight "${mailbox_args[@]}")
+    debug "Raw preflight output UIDs: '$all_uids'"
+    
+    if [ -z "$all_uids" ] || [ "$all_uids" = "no UIDs found" ]; then
+        echo "No UIDs available for archiving."
+        return
+    fi
 
-        if [ -z "$uids" ] || [ "$uids" = "no UIDs found" ]; then
-            echo "No more UIDs available for archiving."
-            break
+    echo "DEBUG: First 20 UIDs from preflight: $(echo "$all_uids" | cut -d',' -f1-20)"
+
+    # Convert to array
+    IFS=',' read -ra ALL_UID_ARRAY <<< "$all_uids"
+    local total_uids=${#ALL_UID_ARRAY[@]}
+    
+    echo "Found ${total_uids} UIDs total to process"
+    echo "Processing in batches of ${BATCH_SIZE} UIDs..."
+    echo
+
+    # Process UIDs in batches
+    local batch_start=0
+    while [ $batch_start -lt $total_uids ]; do
+        # Calculate batch end
+        local batch_end=$((batch_start + BATCH_SIZE))
+        if [ $batch_end -gt $total_uids ]; then
+            batch_end=$total_uids
         fi
+        
+        local batch_count=$((batch_end - batch_start))
+        echo "Processing batch: UIDs $((batch_start + 1))-${batch_end} (${batch_count} UIDs)"
 
-        echo "Found UIDs: $uids"
-
-        # Convert to array and limit to batch size
-        IFS=',' read -ra UID_ARRAY <<< "$uids"
-        local total_available=${#UID_ARRAY[@]}
-
-        if [ $total_available -eq 0 ]; then
-            echo "No UIDs to process."
-            break
-        fi
-
-        # Limit to batch size
-        local process_count=$(( total_available < BATCH_SIZE ? total_available : BATCH_SIZE ))
-        local uids_to_process="${UID_ARRAY[@]:0:$process_count}"
-        uids_to_process=$(echo "$uids_to_process" | tr ' ' ',')
-
-        echo "Processing $process_count UIDs in this batch..."
+        # Extract UIDs for this batch
+        local batch_uids=("${ALL_UID_ARRAY[@]:$batch_start:$batch_count}")
+        local uids_to_process
+        uids_to_process=$(IFS=','; echo "${batch_uids[*]}")
 
         # Split UIDs into chunks for parallel processing
         local chunks
@@ -221,9 +236,11 @@ main() {
             echo "Warning: $failed_processes processes failed. Continuing..."
         fi
 
-        total_processed=$((total_processed + process_count))
-        echo "Completed batch. Total processed so far: $total_processed"
+        total_processed=$((total_processed + batch_count))
+        echo "Completed batch. Total processed so far: $total_processed/${total_uids}"
         echo "----------------------------------------"
+        
+        batch_start=$batch_end
     done
 
     echo "Archiving complete! Total emails processed: $total_processed"

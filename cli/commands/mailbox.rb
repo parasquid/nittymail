@@ -445,14 +445,30 @@ module NittyMail
           server_uids = Array(preflight[:to_fetch])
           puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
 
-          # Handle only-preflight mode
+          # Handle only-preflight mode - check for existing files to skip
           if options[:only_preflight]
+            # Determine which UIDs need archiving by checking for existing files
+            safe_address = address.to_s.downcase
+            safe_mailbox = NittyMail::Utils.sanitize_collection_name(mailbox.to_s)
+            uv_dir = File.join(out_base, safe_address, safe_mailbox, uidvalidity.to_s)
+            FileUtils.mkdir_p(uv_dir)
+            
+            # Optimized approach: check only server UIDs instead of reading entire directory
+            # This is much faster when there are many existing files
+            puts "DEBUG: Checking for existing files in: #{uv_dir}"
+            uids_to_archive = server_uids.select do |uid|
+              !File.exist?(File.join(uv_dir, "#{uid}.eml"))
+            end
+            existing_count = server_uids.size - uids_to_archive.size
+            
             puts "Preflight complete. UIDs that would be archived:"
             puts "Total UIDs on server: #{server_uids.size}"
-            if server_uids.empty?
+            puts "UIDs already archived: #{existing_count}"
+            puts "UIDs remaining to archive: #{uids_to_archive.size}"
+            if uids_to_archive.empty?
               puts "(no UIDs found)"
             else
-              puts "UIDs: #{server_uids.join(", ")}"
+              puts "UIDs: #{uids_to_archive.join(", ")}"
             end
             return
           end
