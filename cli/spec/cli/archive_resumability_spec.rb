@@ -25,7 +25,6 @@ RSpec.describe "Archive resumability" do
   Given(:mailbox) { "INBOX" }
   Given(:archive_base) { "/tmp/test-archives-#{Process.pid}" }
   Given(:uv_dir) do
-    require_relative "../../utils/utils"
     File.join(archive_base, address.downcase, NittyMail::Utils.sanitize_collection_name(mailbox), "88")
   end
 
@@ -41,7 +40,7 @@ RSpec.describe "Archive resumability" do
     require_relative "../../commands/mailbox"
     @mb = instance_double("NittyMail::Mailbox")
     allow(NittyMail::Mailbox).to receive(:new).and_return(@mb)
-    allow(@mb).to receive(:preflight).and_return({uidvalidity: 88, to_fetch: [21, 22, 23], server_size: 3})
+    allow(@mb).to receive(:preflight).with(existing_uids: []).and_return({uidvalidity: 88, to_fetch: [21, 22, 23], server_size: 3})
     msgs = [
       ARStubMsg.new(uid: 21, raw: "Subject: S21\n\nB21"),
       ARStubMsg.new(uid: 22, raw: "Subject: S22\n\nB22"),
@@ -57,7 +56,7 @@ RSpec.describe "Archive resumability" do
 
   Then "skips existing UID files and writes missing ones" do
     cli = NittyMail::Commands::Mailbox.new
-    expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
+    expect { cli.invoke(:archive, [], {mailbox: mailbox, output: archive_base}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "21.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "22.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "23.eml"))).to eq(true)
