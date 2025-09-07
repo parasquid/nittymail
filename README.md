@@ -9,7 +9,7 @@ A Ruby-based system for synchronizing Gmail/IMAP accounts to local SQLite databa
 - **MCP Server**: AI agent access to email database with 23+ analysis tools
 - **Docker Workflow**: No local Ruby installation required
 - **Gmail Extensions**: Support for X-GM-LABELS, X-GM-MSGID, X-GM-THRID
-- **Parallel Processing**: Built-in tools for faster email processing
+- **Parallel Archive Script**: Bash script for parallel email archiving
 
 ## Quick Start
 
@@ -81,9 +81,10 @@ docker compose run --rm cli mailbox archive --mailbox INBOX
 docker compose run --rm cli db mcp --database ./emails.sqlite3
 ```
 
-### Parallel Processing
+### Parallel Archive Script
 ```bash
-# Use parallel archive script for faster processing
+# Use parallel archive script for faster email archiving
+# This script spawns multiple processes to archive emails concurrently
 ./cli/bin/archive.sh -- --mailbox INBOX
 ```
 
