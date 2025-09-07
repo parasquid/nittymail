@@ -49,6 +49,59 @@ Returning control for fixes.
 - Never modify files
 - Return control promptly after analysis
 
+## Test Execution Commands
+
+### CLI Tests (from project root)
+```bash
+# Full test suite
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/
+
+# Single test file
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/cli/utils_spec.rb
+
+# Specific test pattern
+docker compose run --rm ruby bundle exec rspec -fd -b --pattern "**/*mailbox*"
+
+# Run from cli/ directory
+cd cli && docker compose run --rm cli bundle exec rspec -fd -b spec/cli/utils_spec.rb
+```
+
+### Gem Tests (from project root)
+```bash
+# Full test suite
+docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
+
+# Single test file
+docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/NittyMail/utils_spec.rb
+
+# Run from gem/ directory
+cd gem && bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
+```
+
+### Troubleshooting Common Issues
+
+**"Could not find X in locally installed gems"**
+- Run `docker compose run --rm ruby bundle install` from project root
+- Or `cd cli && docker compose run --rm cli bundle install`
+
+**"no configuration file provided: not found"**
+- Use Docker commands from project root, not cli/ subdirectory
+- Ensure docker-compose.yml exists in project root
+
+**"Bundler::GemNotFound"**
+- Dependencies not installed: run bundle install first
+- Wrong directory: ensure you're in project root for Docker commands
+
+**Test hangs or times out**
+- IMAP/network tests may need VCR cassettes
+- Check for missing environment variables (.env file)
+- Some tests require Redis/Sidekiq for job testing
+
+### Environment Setup
+- Copy `cli/.env.sample` to `cli/.env` and configure IMAP credentials
+- For integration tests, ensure IMAP server is accessible
+- Redis required for job-related tests (use Docker Compose services)
+
 ## Example Usage
 
 Main agent might request:

@@ -7,11 +7,35 @@
 - `NittyMail.gemspec`, `Gemfile`, `Rakefile`: Gem metadata and rake tasks.
 
 ## Build, Test, and Development Commands
+
+### Dependencies & Setup
 - Install deps: `bundle install`
-- Lint + test (default): `bundle exec rake` (runs `spec` and StandardRB)
-- Run all tests: `bundle exec rspec -fd -b`
-- Run a single test: `bundle exec rspec -fd -b spec/NittyMail_spec.rb`
 - Open REPL with gem loaded: `bin/console`
+
+### Running Tests
+```bash
+# Full test suite (from gem/ directory)
+bundle exec rspec -fd -b
+
+# Single test file
+bundle exec rspec -fd -b spec/NittyMail/utils_spec.rb
+
+# Specific test pattern
+bundle exec rspec -fd -b --pattern "**/*mailbox*"
+
+# From project root (using Docker)
+docker compose run --rm ruby bundle exec rspec -fd -b gem/spec/
+```
+
+### Linting & Quality
+- Lint + test (default): `bundle exec rake` (runs `spec` and StandardRB)
+- StandardRB only: `bundle exec standardrb`
+- RuboCop only: `bundle exec rubocop`
+
+### Troubleshooting
+- **Missing dependencies**: Run `bundle install` first
+- **Test failures**: Check Ruby version compatibility (requires Ruby 3.4+)
+- **Load path issues**: Ensure you're in the correct directory when running commands
 
 ## Coding Style & Naming Conventions
 - Style: StandardRB is canonical; RuboCop config aligns with it.

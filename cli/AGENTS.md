@@ -97,14 +97,37 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 
 ## Tests
 
-- Use rspec-given; see `spec/spec_helper.rb`.
-- Run: `docker compose run --rm cli bundle exec rspec -fd -b`.
-- Patterns:
-  - Stub `NittyMail::Mailbox` for IMAP interactions.
-  - Smoke specs for downloader (idempotency, parsed fields).
-  - Resumability: pre-seed DB; ensure only missing UIDs are fetched.
-  - Strict mode: expect fail-fast behavior (e.g., stub DB upsert failure).
-  - Recreate/Purge: verify generation delete and safe confirmations.
+### Running Tests
+- **Framework**: RSpec 3.x with `rspec-given` macros
+- **Helper**: `spec/spec_helper.rb` configures defaults
+
+#### Commands (run from project root):
+```bash
+# Full CLI test suite
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/
+
+# Single test file
+docker compose run --rm ruby bundle exec rspec -fd -b cli/spec/cli/utils_spec.rb
+
+# Specific test pattern
+docker compose run --rm ruby bundle exec rspec -fd -b --pattern "**/*mailbox*"
+
+# Alternative: from cli/ directory
+cd cli && docker compose run --rm cli bundle exec rspec -fd -b spec/cli/utils_spec.rb
+```
+
+#### Troubleshooting:
+- **"Could not find X in locally installed gems"**: Run `docker compose run --rm ruby bundle install`
+- **"no configuration file provided"**: Use Docker commands from project root, not cli/ subdirectory
+- **Test hangs**: May need VCR cassettes for IMAP tests or Redis for job tests
+- **Missing dependencies**: Ensure `cli/.env` exists with IMAP credentials
+
+### Test Patterns
+- Stub `NittyMail::Mailbox` for IMAP interactions
+- Smoke specs for downloader (idempotency, parsed fields)
+- Resumability: pre-seed DB; ensure only missing UIDs are fetched
+- Strict mode: expect fail-fast behavior (e.g., stub DB upsert failure)
+- Recreate/Purge: verify generation delete and safe confirmations
 
 ## Adding Migrations & Flags
 
