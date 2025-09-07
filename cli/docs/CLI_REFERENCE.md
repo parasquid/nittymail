@@ -74,11 +74,14 @@ docker compose run --rm cli mailbox download [options]
 - `--max-fetch-size SIZE` - IMAP max fetch size
 - `-a, --address ADDRESS` - IMAP account email (required)
 - `-p, --password PASSWORD` - IMAP password/app password (required)
-- `--strict` - Fail-fast on errors instead of skipping
-- `--recreate` - Drop and recreate rows for this mailbox+uidvalidity
-- `-y, --yes` - Auto-confirm destructive actions
-- `--force` - Alias for `--yes`
-- `--purge-uidvalidity ID` - Delete rows for a specific UIDVALIDITY and exit
+ - `--strict` - Fail-fast on errors instead of skipping
+ - `--recreate` - Drop and recreate rows for this mailbox+uidvalidity
+ - `-y, --yes` - Auto-confirm destructive actions
+ - `--force` - Alias for `--yes`
+ - `--purge-uidvalidity ID` - Delete rows for a specific UIDVALIDITY and exit
+ - `--only-preflight` - Only perform preflight and list UIDs to be downloaded (no messages downloaded)
+ - `--only-ids UID1,UID2` - Skip preflight and only download specific UIDs (comma-separated list)
+ - `--uidvalidity ID` - Pre-known UIDVALIDITY to avoid IMAP lookup (used by async script)
 
 **Examples:**
 ```bash
@@ -96,6 +99,12 @@ docker compose run --rm cli mailbox download --mailbox INBOX --recreate --yes
 
 # Purge old UIDVALIDITY
 docker compose run --rm cli mailbox download --mailbox INBOX --purge-uidvalidity 12345 --yes
+
+# List UIDs that would be downloaded
+docker compose run --rm cli mailbox download --mailbox INBOX --only-preflight
+
+# Download specific UIDs
+docker compose run --rm cli mailbox download --mailbox INBOX --only-ids 123,456,789
 ```
 
 ### `mailbox archive`

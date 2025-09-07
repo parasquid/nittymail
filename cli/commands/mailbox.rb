@@ -75,6 +75,9 @@ module NittyMail
       method_option :yes, type: :boolean, default: false, desc: "Auto-confirm destructive actions"
       method_option :force, type: :boolean, default: false, desc: "Alias for --yes"
       method_option :purge_uidvalidity, type: :numeric, required: false, desc: "Delete rows for a specific UIDVALIDITY and exit"
+      method_option :only_preflight, type: :boolean, default: false, desc: "Only perform preflight and list UIDs to be downloaded (no messages downloaded)"
+      method_option :only_ids, type: :array, required: false, desc: "Skip preflight and only download specific UIDs (comma-separated list)"
+      method_option :uidvalidity, type: :string, required: false, desc: "Pre-known UIDVALIDITY to avoid IMAP lookup (used by async script)"
       def download
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -98,10 +101,15 @@ module NittyMail
           puts "  -y, --yes                    Auto-confirm destructive actions"
           puts "      --force                  Alias for --yes"
           puts "      --purge-uidvalidity ID   Delete rows for specific UIDVALIDITY"
+          puts "      --only-preflight         Only perform preflight and list UIDs (no messages downloaded)"
+          puts "      --only-ids UID1,UID2     Skip preflight and download specific UIDs"
+          puts "      --uidvalidity ID         Pre-known UIDVALIDITY to avoid IMAP lookup"
           puts
           puts "EXAMPLES:"
           puts "  cli mailbox download --mailbox INBOX"
           puts "  cli mailbox download --address user@gmail.com --password pass --database /path/to/db.sqlite3"
+          puts "  cli mailbox download --mailbox INBOX --only-preflight  # List UIDs only"
+          puts "  cli mailbox download --mailbox INBOX --only-ids 123,456,789  # Download specific UIDs"
           puts
           raise ArgumentError, "Missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
@@ -121,11 +129,40 @@ module NittyMail
         settings = NittyMail::Settings.new(**settings_args)
         mailbox_client = NittyMail::Mailbox.new(settings: settings, mailbox_name: mailbox)
 
-        puts "Preflighting mailbox '#{mailbox}'..."
-        preflight = mailbox_client.preflight(existing_uids: [])
-        uidvalidity = preflight[:uidvalidity]
-        server_uids = Array(preflight[:to_fetch])
-        puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+        # Handle only-ids mode - skip preflight and use specified UIDs
+        if options[:only_ids]
+          specified_uids = options[:only_ids].map(&:to_i)
+          if specified_uids.empty?
+            warn "error: --only-ids requires at least one valid UID"
+            exit 1
+          end
+
+          # Use provided UIDVALIDITY or fetch from IMAP
+          if options[:uidvalidity]
+            uidvalidity = options[:uidvalidity].to_i
+            puts "Using provided UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
+          else
+            puts "Getting mailbox info for '#{mailbox}'..."
+            preflight = mailbox_client.preflight(existing_uids: [])
+            uidvalidity = preflight[:uidvalidity]
+            puts "UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
+          end
+          server_uids = specified_uids
+        elsif options[:only_preflight]
+          puts "Preflighting mailbox '#{mailbox}' for download..."
+          preflight = mailbox_client.preflight(existing_uids: [])
+          uidvalidity = preflight[:uidvalidity]
+          server_uids = Array(preflight[:to_fetch])
+          puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+          puts "UIDs: #{server_uids.join(", ")}"
+          exit 0
+        else
+          puts "Preflighting mailbox '#{mailbox}'..."
+          preflight = mailbox_client.preflight(existing_uids: [])
+          uidvalidity = preflight[:uidvalidity]
+          server_uids = Array(preflight[:to_fetch])
+          puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+        end
 
         # Handle purge-only mode
         purge_val = options[:purge_uidvalidity]
