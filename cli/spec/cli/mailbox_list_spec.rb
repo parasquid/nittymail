@@ -20,7 +20,7 @@ RSpec.describe "CLI mailbox list" do
     ENV["NITTYMAIL_IMAP_ADDRESS"] = address
     ENV["NITTYMAIL_IMAP_PASSWORD"] = password
 
-    require_relative "../../commands/mailbox/list"
+    require_relative "../../commands/mailbox"
 
     # Stub nittymail Mailbox
     allow(NittyMail::Mailbox).to receive(:new).and_return(mailbox_stub)
@@ -35,8 +35,8 @@ RSpec.describe "CLI mailbox list" do
     end
 
     Then "lists mailboxes successfully" do
-      list_cmd = NittyMail::Commands::MailboxList.new
-      expect { list_cmd.invoke(:list, [], {}) }.not_to raise_error
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:list, [], {}) }.not_to raise_error
     end
   end
 
@@ -47,8 +47,8 @@ RSpec.describe "CLI mailbox list" do
     end
 
     Then "handles empty list gracefully" do
-      list_cmd = NittyMail::Commands::MailboxList.new
-      expect { list_cmd.invoke(:list, [], {}) }.not_to raise_error
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:list, [], {}) }.not_to raise_error
     end
   end
 
@@ -59,8 +59,8 @@ RSpec.describe "CLI mailbox list" do
     end
 
     Then "raises ArgumentError for missing credentials" do
-      list_cmd = NittyMail::Commands::MailboxList.new
-      expect { list_cmd.invoke(:list, [], {}) }.to raise_error(SystemExit)
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:list, [], {}) }.to raise_error(SystemExit)
     end
   end
 
@@ -72,8 +72,8 @@ RSpec.describe "CLI mailbox list" do
     end
 
     Then "handles IMAP errors gracefully" do
-      list_cmd = NittyMail::Commands::MailboxList.new
-      expect { list_cmd.invoke(:list, [], {}) }.to raise_error(SystemExit)
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:list, [], {}) }.to raise_error(SystemExit)
     end
   end
 end

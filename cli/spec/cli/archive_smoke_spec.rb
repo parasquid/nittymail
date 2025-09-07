@@ -15,9 +15,9 @@ class AStubMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize
+      :'RFC822.SIZE' => @raw.bytesize
     }
   end
 end
@@ -53,8 +53,7 @@ RSpec.describe "Archive smoke" do
   end
 
   Then "archives files and is idempotent" do
-    require_relative "../../commands/mailbox/archive"
-    cli = NittyMail::Commands::MailboxArchive.new
+    cli = NittyMail::Commands::Mailbox.new
     expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "11.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "12.eml"))).to eq(true)

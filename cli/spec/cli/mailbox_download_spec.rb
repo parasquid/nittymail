@@ -9,7 +9,7 @@ RSpec.describe "CLI mailbox download" do
     ENV["NITTYMAIL_IMAP_ADDRESS"] = address
     ENV["NITTYMAIL_IMAP_PASSWORD"] = password
 
-    require_relative "../../commands/mailbox/download"
+    require_relative "../../commands/mailbox"
 
     # Stub nittymail Mailbox
     allow(NittyMail::Mailbox).to receive(:new).and_return(mailbox_stub)
@@ -25,8 +25,8 @@ RSpec.describe "CLI mailbox download" do
     end
 
     Then "raises ArgumentError for missing credentials" do
-      download_cmd = NittyMail::Commands::MailboxDownload.new
-      expect { download_cmd.invoke(:download, [], {}) }.to raise_error(SystemExit)
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:download, [], {}) }.to raise_error(SystemExit)
     end
   end
 
@@ -37,8 +37,8 @@ RSpec.describe "CLI mailbox download" do
     end
 
     Then "handles purge mode correctly" do
-      download_cmd = NittyMail::Commands::MailboxDownload.new
-      expect { download_cmd.invoke(:download, [], {purge_uidvalidity: 123, yes: true}) }.not_to raise_error
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:download, [], {purge_uidvalidity: 123, yes: true}) }.not_to raise_error
     end
   end
 
@@ -52,8 +52,8 @@ RSpec.describe "CLI mailbox download" do
     end
 
     Then "handles empty download gracefully" do
-      download_cmd = NittyMail::Commands::MailboxDownload.new
-      expect { download_cmd.invoke(:download, [], {database: ":memory:"}) }.not_to raise_error
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:download, [], {database: ":memory:"}) }.not_to raise_error
     end
   end
 
@@ -74,8 +74,8 @@ RSpec.describe "CLI mailbox download" do
     end
 
     Then "handles recreate mode correctly" do
-      download_cmd = NittyMail::Commands::MailboxDownload.new
-      expect { download_cmd.invoke(:download, [], {recreate: true, yes: true, database: ":memory:"}) }.not_to raise_error
+      mailbox_cmd = NittyMail::Commands::Mailbox.new
+      expect { mailbox_cmd.invoke(:download, [], {recreate: true, yes: true, database: ":memory:"}) }.not_to raise_error
     end
   end
 end

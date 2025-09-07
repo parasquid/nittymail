@@ -12,9 +12,9 @@ class ARStubMsg
       "UID" => @uid,
       :UID => @uid,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize
+      :'RFC822.SIZE' => @raw.bytesize
     }
   end
 end
@@ -56,8 +56,7 @@ RSpec.describe "Archive resumability" do
   end
 
   Then "skips existing UID files and writes missing ones" do
-    require_relative "../../commands/mailbox/archive"
-    cli = NittyMail::Commands::MailboxArchive.new
+    cli = NittyMail::Commands::Mailbox.new
     expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(File.exist?(File.join(uv_dir, "21.eml"))).to eq(true)
     expect(File.exist?(File.join(uv_dir, "22.eml"))).to eq(true)

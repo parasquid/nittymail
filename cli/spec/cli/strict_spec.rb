@@ -14,7 +14,7 @@ class BadMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw
+      :'BODY[]' => @raw
     }
   end
 end
@@ -48,8 +48,7 @@ RSpec.describe "Strict mode" do
     require_relative "../../models/email"
     allow(NittyMail::Email).to receive(:upsert_all).and_raise(ActiveRecord::StatementInvalid.new("boom"))
 
-    require_relative "../../commands/mailbox/download"
-    cli = NittyMail::Commands::MailboxDownload.new
+    cli = NittyMail::Commands::Mailbox.new
     expect { cli.invoke(:download, [], {mailbox: "INBOX", strict: true}) }.to raise_error(SystemExit)
   end
 end
