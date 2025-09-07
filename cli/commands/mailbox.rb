@@ -131,7 +131,16 @@ module NittyMail
 
         # Handle only-ids mode - skip preflight and use specified UIDs
         if options[:only_ids]
-          specified_uids = options[:only_ids].map(&:to_i)
+          # Handle comma-separated strings in --only-ids option
+          raw_uids = options[:only_ids].flatten
+          specified_uids = []
+          raw_uids.each do |uid_str|
+            if uid_str.is_a?(String) && uid_str.include?(",")
+              specified_uids.concat(uid_str.split(",").map(&:to_i))
+            else
+              specified_uids << uid_str.to_i
+            end
+          end
           if specified_uids.empty?
             warn "error: --only-ids requires at least one valid UID"
             exit 1
@@ -465,7 +474,16 @@ module NittyMail
 
         # Handle only-ids mode - skip preflight and use specified UIDs
         if options[:only_ids]
-          specified_uids = options[:only_ids].map(&:to_i)
+          # Handle comma-separated strings in --only-ids option
+          raw_uids = options[:only_ids].flatten
+          specified_uids = []
+          raw_uids.each do |uid_str|
+            if uid_str.is_a?(String) && uid_str.include?(",")
+              specified_uids.concat(uid_str.split(",").map(&:to_i))
+            else
+              specified_uids << uid_str.to_i
+            end
+          end
           if specified_uids.empty?
             warn "error: --only-ids requires at least one valid UID"
             exit 1
