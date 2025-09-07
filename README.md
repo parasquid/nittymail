@@ -56,9 +56,9 @@ nittymail/
 ## Documentation
 
 - **[CLI Reference](cli/docs/CLI_REFERENCE.md)** - Complete command reference with all options
+- **[CLI Setup Guide](cli/README.md)** - Docker setup and basic CLI usage
 - **[MCP Tools](cli/docs/MCP_TOOLS.md)** - Documentation for all 23 MCP database tools
 - **[Agent Guide](AGENTS.md)** - Development guidelines for AI agents
-- **[CLI README](cli/README.md)** - CLI-specific setup and usage
 - **[Gem README](gem/README.md)** - Ruby gem documentation
 
 ## Commands Overview
