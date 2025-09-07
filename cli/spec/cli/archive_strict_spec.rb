@@ -8,7 +8,7 @@ class ASMsg
   end
 
   def attr
-    {"UID" => @uid, :UID => @uid, "BODY[]" => @raw, :"BODY[]" => @raw, "RFC822.SIZE" => @raw.bytesize, :"RFC822.SIZE" => @raw.bytesize}
+    {"UID" => @uid, :UID => @uid, "BODY[]" => @raw, :'BODY[]' => @raw, "RFC822.SIZE" => @raw.bytesize, :'RFC822.SIZE' => @raw.bytesize}
   end
 end
 
@@ -24,11 +24,12 @@ RSpec.describe "Archive strict mode" do
   end
 
   it "raises SystemExit when fetch fails in strict mode (no-jobs)" do
+    require_relative "../../commands/mailbox/archive"
     mb = instance_double("NittyMail::Mailbox")
     allow(NittyMail::Mailbox).to receive(:new).and_return(mb)
     allow(mb).to receive(:preflight).and_return({uidvalidity: 90, to_fetch: [1, 2], server_size: 2})
     allow(mb).to receive(:fetch).and_raise(StandardError.new("imap boom"))
-    cli = NittyMail::Commands::Mailbox.new
+    cli = NittyMail::Commands::MailboxArchive.new
     expect { cli.invoke(:archive, [], {mailbox: mailbox, no_jobs: true, strict: true}) }.to raise_error(SystemExit)
   end
 
@@ -50,7 +51,7 @@ RSpec.describe "Archive strict mode" do
     # Force write failure by stubbing File.rename to raise during job execution
     allow(File).to receive(:rename).and_raise(StandardError.new("disk boom"))
 
-    cli = NittyMail::Commands::Mailbox.new
+    cli = NittyMail::Commands::MailboxArchive.new
     expect { cli.invoke(:archive, [], {mailbox: mailbox, strict: true}) }.to raise_error(SystemExit)
   end
 end

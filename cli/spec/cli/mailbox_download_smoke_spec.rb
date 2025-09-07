@@ -19,20 +19,20 @@ class StubMsg
       "INTERNALDATE" => @internaldate,
       :INTERNALDATE => @internaldate,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @size,
-      :"RFC822.SIZE" => @size,
+      :'RFC822.SIZE' => @size,
       "X-GM-LABELS" => @labels,
-      :"X-GM-LABELS" => @labels,
+      :'X-GM-LABELS' => @labels,
       :x_gm_labels => @labels,
       "ENVELOPE" => @envelope_from,
       :ENVELOPE => @envelope_from,
       :envelope => @envelope_from,
       "X-GM-THRID" => @thrid,
-      :"X-GM-THRID" => @thrid,
+      :'X-GM-THRID' => @thrid,
       :x_gm_thrid => @thrid,
       "X-GM-MSGID" => @msgid,
-      :"X-GM-MSGID" => @msgid,
+      :'X-GM-MSGID' => @msgid,
       :x_gm_msgid => @msgid
     }
   end
@@ -121,7 +121,8 @@ RSpec.describe "CLI mailbox smoke" do
 
   context "download" do
     Then "writes rows and is idempotent" do
-      cli = NittyMail::Commands::Mailbox.new
+      require_relative "../../commands/mailbox/download"
+      cli = NittyMail::Commands::MailboxDownload.new
       expect { cli.invoke(:download, [], {mailbox: "INBOX"}) }.not_to raise_error
 
       require_relative "../../models/email"

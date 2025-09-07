@@ -54,7 +54,7 @@ RSpec.describe "Archive jobs interrupts" do
         end
 
         def attr
-          {"UID" => @u, :UID => @u, "BODY[]" => "X", :"BODY[]" => "X", "RFC822.SIZE" => 1, :"RFC822.SIZE" => 1}
+          {"UID" => @u, :UID => @u, "BODY[]" => "X", :'BODY[]' => "X", "RFC822.SIZE" => 1, :'RFC822.SIZE' => 1}
         end
       }.new(u)
     end
@@ -67,7 +67,7 @@ RSpec.describe "Archive jobs interrupts" do
   end
 
   it "sets abort flag and stops; cleans tmp files" do
-    cli = NittyMail::Commands::Mailbox.new
+    cli = NittyMail::Commands::MailboxArchive.new
     thr = Thread.new do
       sleep 0.2
       Process.kill("INT", Process.pid)

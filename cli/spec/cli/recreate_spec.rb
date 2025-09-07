@@ -14,9 +14,9 @@ class RwMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize
+      :'RFC822.SIZE' => @raw.bytesize
     }
   end
 end
@@ -55,7 +55,8 @@ RSpec.describe "Recreate and purge" do
     m = RwMsg.new(uid: 1, t: Time.at(1_700_000_100), raw: "Subject: NEW\n\nBody")
     allow(mailbox_stub).to receive(:fetch) { |uids:| [m] }
 
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     expect { cli.invoke(:download, [], {mailbox: "INBOX", recreate: true, yes: true}) }.not_to raise_error
     row = NittyMail::Email.where(address: address, mailbox: "INBOX", uidvalidity: 8, uid: 1).first
     expect(row).not_to be_nil
@@ -71,7 +72,8 @@ RSpec.describe "Recreate and purge" do
 
     # preflight still required; return some value (unused)
     allow(mailbox_stub).to receive(:preflight).and_return({uidvalidity: 9, to_fetch: [], server_size: 0})
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     expect { cli.invoke(:download, [], {mailbox: "INBOX", purge_uidvalidity: 99, yes: true}) }.not_to raise_error
     expect(NittyMail::Email.where(address: address, mailbox: "INBOX", uidvalidity: 99).count).to eq(0)
   end

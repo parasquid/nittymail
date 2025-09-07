@@ -31,9 +31,9 @@ class JMS
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => "Subject: X\n\nBody",
-      :"BODY[]" => "Subject: X\n\nBody",
+      :'BODY[]' => "Subject: X\n\nBody",
       "RFC822.SIZE" => 10,
-      :"RFC822.SIZE" => 10
+      :'RFC822.SIZE' => 10
     }
   end
 end
@@ -67,6 +67,7 @@ RSpec.describe "Jobs strict mode" do
   end
 
   it "raises when WriteJob upsert fails with --strict" do
+    require_relative "../../commands/mailbox/download"
     mb = instance_double("NittyMail::Mailbox")
     allow(NittyMail::Mailbox).to receive(:new).and_return(mb)
     allow(mb).to receive(:preflight).and_return({uidvalidity: 77, to_fetch: [1], server_size: 1})
@@ -75,19 +76,20 @@ RSpec.describe "Jobs strict mode" do
     require_relative "../../models/email"
     allow(NittyMail::Email).to receive(:upsert_all).and_raise(ActiveRecord::StatementInvalid.new("boom"))
 
-    cli = NittyMail::Commands::Mailbox.new
+    cli = NittyMail::Commands::MailboxDownload.new
     expect do
       cli.invoke(:download, [], {mailbox: mailbox, strict: true})
     end.to raise_error(SystemExit)
   end
 
   it "raises when FetchJob fetch fails with --strict" do
+    require_relative "../../commands/mailbox/download"
     mb = instance_double("NittyMail::Mailbox")
     allow(NittyMail::Mailbox).to receive(:new).and_return(mb)
     allow(mb).to receive(:preflight).and_return({uidvalidity: 77, to_fetch: [1, 2], server_size: 2})
     allow(mb).to receive(:fetch).and_raise(StandardError.new("imap boom"))
 
-    cli = NittyMail::Commands::Mailbox.new
+    cli = NittyMail::Commands::MailboxDownload.new
     expect do
       cli.invoke(:download, [], {mailbox: mailbox, strict: true})
     end.to raise_error(SystemExit)

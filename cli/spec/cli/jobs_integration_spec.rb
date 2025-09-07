@@ -41,9 +41,9 @@ class JIMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize
+      :'RFC822.SIZE' => @raw.bytesize
     }
   end
 end
@@ -91,7 +91,8 @@ RSpec.describe "Jobs mode integration" do
 
   it "enqueues fetch+write jobs and writes all rows" do
     require_relative "../../models/email"
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     expect { cli.invoke(:download, [], {mailbox: mailbox}) }.not_to raise_error
     expect(NittyMail::Email.count).to eq(uids.size)
     # counters reflect completion

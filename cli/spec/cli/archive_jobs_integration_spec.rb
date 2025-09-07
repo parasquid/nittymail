@@ -38,9 +38,9 @@ class AJMsg
       "UID" => @uid,
       :UID => @uid,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize
+      :'RFC822.SIZE' => @raw.bytesize
     }
   end
 end
@@ -86,7 +86,8 @@ RSpec.describe "Archive jobs integration" do
   end
 
   it "writes files and updates counters" do
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/archive"
+    cli = NittyMail::Commands::MailboxArchive.new
     expect { cli.invoke(:archive, [], {mailbox: mailbox}) }.not_to raise_error
     expect(Dir.children(uv_dir).grep(/\.eml\z/).size).to eq(uids.size)
     key_total = @redis.data.keys.find { |k| k.include?("nm:arc:") && k.end_with?(":total") }

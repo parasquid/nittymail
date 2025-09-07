@@ -14,9 +14,9 @@ class RMsg
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => @raw,
-      :"BODY[]" => @raw,
+      :'BODY[]' => @raw,
       "RFC822.SIZE" => @raw.bytesize,
-      :"RFC822.SIZE" => @raw.bytesize,
+      :'RFC822.SIZE' => @raw.bytesize,
       "ENVELOPE" => nil,
       :ENVELOPE => nil
     }
@@ -66,7 +66,8 @@ RSpec.describe "Resumability" do
     @msgs = [RMsg.new(uid: 10, t: t, subj: "S1", body: "A"), RMsg.new(uid: 11, t: t + 10, subj: "S2", body: "B"), RMsg.new(uid: 12, t: t + 20, subj: "S3", body: "C"), RMsg.new(uid: 13, t: t + 30, subj: "S4", body: "D")]
     allow(mailbox_stub).to receive(:preflight).and_return({uidvalidity: 5, to_fetch: [10, 11, 12, 13], server_size: 4})
 
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     expect { cli.invoke(:download, [], {mailbox: "INBOX"}) }.not_to raise_error
     uids = NittyMail::Email.where(uidvalidity: 5).order(:uid).pluck(:uid)
     expect(uids).to eq([10, 11, 12, 13])

@@ -37,9 +37,9 @@ class StubMsgI
       "INTERNALDATE" => @t,
       :INTERNALDATE => @t,
       "BODY[]" => "Subject: X\n\nBody",
-      :"BODY[]" => "Subject: X\n\nBody",
+      :'BODY[]' => "Subject: X\n\nBody",
       "RFC822.SIZE" => 10,
-      :"RFC822.SIZE" => 10
+      :'RFC822.SIZE' => 10
     }
   end
 end
@@ -93,7 +93,8 @@ RSpec.describe "Jobs mode interrupts" do
   end
 
   it "handles single Ctrl-C by setting abort flag and retaining artifacts" do
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     thr = Thread.new do
       sleep 0.3
       Process.kill("INT", Process.pid)
@@ -113,7 +114,8 @@ RSpec.describe "Jobs mode interrupts" do
   end
 
   it "exits with 130 on double Ctrl-C" do
-    cli = NittyMail::Commands::Mailbox.new
+    require_relative "../../commands/mailbox/download"
+    cli = NittyMail::Commands::MailboxDownload.new
     thr = Thread.new do
       sleep 0.2
       Process.kill("INT", Process.pid)
