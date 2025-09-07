@@ -10,6 +10,8 @@ RSpec.describe "CLI mailbox download" do
     ENV["NITTYMAIL_IMAP_PASSWORD"] = password
 
     require_relative "../../commands/mailbox"
+    require_relative "../../utils/db"
+    require_relative "../../models/email"
 
     # Stub nittymail Mailbox
     allow(NittyMail::Mailbox).to receive(:new).and_return(mailbox_stub)

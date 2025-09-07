@@ -56,6 +56,8 @@ This guide describes conventions and helpers for working in the `cli/` folder. T
 - Resumability: skip existing files; atomic write (`.tmp` then rename).
 - Single-process mode: simple, no external dependencies
 - Preflight mode: `--only-preflight` lists UIDs that would be archived without creating files
+- Specific UIDs mode: `--only-ids` downloads only specified UIDs, skipping preflight
+- Auto-confirmation: `--yes` automatically confirms overwriting existing files
 - Interrupts: first Ctrl‑C sets abort flag and stops processing; second Ctrl‑C forces exit; partial `.tmp` files are cleaned.
 - Testing patterns: focus on single-process behavior and error handling
 

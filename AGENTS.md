@@ -497,6 +497,8 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive [option
 - `--max-fetch-size N`: IMAP fetch batch size
 - `--strict`: Fail-fast on errors
 - `--only-preflight`: Only list UIDs to be archived (no files created)
+- `--only-ids UID1,UID2`: Download only specific UIDs (skip preflight)
+- `--yes`: Auto-confirm overwriting existing files
 
 ### Database Commands
 
@@ -543,6 +545,14 @@ docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
 # List UIDs that would be archived (no files created)
 docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
   --mailbox INBOX --only-preflight
+
+# Archive specific UIDs only
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
+  --mailbox INBOX --only-ids 123,456,789
+
+# Archive with auto-confirmation
+docker compose run --rm ruby bundle exec ruby cli/cli.rb mailbox archive \
+  --mailbox INBOX --yes
 
 # Start MCP server
 docker compose run --rm ruby bundle exec ruby cli/cli.rb db mcp \

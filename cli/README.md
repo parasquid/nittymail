@@ -68,6 +68,8 @@ Archive saves raw RFC822 email files named by UID without parsing or database wr
   #   --max-fetch-size 200         # IMAP fetch slice
   #   --strict                     # fail‑fast on errors
   #   --only-preflight             # list UIDs only (no files created)
+  #   --only-ids 123,456,789       # download specific UIDs only
+  #   --yes                        # auto-confirm overwriting existing files
   ```
 
 Mailbox examples for archive:
@@ -81,6 +83,12 @@ docker compose run --rm cli mailbox archive --mailbox "Receipts"
 
 # List UIDs that would be archived (no files created)
 docker compose run --rm cli mailbox archive --mailbox INBOX --only-preflight
+
+# Archive specific UIDs only
+docker compose run --rm cli mailbox archive --mailbox INBOX --only-ids 123,456,789
+
+# Archive with auto-confirmation for overwriting existing files
+docker compose run --rm cli mailbox archive --mailbox INBOX --yes
 ```
 
 ### MCP Server for Email Database

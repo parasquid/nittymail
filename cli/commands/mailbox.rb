@@ -375,6 +375,8 @@ module NittyMail
       method_option :password, aliases: "-p", type: :string, required: false, desc: "IMAP password / app password (or env NITTYMAIL_IMAP_PASSWORD)"
       method_option :strict, type: :boolean, default: false, desc: "Fail-fast on errors instead of skipping"
       method_option :only_preflight, type: :boolean, default: false, desc: "Only perform preflight and list UIDs to be archived (no files created)"
+      method_option :only_ids, type: :array, required: false, desc: "Skip preflight and only download specific UIDs (comma-separated list)"
+      method_option :yes, type: :boolean, default: false, desc: "Auto-confirm overwriting existing files"
       def archive
         address = options[:address] || ENV["NITTYMAIL_IMAP_ADDRESS"]
         password = options[:password] || ENV["NITTYMAIL_IMAP_PASSWORD"]
@@ -395,11 +397,14 @@ module NittyMail
           puts "      --max-fetch-size SIZE    IMAP max fetch size (env: NITTYMAIL_MAX_FETCH_SIZE)"
           puts "      --strict                 Fail-fast on errors instead of skipping"
           puts "      --only-preflight         Only list UIDs to be archived (no files created)"
+          puts "      --only-ids UID1,UID2     Skip preflight and download specific UIDs"
+          puts "  -y, --yes                    Auto-confirm overwriting existing files"
           puts
           puts "EXAMPLES:"
           puts "  cli mailbox archive --mailbox INBOX"
           puts "  cli mailbox archive --address user@gmail.com --password pass --output /path/to/archive"
           puts "  cli mailbox archive --mailbox INBOX --only-preflight  # List UIDs only"
+          puts "  cli mailbox archive --mailbox INBOX --only-ids 123,456,789  # Download specific UIDs"
           puts
           raise ArgumentError, "Missing credentials: pass --address/--password or set NITTYMAIL_IMAP_ADDRESS/NITTYMAIL_IMAP_PASSWORD"
         end
@@ -418,22 +423,38 @@ module NittyMail
         settings = NittyMail::Settings.new(**settings_args)
         mailbox_client = NittyMail::Mailbox.new(settings: settings, mailbox_name: mailbox)
 
-        puts "Preflighting mailbox '#{mailbox}' for archive..."
-        preflight = mailbox_client.preflight(existing_uids: [])
-        uidvalidity = preflight[:uidvalidity]
-        server_uids = Array(preflight[:to_fetch])
-        puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
-
-        # Handle only-preflight mode
-        if options[:only_preflight]
-          puts "Preflight complete. UIDs that would be archived:"
-          puts "Total UIDs on server: #{server_uids.size}"
-          if server_uids.empty?
-            puts "(no UIDs found)"
-          else
-            puts "UIDs: #{server_uids.join(", ")}"
+        # Handle only-ids mode - skip preflight and use specified UIDs
+        if options[:only_ids]
+          specified_uids = Array(options[:only_ids]).flat_map { |id_list| id_list.to_s.split(",") }.map(&:strip).map(&:to_i).reject(&:zero?)
+          if specified_uids.empty?
+            warn "error: --only-ids requires at least one valid UID"
+            exit 1
           end
-          return
+          
+          # Get UIDVALIDITY without full preflight
+          puts "Getting mailbox info for '#{mailbox}'..."
+          preflight = mailbox_client.preflight(existing_uids: [])
+          uidvalidity = preflight[:uidvalidity]
+          server_uids = specified_uids
+          puts "UIDVALIDITY=#{uidvalidity}, specified UIDs: #{specified_uids.join(", ")}"
+        else
+          puts "Preflighting mailbox '#{mailbox}' for archive..."
+          preflight = mailbox_client.preflight(existing_uids: [])
+          uidvalidity = preflight[:uidvalidity]
+          server_uids = Array(preflight[:to_fetch])
+          puts "UIDVALIDITY=#{uidvalidity}, server_size=#{preflight[:server_size]}"
+
+          # Handle only-preflight mode
+          if options[:only_preflight]
+            puts "Preflight complete. UIDs that would be archived:"
+            puts "Total UIDs on server: #{server_uids.size}"
+            if server_uids.empty?
+              puts "(no UIDs found)"
+            else
+              puts "UIDs: #{server_uids.join(", ")}"
+            end
+            return
+          end
         end
 
         # Determine which UIDs need archiving by checking for existing files
@@ -442,7 +463,25 @@ module NittyMail
         uv_dir = File.join(out_base, safe_address, safe_mailbox, uidvalidity.to_s)
         FileUtils.mkdir_p(uv_dir)
         existing = Dir.exist?(uv_dir) ? Dir.children(uv_dir).grep(/\.eml\z/).map { |f| f.sub(/\.eml\z/, "").to_i }.to_set : Set.new
-        to_archive = server_uids.reject { |u| existing.include?(u) }
+        
+        if options[:only_ids]
+          # For --only-ids mode, check for existing files and confirm overwrite
+          existing_files = server_uids.select { |u| existing.include?(u) }
+          if existing_files.any? && !options[:yes]
+            puts "The following UIDs already have .eml files:"
+            puts existing_files.join(", ")
+            answer = ask("Overwrite existing files? (y/N):")
+            unless answer.downcase == 'y'
+              puts "Archive cancelled."
+              return
+            end
+          end
+          to_archive = server_uids
+        else
+          # Normal mode: skip existing files
+          to_archive = server_uids.reject { |u| existing.include?(u) }
+        end
+        
         total_to_process = to_archive.size
         if total_to_process <= 0
           puts "Nothing to archive. Folder is up to date."
