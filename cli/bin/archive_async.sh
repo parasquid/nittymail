@@ -235,6 +235,11 @@ worker_process() {
             continue
         fi
 
+        # Update queue state for job moved to processing
+        local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
+        local current_workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json")
+        update_queue_state 0 0 $((current_processing + 1)) $((current_workers + 1))
+
         # Update job with worker info
         jq --arg pid "$$" --arg started "$(date -Iseconds)" \
            '.worker_pid = ($pid | tonumber) | .started_at = $started' \
@@ -252,6 +257,9 @@ worker_process() {
         # Check if job has been retried too many times
         if [ "$retry_count" -ge "$max_retries" ]; then
             echo "Worker $worker_id: Job $batch_id has failed $retry_count times, giving up"
+            # Update queue state for permanently failed job
+            local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
+            update_queue_state 0 0 $((current_processing - 1)) 0
             # Move to a failed directory for manual inspection
             mkdir -p "$QUEUE_DIR/failed"
             mv "$processing_file" "$QUEUE_DIR/failed/${batch_id}.job"
@@ -260,10 +268,17 @@ worker_process() {
             # Process the batch
             if process_batch "$uids" "$uidvalidity" "${mailbox_args[@]}"; then
                 debug "Worker $worker_id completed $batch_id"
+                # Update queue state for completed job
+                local current_completed=$(jq -r '.completed_batches' "$QUEUE_DIR/queue_state.json")
+                local current_completed_uids=$(jq -r '.completed_uids' "$QUEUE_DIR/queue_state.json")
+                update_queue_state $((current_completed + 1)) $((current_completed_uids + uid_count)) 0 0
                 # Delete completed job file
                 rm "$processing_file"
             else
                 debug "Worker $worker_id failed $batch_id (attempt $((retry_count + 1))/$max_retries)"
+                # Update queue state for failed job (back to pending)
+                local current_processing=$(jq -r '.processing_batches' "$QUEUE_DIR/queue_state.json")
+                update_queue_state 0 0 $((current_processing - 1)) 0
                 # Move back to pending for retry and increment retry count
                 jq '.retry_count += 1' "$processing_file" > "${QUEUE_DIR}/pending/${batch_id}.job.tmp" && \
                 mv "${QUEUE_DIR}/pending/${batch_id}.job.tmp" "$QUEUE_DIR/pending/${batch_id}.job" && \
@@ -272,6 +287,11 @@ worker_process() {
         fi
     done
 
+    # Update queue state when worker finishes
+    local current_workers=$(jq -r '.workers_active' "$QUEUE_DIR/queue_state.json")
+    if [ "$current_workers" -gt 0 ]; then
+        update_queue_state 0 0 0 $((current_workers - 1))
+    fi
     debug "Worker $worker_id finished"
 }
 
