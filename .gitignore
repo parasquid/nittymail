@@ -8,3 +8,4 @@ core/spec/cassettes/
 chroma-data
 archives
 archive_queue
+download_queue

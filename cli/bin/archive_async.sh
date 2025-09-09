@@ -86,7 +86,7 @@ update_queue_state() {
             break
         fi
         debug "Waiting for queue state lock (attempt $attempt/$max_attempts)"
-        sleep 0.1
+        sleep 1
         attempt=$((attempt + 1))
     done
 
